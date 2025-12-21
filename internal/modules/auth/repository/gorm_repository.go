@@ -186,3 +186,41 @@ func (r *pgAuthRepo) SeedDefaultRoles(ctx context.Context) error {
 		return nil
 	})
 }
+
+func (r *pgAuthRepo) GetRoleByName(ctx context.Context, name string) (*domain.Role, error) {
+	var role domain.Role
+	err := r.db.WithContext(ctx).
+		Preload("Permissions").
+		Where("name = ?", name).
+		First(&role).Error
+
+	if err != nil {
+		return nil, err
+	}
+	return &role, nil
+}
+
+func (r *pgAuthRepo) AddProjectMember(ctx context.Context, member *domain.ProjectMember) error {
+	return r.db.WithContext(ctx).Save(member).Error
+}
+
+func (r *pgAuthRepo) RemoveProjectMember(ctx context.Context, projectID uuid.UUID, userID uuid.UUID) error {
+	return r.db.WithContext(ctx).
+		Where("project_id = ? AND user_id = ?", projectID, userID).
+		Delete(&domain.ProjectMember{}).Error
+}
+
+func (r *pgAuthRepo) GetProjectMember(ctx context.Context, projectID uuid.UUID, userID uuid.UUID) (*domain.ProjectMember, error) {
+	var member domain.ProjectMember
+
+	err := r.db.WithContext(ctx).
+		Preload("Role.Permissions").
+		Preload("User").
+		Where("project_id = ? AND user_id = ?", projectID, userID).
+		First(&member).Error
+
+	if err != nil {
+		return nil, err
+	}
+	return &member, nil
+}

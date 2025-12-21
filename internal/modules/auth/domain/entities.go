@@ -20,6 +20,7 @@ type Project struct {
 
 type User struct {
 	ID           uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()"`
+	LoginID      *string   `gorm:"type:varchar(50)" json:"login_id"`
 	Email        string    `gorm:"uniqueIndex;not null"`
 	PasswordHash string    `gorm:"not null"`
 	FullName     string

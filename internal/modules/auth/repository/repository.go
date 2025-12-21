@@ -26,4 +26,9 @@ type AuthRepository interface {
 	ListUserAPIKeys(ctx context.Context, userID uuid.UUID) ([]domain.APIKey, error)
 	RevokeAPIKey(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) error
 	UpdateAPIKeyUsage(ctx context.Context, keyID uuid.UUID) error
+
+	GetRoleByName(ctx context.Context, name string) (*domain.Role, error)
+	AddProjectMember(ctx context.Context, member *domain.ProjectMember) error
+	RemoveProjectMember(ctx context.Context, projectID uuid.UUID, userID uuid.UUID) error
+	GetProjectMember(ctx context.Context, projectID uuid.UUID, userID uuid.UUID) (*domain.ProjectMember, error)
 }

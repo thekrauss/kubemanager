@@ -1,6 +1,5 @@
 package domain
 
-// Permissions
 const (
 	PermProjectView   = "project:view"
 	PermProjectEdit   = "project:edit"
@@ -17,3 +16,37 @@ const (
 	RoleDeveloper = "Developer"
 	RoleOwner     = "Owner"
 )
+
+func RoleHasPermission(roleName, permSlug string) bool {
+
+	switch roleName {
+	case RoleOwner:
+		return true
+
+	case RoleDeveloper:
+		allowed := []string{
+			PermProjectView,
+			PermProjectEdit,
+			PermWorkloadCreate,
+			PermLogsView,
+		}
+		for _, p := range allowed {
+			if p == permSlug {
+				return true
+			}
+		}
+
+	case RoleViewer:
+		allowed := []string{
+			PermProjectView,
+			PermLogsView,
+		}
+		for _, p := range allowed {
+			if p == permSlug {
+				return true
+			}
+		}
+	}
+
+	return false
+}
