@@ -1,0 +1,29 @@
+package repository
+
+import (
+	"context"
+
+	"github.com/google/uuid"
+	"github.com/thekrauss/kubemanager/internal/modules/auth/domain"
+)
+
+type AuthRepository interface {
+	CreateUser(ctx context.Context, user *domain.User) error
+	GetUserByEmail(ctx context.Context, email string) (*domain.User, error)
+	GetUserByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
+	UpdateUser(ctx context.Context, user *domain.User) error
+	SeedDefaultRoles(ctx context.Context) error
+
+	CreateSession(ctx context.Context, session *domain.UserSession) error
+	GetSessionByID(ctx context.Context, id uuid.UUID) (*domain.UserSession, error)
+	RevokeSession(ctx context.Context, id uuid.UUID) error
+	RevokeAllUserSessions(ctx context.Context, userID uuid.UUID) error
+
+	CheckProjectPermission(ctx context.Context, userID uuid.UUID, projectID uuid.UUID, permissionSlug string) (bool, error)
+
+	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
+	GetAPIKeyByPrefix(ctx context.Context, prefix string) (*domain.APIKey, error)
+	ListUserAPIKeys(ctx context.Context, userID uuid.UUID) ([]domain.APIKey, error)
+	RevokeAPIKey(ctx context.Context, keyID uuid.UUID, userID uuid.UUID) error
+	UpdateAPIKeyUsage(ctx context.Context, keyID uuid.UUID) error
+}
