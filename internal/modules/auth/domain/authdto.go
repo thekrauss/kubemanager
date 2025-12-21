@@ -1,17 +1,59 @@
 package domain
 
-type LoginRequest struct {
-	Email    string `json:"email" validate:"required,email"`
-	Password string `json:"password" validate:"required"`
+type AssignRoleRequest struct {
+	UserID    string `json:"user_id" validate:"required,uuid"`
+	ProjectID string `json:"project_id" validate:"required,uuid"`
+	RoleName  string `json:"role_name" validate:"required"`
 }
 
-type LoginResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	UserID       string `json:"user_id"`
-	ExpiresAt    string `json:"expires_at"`
+type CheckPermissionRequest struct {
+	UserID     string `json:"user_id" validate:"required,uuid"`
+	ProjectID  string `json:"project_id" validate:"required,uuid"`
+	Permission string `json:"permission" validate:"required"`
+}
+
+type PermissionsResponse struct {
+	Role        string   `json:"role"`
+	Permissions []string `json:"permissions"`
+}
+
+type MessageResponse struct {
+	Message string `json:"message"`
+}
+
+type LoginRequest struct {
+	Identifier string `json:"identifier" binding:"required"`
+	Password   string `json:"password" binding:"required"`
+}
+
+type LogoutRequest struct {
+	UserID       string `json:"-"`
+	RefreshToken string `json:"refresh_token" binding:"required"`
+	AccessToken  string `json:"-"`
 }
 
 type RefreshTokenRequest struct {
-	RefreshToken string `json:"refresh_token" validate:"required"`
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}
+
+type LoginResponse struct {
+	Token        string `json:"token"`
+	RefreshToken string `json:"refresh_token"`
+	UserID       string `json:"user_id"`
+	ExpiresAt    string `json:"expires_at"`
+	Message      string `json:"message"`
+}
+
+type RefreshTokenResponse struct {
+	Token           string `json:"token"`
+	RefreshToken    string `json:"refresh_token"`
+	AccessExpiresAt string `json:"access_expires_at"`
+}
+
+type TokenRequest struct {
+	Token string `json:"token" binding:"required"`
+}
+
+type TokenResponse struct {
+	Valid bool `json:"valid"`
 }

@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
 type Project struct {
@@ -85,18 +84,4 @@ type APIKey struct {
 	ExpiresAt  *time.Time
 
 	CreatedAt time.Time `gorm:"default:CURRENT_TIMESTAMP"`
-}
-
-func AutoMigrate(db *gorm.DB) error {
-	return db.AutoMigrate(
-		&Permission{},
-		&Role{},
-		&User{},
-		&Project{},
-
-		&UserSession{},
-		&APIKey{},
-
-		&ProjectMember{},
-	)
 }

@@ -31,4 +31,8 @@ type AuthRepository interface {
 	AddProjectMember(ctx context.Context, member *domain.ProjectMember) error
 	RemoveProjectMember(ctx context.Context, projectID uuid.UUID, userID uuid.UUID) error
 	GetProjectMember(ctx context.Context, projectID uuid.UUID, userID uuid.UUID) (*domain.ProjectMember, error)
+	GetUserProjectMemberships(ctx context.Context, userID uuid.UUID) ([]domain.ProjectMember, error)
+
+	FindRefreshTokenByJTI(ctx context.Context, jti uuid.UUID) (*domain.UserSession, error)
+	DeleteRefreshTokenByJTI(ctx context.Context, jti uuid.UUID) error
 }

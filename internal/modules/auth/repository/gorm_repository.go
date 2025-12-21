@@ -224,3 +224,36 @@ func (r *pgAuthRepo) GetProjectMember(ctx context.Context, projectID uuid.UUID, 
 	}
 	return &member, nil
 }
+
+func (r *pgAuthRepo) GetUserProjectMemberships(ctx context.Context, userID uuid.UUID) ([]domain.ProjectMember, error) {
+	var memberships []domain.ProjectMember
+	err := r.db.WithContext(ctx).
+		Preload("Role").
+		Where("user_id = ?", userID).
+		Find(&memberships).Error
+	return memberships, err
+}
+
+func (r *pgAuthRepo) FindRefreshTokenByJTI(ctx context.Context, jti uuid.UUID) (*domain.UserSession, error) {
+	var session domain.UserSession
+
+	err := r.db.WithContext(ctx).
+		Where("id = ? AND is_blocked = ?", jti, false).
+		Where("expires_at > ?", time.Now()).
+		First(&session).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &session, nil
+}
+
+func (r *pgAuthRepo) DeleteRefreshTokenByJTI(ctx context.Context, jti uuid.UUID) error {
+	return r.db.WithContext(ctx).
+		Model(&domain.UserSession{}).
+		Where("id = ?", jti).
+		Update("is_blocked", true).Error
+}

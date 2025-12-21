@@ -53,13 +53,13 @@ func (a *App) startHTTPServer() {
 	f := fizz.NewFromEngine(engine)
 
 	infos := &openapi.Info{
-		Title:       "SYK API",
-		Description: "API Service Scolarite",
+		Title:       "KUBE MANAGER API",
+		Description: "API K8s Manager",
 		Version:     "1.0.0",
 	}
 	_ = RegisterSchema(f, infos.Title, infos.Description, logrus.NewEntry(logrus.StandardLogger()))
 
-	//AddAllRoutes(a)
+	AddAllRoutes(a)
 
 	RegisterRoutes(f, mwManager)
 

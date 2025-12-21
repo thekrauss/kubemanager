@@ -1,0 +1,28 @@
+FROM golang:1.25 AS builder
+
+WORKDIR /app
+
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o kubemanager ./cmd/gateway/main.go
+
+FROM alpine:3.19
+
+COPY /internal/core/configs /root/configs
+
+RUN apk add --no-cache ca-certificates tzdata
+
+WORKDIR /app
+
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
+
+COPY --from=builder /app/kubemanager .
+
+EXPOSE 8080
+
+CMD ["./kubemanager"]

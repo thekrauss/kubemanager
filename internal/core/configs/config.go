@@ -1,7 +1,10 @@
 package configs
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/go-viper/mapstructure/v2"
@@ -117,16 +120,21 @@ func Load(path string) (*GlobalConfig, error) {
 		viper.SetConfigName("config")
 		viper.AddConfigPath("./internal/core/configs")
 		viper.AddConfigPath(".")
-		viper.AddConfigPath("..")
-		viper.AddConfigPath("./config")
+		viper.AddConfigPath("./configs")
 	}
+
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("erreur de chargement du fichier de configuration: %w", err)
-	}
 
-	// viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	// viper.AutomaticEnv()
+		var configFileNotFoundError viper.ConfigFileNotFoundError
+		if errors.As(err, &configFileNotFoundError) || os.IsNotExist(err) {
+			fmt.Println("fichier de config non trouvé, utilisation des variables d'environnement uniquement.")
+		} else {
+			return nil, fmt.Errorf("erreur fatale de lecture du fichier config: %w", err)
+		}
+	}
 
 	var config GlobalConfig
 	err := viper.Unmarshal(&config, viper.DecodeHook(
