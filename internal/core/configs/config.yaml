@@ -1,8 +1,8 @@
-service_name: "kubemanager" 
+service_name: "kubemanager-api" 
 project_id: "kubemanager-platform"
 
 logger:
-  level: "debug" 
+  level: "warn" #"debug" "info" "warn"
   encoding: "json" 
   stdout: true
 
@@ -16,7 +16,7 @@ server:
     
 database:
   driver: "postgres"
-  host: "postgres"      
+  host: "k8sdb"      
   port: 5432
   user: "kube_user"
   password: "ChangeMeInProd123!" 
@@ -28,11 +28,11 @@ database:
 redis:
   host: "redis" 
   port: 6379 
-  password: "" 
+  password: "ChangeMeInProd123!" 
   db: 0
 
 jwt:
-  secret: "super-secret-key-change-me"
+  secret: "super-secret-key"
   refresh_secret: "super-secret-refresh-key-change-me"
   access_expiration: 15m
   refresh_expiration: 720h 
@@ -55,3 +55,7 @@ frontend:
 
 roles:
   platform_admin: "superadmin"
+
+swagger:
+  user: "admin"
+  password: "password"

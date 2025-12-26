@@ -17,6 +17,7 @@ import (
 	"github.com/thekrauss/kubemanager/internal/middleware/security"
 	"github.com/wI2L/fizz"
 	"github.com/wI2L/fizz/openapi"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"google.golang.org/grpc"
 )
 
@@ -37,18 +38,18 @@ func (a *App) startHTTPServer() {
 	}))
 
 	engine.Use(gin.Recovery())
+
+	engine.Use(otelgin.Middleware(a.Config.ServiceName))
+
 	mwManager := security.NewMiddlewareManager(a.Config, a.JWTManager, a.Cache, a.Logger)
 	engine.Use(mwManager.AuthMiddleware())
 
-	/*
-		engine.Use(middleware.PrometheusMiddleware())
-		engine.GET("/metrics", gin.WrapH(metrics.MetricsHandler()))
-		engine.GET("/healthz", a.CheckHealth)
-		if a.Config.Security.EnableLocalJWTValidation && a.JWTVerifier == nil {
-			a.Logger.Fatal("JWT Verifier is nil but Local Validation is ENABLED. Check config.")
-		}
-		engine.Use(middleware.AuthMiddlewareSelector(a.Config, a.JWTVerifier, a.Cache, a.Logger))
-	*/
+	engine.GET("/api/v1/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "UP",
+			"service": a.Config.ServiceName,
+		})
+	})
 
 	f := fizz.NewFromEngine(engine)
 

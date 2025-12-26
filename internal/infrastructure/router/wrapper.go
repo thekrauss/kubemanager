@@ -14,9 +14,9 @@ import (
 	"github.com/wI2L/fizz/openapi"
 )
 
-const PathAPIRoot = "/scapi/v1"
+const PathAPIRoot = "/kmanager/v1"
 
-var RootGroup = NewRootGroup(PathAPIRoot, "API principale SCAPI")
+var RootGroup = NewRootGroup(PathAPIRoot, "API principale KUBEMANAGER")
 
 type Route struct {
 	Path        string

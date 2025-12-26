@@ -42,24 +42,13 @@ func (a *App) Run(ctx context.Context) error {
 		return err
 	}
 	defer a.TracerShutdown()
-	// defer a.TemporalClient.Close()
-	// defer a.WorkerService.Close()
 
 	if err := a.initDomainLayers(); err != nil {
 		a.Logger.Fatalw("domain init failed", "error", err)
 		return err
 	}
 
-	// go func() {
-	// 	if err := a.WorkerService.StartConsuming(context.Background()); err != nil {
-	// 		a.Logger.Errorw("Worker Service failed to start consuming", "error", err)
-	// 	}
-	// }()
-
-	//go a.startTemporalWorker()
-	//a.startHTTPServer()
-	//a.NotificationWorker.Start()
-	//go a.MailWorker.Start()
+	a.startHTTPServer()
 
 	gracefulShutdown(a.GRPCServer, a.HTTPServer, a.Config.Server.ShutdownTimeout)
 

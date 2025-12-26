@@ -164,7 +164,9 @@ func (r *pgAuthRepo) SeedDefaultRoles(ctx context.Context) error {
 			var permissions []domain.Permission
 			for _, slug := range permSlugs {
 				var perm domain.Permission
+
 				if err := tx.Where(domain.Permission{Slug: slug}).
+					Attrs(domain.Permission{ID: uuid.New()}).
 					FirstOrCreate(&perm).Error; err != nil {
 					return err
 				}
@@ -172,7 +174,9 @@ func (r *pgAuthRepo) SeedDefaultRoles(ctx context.Context) error {
 			}
 
 			var role domain.Role
+
 			if err := tx.Where(domain.Role{Name: roleName}).
+				Attrs(domain.Role{ID: uuid.New()}).
 				FirstOrCreate(&role).Error; err != nil {
 				return err
 			}

@@ -3,17 +3,16 @@ version: "3.9"
 services:
   k8sdb:
     image: postgres:15-alpine
-    container_name: kubemanager-db
     environment:
-      POSTGRES_USER: ${DB_USER:-kube_user}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-ChangeMeInProd123!}
-      POSTGRES_DB: ${DB_NAME:-kubemanager_db}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
       - k8sdbdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-kube_user} -d ${DB_NAME:-kubemanager_db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -23,14 +22,17 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: kubemanager-redis
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-ChangeMeInProd123!}"]
+    command: [
+      "redis-server",
+      "--appendonly", "yes",
+      "--requirepass", "${REDIS_PASSWORD}"
+    ]
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-ChangeMeInProd123!}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 6
@@ -40,29 +42,16 @@ services:
 
   kubemanager:
     build:
-      context: .               
+      context: .
       dockerfile: docker/Dockerfile
-    container_name: kubemanager-api
     ports:
       - "8080:8080"
-    volumes:
-      - ./configs:/app/configs  
+    env_file:
+      - .env
     environment:
-      SERVICE_NAME: "kubemanager-api"
-      DATABASE_HOST: k8sdb      
-      DATABASE_PORT: 5432
-      DATABASE_USER: ${DB_USER:-kube_user}
-      DATABASE_PASSWORD: ${DB_PASSWORD:-ChangeMeInProd123!}
-      DATABASE_NAME: ${DB_NAME:-kubemanager_db}
-      
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-ChangeMeInProd123!}
-      
-      JWT_SECRET: ${JWT_SECRET:-super-secret-key}
-      
-      TRACING_JAEGER_ENDPOINT: "jaeger:4317"
-
+      - GODEBUG=netdns=go
+    volumes:
+      - ./internal/core/configs:/app/internal/core/configs:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -74,45 +63,14 @@ services:
     networks:
       - backend
 
-  # prometheus: 
-  #   image: prom/prometheus:v3.4.2
-  #   container_name: prometheus
-  #   volumes:
-  #     - ./deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
-  #     - prometheus_data:/prometheus
-  #   command:
-  #     - '--config.file=/etc/prometheus/prometheus.yml'
-  #     - '--storage.tsdb.path=/prometheus'
-  #     - '--storage.tsdb.retention.time=200h'
-  #   restart: unless-stopped
-  #   ports:
-  #     - "9090:9090"
-  #   networks:
-      # - backend
-
-  # grafana:
-  #   image: grafana/grafana:12.0.2
-  #   container_name: grafana
-  #   volumes:
-  #     - grafana_data:/var/lib/grafana
-  #     - ./deploy/monitoring/grafana/provisioning:/etc/grafana/provisioning
-  #   environment:
-  #     - GF_SECURITY_ADMIN_USER=${ADMIN_USER:-admin}
-  #     - GF_SECURITY_ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
-  #   restart: unless-stopped
-  #   ports:
-  #     - "3000:3000"
-  #   networks:
-  #     - backend 
-
   jaeger:
     image: jaegertracing/all-in-one:1.50
-    container_name: jaeger
     environment:
-      - COLLECTOR_OTLP_ENABLED=true
+      COLLECTOR_OTLP_ENABLED: "true"
+      LOG_LEVEL: warn
     ports:
-      - "16686:16686" # UI
-      - "4317:4317"   # OTLP gRPC
+      - "16686:16686"
+      - "4319:4317"
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:16686"]
       interval: 5s
@@ -125,8 +83,6 @@ services:
 volumes:
   redisdata:
   k8sdbdata:
-  # prometheus_data:
-  # grafana_data:
 
 networks:
   backend:

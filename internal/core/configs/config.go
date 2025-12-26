@@ -1,13 +1,10 @@
 package configs
 
 import (
-	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
-	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/viper"
 	"github.com/thekrauss/beto-shared/pkg/logger"
 )
@@ -120,31 +117,20 @@ func Load(path string) (*GlobalConfig, error) {
 		viper.SetConfigName("config")
 		viper.AddConfigPath("./internal/core/configs")
 		viper.AddConfigPath(".")
-		viper.AddConfigPath("./configs")
+		viper.AddConfigPath("..")
+		viper.AddConfigPath("./config")
 	}
 
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	if err := viper.ReadInConfig(); err != nil {
-
-		var configFileNotFoundError viper.ConfigFileNotFoundError
-		if errors.As(err, &configFileNotFoundError) || os.IsNotExist(err) {
-			fmt.Println("fichier de config non trouvé, utilisation des variables d'environnement uniquement.")
-		} else {
-			return nil, fmt.Errorf("erreur fatale de lecture du fichier config: %w", err)
-		}
+		return nil, fmt.Errorf("erreur de chargement du fichier de configuration: %w", err)
 	}
 
 	var config GlobalConfig
-	err := viper.Unmarshal(&config, viper.DecodeHook(
-		mapstructure.ComposeDecodeHookFunc(
-			mapstructure.StringToTimeDurationHookFunc(),
-			mapstructure.StringToSliceHookFunc(","),
-		),
-	))
-	if err != nil {
-		return nil, fmt.Errorf("configuration file parsing error: %w", err)
+	if err := viper.Unmarshal(&config); err != nil {
+		return nil, fmt.Errorf("erreur d'analyse du fichier de configuration: %w", err)
 	}
 
 	AppConfig = config

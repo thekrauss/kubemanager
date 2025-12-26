@@ -5,15 +5,17 @@ import (
 	"fmt"
 	"time"
 
+	sharedDB "github.com/thekrauss/beto-shared/pkg/db"
+	"github.com/thekrauss/beto-shared/pkg/logger"
+
 	"github.com/redis/go-redis/v9"
+	"github.com/thekrauss/beto-shared/pkg/errors"
 	"github.com/thekrauss/beto-shared/pkg/tracing"
 	cache "github.com/thekrauss/kubemanager/internal/infrastructure/cache"
+	"github.com/thekrauss/kubemanager/internal/infrastructure/database"
 	"github.com/thekrauss/kubemanager/internal/middleware/security"
-	dauth "github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 
 	"github.com/thekrauss/kubemanager/internal/modules/auth/repository"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
 )
 
 func (a *App) initDependencies() error {
@@ -55,28 +57,32 @@ func (a *App) initTracing(ctx context.Context) error {
 }
 
 func (a *App) initDatabase() error {
-	cfg := a.Config.Database
-	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%d sslmode=%s TimeZone=UTC",
-		cfg.Host, cfg.User, cfg.Password, cfg.Name, cfg.Port, cfg.SSLMode)
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	cfg := *a.Config
+	log := logger.L()
+
+	dbCfg := sharedDB.Config{
+		Driver:   cfg.Database.Driver,
+		Host:     cfg.Database.Host,
+		Port:     cfg.Database.Port,
+		User:     cfg.Database.User,
+		Password: cfg.Database.Password,
+		Name:     cfg.Database.Name,
+		SSLMode:  cfg.Database.SSLMode,
+		LogLevel: "warn",
+	}
+
+	migrationsPath := "./migrations"
+	gormDB, err := database.InitDatabase(dbCfg, migrationsPath)
 	if err != nil {
-		return fmt.Errorf("failed to connect to database: %w", err)
+		return errors.Wrap(err, errors.CodeDBError, "database initialization failed")
 	}
-
-	sqlDB, _ := db.DB()
-	sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
-	sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
-
-	if err := db.AutoMigrate(
-		&dauth.Permission{}, &dauth.Role{}, &dauth.User{},
-		&dauth.Project{}, &dauth.UserSession{}, &dauth.APIKey{},
-		&dauth.ProjectMember{},
-	); err != nil {
-		return fmt.Errorf("migration failed: %w", err)
-	}
-
-	a.DB = db
+	a.DB = gormDB
+	log.Infow("Database connected",
+		"driver", cfg.Database.Driver,
+		"host", cfg.Database.Host,
+		"name", cfg.Database.Name,
+	)
 	return nil
 }
 

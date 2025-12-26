@@ -40,9 +40,13 @@ func (m *MiddlewareManager) AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 
 		publicPaths := []string{
-			"/docs", "/metrics", "/healthz",
-			"/api/v1/auth/login", "/api/v1/auth/refresh",
+			"/swagger", "/swagger/", "/swagger/index.html", "/swagger/doc.json",
+			"/swagger/swagger-ui.css", "/swagger/swagger-ui-bundle.js",
+			"/swagger/swagger-ui-standalone-preset.js", "/swagger/favicon",
+			"/docs", "/docs/", "/openapi.json", "/healthz", "/metrics",
+			"/api/v1/health", "/kmanager/v1/auth/login", "/api/v1/auth/refresh",
 		}
+
 		path := c.Request.URL.Path
 		for _, p := range publicPaths {
 			if strings.HasPrefix(path, p) {

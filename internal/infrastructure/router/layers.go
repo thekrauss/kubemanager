@@ -1,29 +1,23 @@
 package router
 
-import "github.com/thekrauss/kubemanager/internal/modules/auth/repository"
+import (
+	"github.com/thekrauss/kubemanager/internal/middleware/security"
+	authCtrl "github.com/thekrauss/kubemanager/internal/modules/auth"
+	"github.com/thekrauss/kubemanager/internal/modules/auth/repository"
+	authSvc "github.com/thekrauss/kubemanager/internal/modules/auth/service"
+)
 
 func (a *App) initDomainLayers() error {
 	a.Logger.Info("Initializing domain layers...")
 
+	hasher := &security.ConcretePasswordHasher{}
 	authRepo := repository.NewAuthRepository(a.DB)
-	authUsecase := authUsecase.NewAuthUsecase(
-		authRepo,
-		a.JWTManager,
-		a.Cache,
-		a.Logger,
-	)
+	authService := authSvc.NewAuthService(a.Config, authRepo, a.JWTManager, a.Cache, a.Logger, hasher)
+	authController := authCtrl.NewAuthController(authService)
+	a.Services = &ServiceContainer{Auth: authService}
 
-	// Si tu as besoin d'instrumentation (metrics) comme dans ton exemple :
-	// instrumentedAuthUsecase := authUsecase.NewAuthMetricMiddleware(authUsecase)
-
-	// 3. ROUTES / CONTROLLERS (Niveau Transport/API)
-	authRoutes := auth.NewAuthRoutes(authUsecase)
-	// projectRoutes := projects.NewRoutes(projectUsecase)
-
-	// 4. MAPPING DES CONTROLLERS DANS L'APP
-	// On remplit la struct Controllers que tu as définie
 	a.Controllers = &ControllerContainer{
-		AuthRoutes: authRoutes,
+		Auth: authController,
 	}
 
 	a.Logger.Info("All domain layers initialized.")
