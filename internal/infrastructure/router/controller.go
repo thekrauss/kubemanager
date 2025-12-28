@@ -25,4 +25,5 @@ type ControllerContainer struct {
 func AddAllRoutes(a *App) {
 	addAuthRoutes(a)
 	addRBACRoutes(a)
+	addAPIKeyRoutes(a)
 }

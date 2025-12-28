@@ -1,3 +1,5 @@
 *.md
 .env
 .yaml
+cmd/worker
+cmd/trigger

@@ -7,8 +7,10 @@ import (
 	"github.com/thekrauss/beto-shared/pkg/logger"
 	"github.com/thekrauss/kubemanager/internal/core/cache"
 	"github.com/thekrauss/kubemanager/internal/core/configs"
+	"github.com/thekrauss/kubemanager/internal/infrastructure/temporal"
 	"github.com/thekrauss/kubemanager/internal/middleware/security"
 	"go.opencensus.io/trace"
+	"go.temporal.io/sdk/client"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"gorm.io/gorm"
@@ -19,9 +21,10 @@ type App struct {
 	DB     *gorm.DB
 	Logger *zap.SugaredLogger
 
-	JWTManager security.JWTManager
-	GRPCServer *grpc.Server
-	HTTPServer *http.Server
+	JWTManager     security.JWTManager
+	GRPCServer     *grpc.Server
+	HTTPServer     *http.Server
+	TemporalClient client.Client
 
 	MiddlewareManager *security.MiddlewareManager
 	Cache             cache.CacheRedis
@@ -45,12 +48,13 @@ func (a *App) Run(ctx context.Context) error {
 		return err
 	}
 	defer a.TracerShutdown()
+	defer a.TemporalClient.Close()
 
 	if err := a.initDomainLayers(); err != nil {
 		a.Logger.Fatalw("domain init failed", "error", err)
 		return err
 	}
-
+	temporal.StartWorker(a.TemporalClient, a.Config, a.Logger)
 	a.startHTTPServer()
 
 	gracefulShutdown(a.GRPCServer, a.HTTPServer, a.Config.Server.ShutdownTimeout)

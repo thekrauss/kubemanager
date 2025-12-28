@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_DB: ${DB_NAME} 
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -40,6 +40,36 @@ services:
     networks:
       - backend
 
+  temporal:
+    image: temporalio/auto-setup:latest
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PWD=${DB_PASSWORD}
+      - POSTGRES_SEEDS=k8sdb
+      # - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development_sql.yaml
+    ports:
+      - "7233:7233" 
+    depends_on:
+      k8sdb:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: on-failure
+
+  temporal-ui:
+    image: temporalio/ui:latest
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+    ports:
+      - "8233:8080" 
+    depends_on:
+      - temporal
+    networks:
+      - backend
+
   kubemanager:
     build:
       context: .
@@ -59,6 +89,8 @@ services:
         condition: service_healthy
       jaeger:
         condition: service_healthy
+      temporal: 
+        condition: service_started
     restart: always
     networks:
       - backend

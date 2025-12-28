@@ -10,6 +10,7 @@ import (
 	"github.com/thekrauss/beto-shared/pkg/errors"
 	"github.com/thekrauss/beto-shared/pkg/logger"
 	"github.com/thekrauss/beto-shared/pkg/tracing"
+	"go.temporal.io/sdk/client"
 
 	"github.com/thekrauss/kubemanager/internal/core/cache"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/database"
@@ -30,6 +31,10 @@ func (a *App) initDependencies() error {
 	}
 
 	if err := a.initCache(ctx); err != nil {
+		return err
+	}
+
+	if err := a.initTemporalClient(); err != nil {
 		return err
 	}
 
@@ -124,5 +129,23 @@ func (a *App) initDomain(ctx context.Context) error {
 		a.Logger.Errorw("Seeding roles failed", "error", err)
 	}
 
+	return nil
+}
+
+func (a *App) initTemporalClient() error {
+	a.Logger.Info("Connecting to Temporal Server...")
+
+	opts := client.Options{
+		HostPort:  a.Config.Temporal.Host,
+		Namespace: a.Config.Temporal.Namespace,
+	}
+
+	c, err := client.Dial(opts)
+	if err != nil {
+		return fmt.Errorf("unable to create temporal client: %w", err)
+	}
+
+	a.TemporalClient = c
+	a.Logger.Info("Connected to Temporal successfully")
 	return nil
 }
