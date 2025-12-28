@@ -22,6 +22,77 @@ func NewRBACService(repo repository.AuthRepository, logger *zap.SugaredLogger) *
 	}
 }
 
+func (s *RBACService) ListAllRoles(ctx context.Context) ([]domain.RoleDTO, error) {
+	roles, err := s.Repo.ListRoles(ctx)
+	if err != nil {
+		return nil, betoerrors.Wrap(err, betoerrors.CodeInternal, "failed to list roles")
+	}
+
+	var result []domain.RoleDTO
+	for _, r := range roles {
+		perms := make([]string, len(r.Permissions))
+		for i, p := range r.Permissions {
+			perms[i] = p.Slug
+		}
+		result = append(result, domain.RoleDTO{
+			ID:          r.ID.String(),
+			Name:        r.Name,
+			Permissions: perms,
+		})
+	}
+	return result, nil
+}
+
+func (s *RBACService) ListProjectMembers(ctx context.Context, projectIDStr string) ([]domain.ProjectMemberDTO, error) {
+	pID, err := uuid.Parse(projectIDStr)
+	if err != nil {
+		return nil, betoerrors.New(betoerrors.CodeInvalidInput, "invalid project id")
+	}
+
+	members, err := s.Repo.ListProjectMembers(ctx, pID)
+	if err != nil {
+		return nil, betoerrors.Wrap(err, betoerrors.CodeInternal, "failed to fetch members")
+	}
+
+	var result []domain.ProjectMemberDTO
+	for _, m := range members {
+		result = append(result, domain.ProjectMemberDTO{
+			UserID:    m.UserID.String(),
+			Email:     m.User.Email,
+			FullName:  m.User.FullName,
+			AvatarURL: m.User.AvatarURL,
+			RoleName:  m.Role.Name,
+			JoinedAt:  m.JoinedAt.Format("2006-01-02"),
+		})
+	}
+
+	return result, nil
+}
+
+func (s *RBACService) RevokeProjectAccess(ctx context.Context, projectIDStr, userIDStr string) error {
+	pID, err := uuid.Parse(projectIDStr)
+	if err != nil {
+		return betoerrors.New(betoerrors.CodeInvalidInput, "invalid project id")
+	}
+	uID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		return betoerrors.New(betoerrors.CodeInvalidInput, "invalid user id")
+	}
+
+	_, err = s.Repo.GetProjectMember(ctx, pID, uID)
+	if err != nil {
+		return betoerrors.New(betoerrors.CodeNotFound, "member not found in this project")
+	}
+
+	if err := s.Repo.RemoveProjectMember(ctx, pID, uID); err != nil {
+		s.Logger.Errorw("failed to revoke access", "project", pID, "user", uID, "error", err)
+		return betoerrors.Wrap(err, betoerrors.CodeInternal, "failed to remove member")
+	}
+
+	s.Logger.Infow("Project access revoked", "project", pID, "user", uID)
+	return nil
+}
+
 func (s *RBACService) AssignProjectRole(ctx context.Context, req *domain.AssignRoleRequest) error {
 	uID, err := uuid.Parse(req.UserID)
 	if err != nil {

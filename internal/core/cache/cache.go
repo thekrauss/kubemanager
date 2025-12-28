@@ -21,9 +21,14 @@ const (
 	KeyLoginLock     = "login:lock:"
 	KeyBlacklist     = "blacklist:"
 	KeyResetToken    = "reset_token:"
+	KeyUser          = "user:"
 )
 
 type CacheRedis interface {
+	SetUser(ctx context.Context, key string, value interface{}, ttl time.Duration) error
+	GetUser(ctx context.Context, key string, dest interface{}) error
+	DeleteUser(ctx context.Context, key string) error
+
 	IncrementLoginAttempts(ctx context.Context, userID string, duration time.Duration) (int64, error)
 	BlockUser(ctx context.Context, userID string, duration time.Duration) error
 	IsUserBlocked(ctx context.Context, userID string) (bool, error)
@@ -65,6 +70,19 @@ func NewcacheRedis(client *redis.Client, logger *zap.SugaredLogger) *cacheRedis 
 		Client: client,
 		Logger: logger.With("component", "cacheRedis"),
 	}
+}
+
+func (r *cacheRedis) SetUser(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
+	return r.setJSON(ctx, key, value, ttl)
+}
+
+func (r *cacheRedis) GetUser(ctx context.Context, key string, dest interface{}) error {
+	return r.getJSON(ctx, key, dest)
+}
+
+// Implémentation de Delete (utilise ton helper privé delete)
+func (r *cacheRedis) DeleteUser(ctx context.Context, key string) error {
+	return r.delete(ctx, key)
 }
 
 func (r *cacheRedis) getKey(prefix, id string) string {

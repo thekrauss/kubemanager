@@ -14,7 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 	"github.com/thekrauss/beto-shared/pkg/redis"
-	"github.com/thekrauss/kubemanager/internal/middleware/security"
 	"github.com/wI2L/fizz"
 	"github.com/wI2L/fizz/openapi"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
@@ -41,8 +40,7 @@ func (a *App) startHTTPServer() {
 
 	engine.Use(otelgin.Middleware(a.Config.ServiceName))
 
-	mwManager := security.NewMiddlewareManager(a.Config, a.JWTManager, a.Cache, a.Logger)
-	engine.Use(mwManager.AuthMiddleware())
+	engine.Use(a.MiddlewareManager.AuthMiddleware())
 
 	engine.GET("/api/v1/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -62,7 +60,7 @@ func (a *App) startHTTPServer() {
 
 	AddAllRoutes(a)
 
-	RegisterRoutes(f, mwManager)
+	RegisterRoutes(f, a.MiddlewareManager)
 
 	addr := fmt.Sprintf(":%d", a.Config.Server.HTTPPort)
 	a.HTTPServer = &http.Server{Addr: addr, Handler: engine}

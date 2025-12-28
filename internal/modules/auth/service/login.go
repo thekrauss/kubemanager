@@ -6,8 +6,8 @@ import (
 
 	"github.com/google/uuid"
 	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
+	"github.com/thekrauss/kubemanager/internal/core/cache"
 	"github.com/thekrauss/kubemanager/internal/core/configs"
-	"github.com/thekrauss/kubemanager/internal/infrastructure/cache"
 	"github.com/thekrauss/kubemanager/internal/middleware/security"
 
 	"github.com/thekrauss/kubemanager/internal/modules/auth/domain"

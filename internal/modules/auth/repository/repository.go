@@ -12,7 +12,11 @@ type AuthRepository interface {
 	GetUserByEmail(ctx context.Context, email string) (*domain.User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
 	UpdateUser(ctx context.Context, user *domain.User) error
+	UpdatePassword(ctx context.Context, userID uuid.UUID, hash string) error
+
 	SeedDefaultRoles(ctx context.Context) error
+	ListRoles(ctx context.Context) ([]domain.Role, error)
+	ListProjectMembers(ctx context.Context, projectID uuid.UUID) ([]domain.ProjectMember, error)
 
 	CreateSession(ctx context.Context, session *domain.UserSession) error
 	GetSessionByID(ctx context.Context, id uuid.UUID) (*domain.UserSession, error)

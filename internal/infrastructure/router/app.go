@@ -4,30 +4,33 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/thekrauss/beto-shared/pkg/logger"
+	"github.com/thekrauss/kubemanager/internal/core/cache"
+	"github.com/thekrauss/kubemanager/internal/core/configs"
+	"github.com/thekrauss/kubemanager/internal/middleware/security"
 	"go.opencensus.io/trace"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"gorm.io/gorm"
-
-	"github.com/thekrauss/beto-shared/pkg/logger"
-	"github.com/thekrauss/kubemanager/internal/core/configs"
-	"github.com/thekrauss/kubemanager/internal/infrastructure/cache"
-	"github.com/thekrauss/kubemanager/internal/middleware/security"
 )
 
 type App struct {
-	Config            *configs.GlobalConfig
-	JWTManager        security.JWTManager
-	DB                *gorm.DB
-	Logger            *zap.SugaredLogger
-	GRPCServer        *grpc.Server
-	HTTPServer        *http.Server
+	Config *configs.GlobalConfig
+	DB     *gorm.DB
+	Logger *zap.SugaredLogger
+
+	JWTManager security.JWTManager
+	GRPCServer *grpc.Server
+	HTTPServer *http.Server
+
 	MiddlewareManager *security.MiddlewareManager
 	Cache             cache.CacheRedis
-	Tracer            trace.Tracer
 	TracerShutdown    func()
-	Services          *ServiceContainer
-	Controllers       *ControllerContainer
+	Tracer            trace.Tracer
+
+	Repos       *RepositoryContainer
+	Services    *ServiceContainer
+	Controllers *ControllerContainer
 }
 
 func NewApp(cfg *configs.GlobalConfig) *App {

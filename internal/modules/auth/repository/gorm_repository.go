@@ -261,3 +261,40 @@ func (r *pgAuthRepo) DeleteRefreshTokenByJTI(ctx context.Context, jti uuid.UUID)
 		Where("id = ?", jti).
 		Update("is_blocked", true).Error
 }
+
+func (r *pgAuthRepo) UpdatePassword(ctx context.Context, userID uuid.UUID, hash string) error {
+
+	result := r.db.WithContext(ctx).
+		Model(&domain.User{}).
+		Where("id = ?", userID).
+		Updates(map[string]interface{}{
+			"password_hash": hash,
+			"updated_at":    time.Now(),
+		})
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return errors.New("user not found")
+	}
+
+	return nil
+}
+
+func (r *pgAuthRepo) ListRoles(ctx context.Context) ([]domain.Role, error) {
+	var roles []domain.Role
+	err := r.db.WithContext(ctx).Preload("Permissions").Find(&roles).Error
+	return roles, err
+}
+
+func (r *pgAuthRepo) ListProjectMembers(ctx context.Context, projectID uuid.UUID) ([]domain.ProjectMember, error) {
+	var members []domain.ProjectMember
+	err := r.db.WithContext(ctx).
+		Preload("User").
+		Preload("Role").
+		Where("project_id = ?", projectID).
+		Find(&members).Error
+	return members, err
+}

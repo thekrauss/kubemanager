@@ -5,16 +5,15 @@ import (
 	"fmt"
 	"time"
 
-	sharedDB "github.com/thekrauss/beto-shared/pkg/db"
-	"github.com/thekrauss/beto-shared/pkg/logger"
-
 	"github.com/redis/go-redis/v9"
+	sharedDB "github.com/thekrauss/beto-shared/pkg/db"
 	"github.com/thekrauss/beto-shared/pkg/errors"
+	"github.com/thekrauss/beto-shared/pkg/logger"
 	"github.com/thekrauss/beto-shared/pkg/tracing"
-	cache "github.com/thekrauss/kubemanager/internal/infrastructure/cache"
+
+	"github.com/thekrauss/kubemanager/internal/core/cache"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/database"
 	"github.com/thekrauss/kubemanager/internal/middleware/security"
-
 	"github.com/thekrauss/kubemanager/internal/modules/auth/repository"
 )
 
@@ -34,6 +33,7 @@ func (a *App) initDependencies() error {
 		return err
 	}
 
+	a.initRepositories()
 	a.initSecurity()
 
 	if err := a.initDomain(ctx); err != nil {
@@ -69,7 +69,7 @@ func (a *App) initDatabase() error {
 		Password: cfg.Database.Password,
 		Name:     cfg.Database.Name,
 		SSLMode:  cfg.Database.SSLMode,
-		LogLevel: "warn",
+		LogLevel: a.Config.Logger.Level,
 	}
 
 	migrationsPath := "./migrations"
@@ -102,7 +102,16 @@ func (a *App) initCache(ctx context.Context) error {
 
 func (a *App) initSecurity() {
 	a.JWTManager = security.NewJWTManager(&a.Config.JWT, a.Config.ServiceName)
-	a.MiddlewareManager = security.NewMiddlewareManager(a.Config, a.JWTManager, a.Cache, a.Logger)
+	a.MiddlewareManager = security.NewMiddlewareManager(a.Config, a.JWTManager, a.Cache, a.Logger, a.Repos.Auth)
+}
+
+func (a *App) initRepositories() {
+	a.Logger.Info("Initializing repositories...")
+	authRepo := repository.NewAuthRepository(a.DB)
+
+	a.Repos = &RepositoryContainer{
+		Auth: authRepo,
+	}
 }
 
 func (a *App) initDomain(ctx context.Context) error {

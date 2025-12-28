@@ -57,3 +57,18 @@ type TokenRequest struct {
 type TokenResponse struct {
 	Valid bool `json:"valid"`
 }
+
+type RoleDTO struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Permissions []string `json:"permissions"`
+}
+
+type ProjectMemberDTO struct {
+	UserID    string `json:"user_id"`
+	Email     string `json:"email"`
+	FullName  string `json:"full_name"`
+	AvatarURL string `json:"avatar_url"`
+	RoleName  string `json:"role_name"`
+	JoinedAt  string `json:"joined_at"`
+}
