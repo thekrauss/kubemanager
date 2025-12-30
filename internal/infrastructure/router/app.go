@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"gorm.io/gorm"
+	"k8s.io/client-go/kubernetes"
 )
 
 type App struct {
@@ -25,6 +26,7 @@ type App struct {
 	GRPCServer     *grpc.Server
 	HTTPServer     *http.Server
 	TemporalClient client.Client
+	K8sClient      *kubernetes.Clientset
 
 	MiddlewareManager *security.MiddlewareManager
 	Cache             cache.CacheRedis
@@ -54,7 +56,7 @@ func (a *App) Run(ctx context.Context) error {
 		a.Logger.Fatalw("domain init failed", "error", err)
 		return err
 	}
-	temporal.StartWorker(a.TemporalClient, a.Config, a.Logger)
+	temporal.StartWorker(a.TemporalClient, a.Config, a.Logger, a.K8sClient, a.DB)
 	a.startHTTPServer()
 
 	gracefulShutdown(a.GRPCServer, a.HTTPServer, a.Config.Server.ShutdownTimeout)

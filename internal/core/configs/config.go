@@ -10,21 +10,22 @@ import (
 )
 
 type GlobalConfig struct {
-	ServiceName string         `mapstructure:"service_name"`
-	ProjectID   string         `mapstructure:"project_id"`
-	Logger      logger.Config  `mapstructure:"logger"`
-	Server      ServerConfig   `mapstructure:"server"`
-	Database    DBConfig       `mapstructure:"database"`
-	Redis       RedisConfig    `mapstructure:"redis"`
-	RabbitMQ    RabbitConfig   `mapstructure:"rabbitmq"`
-	Metrics     MetricsConfig  `mapstructure:"metrics"`
-	Tracing     TracingConfig  `mapstructure:"tracing"`
-	Temporal    TemporalConfig `mapstructure:"temporal"`
-	Mail        MailConfig     `mapstructure:"mail"`
-	Swagger     SwaggerConfig  `mapstructure:"swagger"`
-	JWT         JWTConfig      `mapstructure:"jwt"`
-	Frontend    FrontendConfig `mapstructure:"frontend"`
-	Roles       RolesConfig    `mapstructure:"roles"`
+	ServiceName string           `mapstructure:"service_name"`
+	ProjectID   string           `mapstructure:"project_id"`
+	Logger      logger.Config    `mapstructure:"logger"`
+	Server      ServerConfig     `mapstructure:"server"`
+	Database    DBConfig         `mapstructure:"database"`
+	Redis       RedisConfig      `mapstructure:"redis"`
+	RabbitMQ    RabbitConfig     `mapstructure:"rabbitmq"`
+	Metrics     MetricsConfig    `mapstructure:"metrics"`
+	Tracing     TracingConfig    `mapstructure:"tracing"`
+	Temporal    TemporalConfig   `mapstructure:"temporal"`
+	Mail        MailConfig       `mapstructure:"mail"`
+	Swagger     SwaggerConfig    `mapstructure:"swagger"`
+	JWT         JWTConfig        `mapstructure:"jwt"`
+	Frontend    FrontendConfig   `mapstructure:"frontend"`
+	Roles       RolesConfig      `mapstructure:"roles"`
+	Kubernetes  KubernetesConfig `mapstructure:"kubernetes"`
 }
 
 type JWTConfig struct {
@@ -103,6 +104,10 @@ type FrontendConfig struct {
 
 type RolesConfig struct {
 	PlatformAdmin string `mapstructure:"platform_admin"`
+}
+
+type KubernetesConfig struct {
+	KubeConfigPath string `mapstructure:"kubeconfig_path"`
 }
 
 var AppConfig GlobalConfig

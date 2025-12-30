@@ -11,7 +11,9 @@ type Project struct {
 	Name        string    `gorm:"unique;not null"`
 	Description string
 
-	Members []ProjectMember `gorm:"foreignKey:ProjectID;constraint:OnDelete:CASCADE;"`
+	Members      []ProjectMember `gorm:"foreignKey:ProjectID;constraint:OnDelete:CASCADE;"`
+	Status       string          `gorm:"default:'PENDING'"`
+	CurrentPhase string          `gorm:"default:'DB_INITIALIZING'"`
 
 	CreatedAt time.Time
 	UpdatedAt time.Time

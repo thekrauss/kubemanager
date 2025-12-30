@@ -11,6 +11,10 @@ import (
 	"github.com/thekrauss/beto-shared/pkg/logger"
 	"github.com/thekrauss/beto-shared/pkg/tracing"
 	"go.temporal.io/sdk/client"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+
+	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/thekrauss/kubemanager/internal/core/cache"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/database"
@@ -36,6 +40,11 @@ func (a *App) initDependencies() error {
 
 	if err := a.initTemporalClient(); err != nil {
 		return err
+	}
+
+	if err := a.initKubernetes(); err != nil {
+		return err
+
 	}
 
 	a.initRepositories()
@@ -147,5 +156,43 @@ func (a *App) initTemporalClient() error {
 
 	a.TemporalClient = c
 	a.Logger.Info("Connected to Temporal successfully")
+	return nil
+}
+
+func (a *App) initKubernetes() error {
+	a.Logger.Info("Connecting to Kubernetes Cluster...")
+
+	var config *rest.Config
+	var err error
+
+	kubeConfigPath := a.Config.Kubernetes.KubeConfigPath
+
+	if kubeConfigPath != "" {
+		config, err = clientcmd.BuildConfigFromFlags("", kubeConfigPath)
+		if err != nil {
+			return fmt.Errorf("failed to load kubeconfig from %s: %w", kubeConfigPath, err)
+		}
+		a.Logger.Infof("Loaded KubeConfig from: %s", kubeConfigPath)
+	} else {
+		config, err = rest.InClusterConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load in-cluster config: %w", err)
+		}
+		a.Logger.Info("Loaded In-Cluster KubeConfig")
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("failed to create k8s clientset: %w", err)
+	}
+
+	serverVersion, err := clientset.Discovery().ServerVersion()
+	if err != nil {
+		a.Logger.Warnw("Failed to ping K8s server (check connectivity)", "error", err)
+	} else {
+		a.Logger.Infow("Connected to Kubernetes", "version", serverVersion.String())
+	}
+
+	a.K8sClient = clientset
 	return nil
 }
