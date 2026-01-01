@@ -73,13 +73,18 @@ func (a *App) startHTTPServer() {
 	}()
 }
 
-func gracefulShutdown(grpcServer *grpc.Server, httpServer *http.Server, shutdownTimeout time.Duration) {
+func (a *App) gracefulShutdown(grpcServer *grpc.Server, httpServer *http.Server, shutdownTimeout time.Duration) {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
 	<-stop
 	log.Println("shutting down servers...")
+
+	if a.TemporalWorker != nil {
+		a.TemporalWorker.Stop()
+		log.Println("Temporal worker stopped")
+	}
 
 	if grpcServer != nil {
 		stopped := make(chan struct{})

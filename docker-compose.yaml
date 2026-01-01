@@ -82,6 +82,7 @@ services:
       - GODEBUG=netdns=go
     volumes:
       - ./internal/core/configs:/app/internal/core/configs:ro
+      - ./k3s-config.yaml:/app/k3s-config.yaml:ro
     depends_on:
       redis:
         condition: service_healthy

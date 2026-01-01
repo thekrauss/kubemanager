@@ -23,11 +23,19 @@ type ProjectService struct {
 	K8sClient      *kubernetes.Clientset
 }
 
-func NewProjectService(tc client.Client, cfg *configs.GlobalConfig, log *zap.SugaredLogger) *ProjectService {
+func NewProjectService(
+	tc client.Client,
+	cfg *configs.GlobalConfig,
+	log *zap.SugaredLogger,
+	repo repository.ProjectRepository,
+	k8s *kubernetes.Clientset,
+) *ProjectService {
 	return &ProjectService{
 		TemporalClient: tc,
 		Config:         cfg,
 		Logger:         log.With("service", "ProjectService"),
+		Repos:          repo,
+		K8sClient:      k8s,
 	}
 }
 

@@ -13,7 +13,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-func StartWorker(c client.Client, cfg *configs.GlobalConfig, logger *zap.SugaredLogger, k8s *kubernetes.Clientset, db *gorm.DB) {
+func StartWorker(c client.Client, cfg *configs.GlobalConfig, logger *zap.SugaredLogger, k8s *kubernetes.Clientset, db *gorm.DB) worker.Worker {
 
 	w := worker.New(c, cfg.Temporal.TaskQueue, worker.Options{})
 
@@ -38,4 +38,6 @@ func StartWorker(c client.Client, cfg *configs.GlobalConfig, logger *zap.Sugared
 			logger.Fatalw("Unable to start worker", "error", err)
 		}
 	}()
+
+	return w
 }

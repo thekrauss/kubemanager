@@ -48,7 +48,7 @@ func (m *MiddlewareManager) AuthMiddleware() gin.HandlerFunc {
 			"/swagger/swagger-ui.css", "/swagger/swagger-ui-bundle.js",
 			"/swagger/swagger-ui-standalone-preset.js", "/swagger/favicon",
 			"/docs", "/docs/", "/openapi.json", "/healthz", "/metrics",
-			"/api/v1/health", "/kmanager/v1/auth/login", "/api/v1/auth/refresh",
+			"/api/v1/health", "/kmanager/v1/auth/login", "/api/v1/auth/refresh", "/kmanager/v1/auth/register",
 		}
 
 		path := c.Request.URL.Path
@@ -58,6 +58,8 @@ func (m *MiddlewareManager) AuthMiddleware() gin.HandlerFunc {
 				return
 			}
 		}
+
+		m.Logger.Debugw("Access check", "path", path, "is_public", publicPaths)
 
 		authHeader := c.GetHeader("Authorization")
 
