@@ -6,8 +6,9 @@ import (
 	"log"
 
 	"github.com/google/uuid"
-	"github.com/thekrauss/kubemanager/internal/infrastructure/workflows/ping"
 	"go.temporal.io/sdk/client"
+
+	"github.com/thekrauss/kubemanager/internal/infrastructure/workflows/ping"
 )
 
 func main() {

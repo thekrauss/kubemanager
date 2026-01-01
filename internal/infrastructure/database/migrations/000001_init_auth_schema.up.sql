@@ -68,8 +68,12 @@ CREATE TABLE role_permissions (
 
 CREATE TABLE projects (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(100) NOT NULL, 
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    name VARCHAR(100) NOT NULL UNIQUE, 
+    description TEXT,                  
+    status VARCHAR(50) DEFAULT 'PENDING',        
+    current_phase VARCHAR(100) DEFAULT 'DB_INITIALIZING', 
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE project_members (

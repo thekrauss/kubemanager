@@ -3,6 +3,7 @@ package controller
 import (
 	"github.com/gin-gonic/gin"
 	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
+
 	"github.com/thekrauss/kubemanager/internal/modules/auth/service"
 )
 

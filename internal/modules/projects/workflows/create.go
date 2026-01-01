@@ -46,6 +46,11 @@ func CreateProjectWorkflow(ctx workflow.Context, input CreateProjectInput) (Proj
 	}
 	ctx = workflow.WithActivityOptions(ctx, options)
 
+	localOptions := workflow.LocalActivityOptions{
+		StartToCloseTimeout: 5 * time.Second,
+	}
+	ctx = workflow.WithLocalActivityOptions(ctx, localOptions)
+
 	var a *ProjectActivities
 	var dbRes dauth.Project
 	var result ProjectResult
@@ -54,13 +59,12 @@ func CreateProjectWorkflow(ctx workflow.Context, input CreateProjectInput) (Proj
 	if err != nil {
 		return result, err
 	}
-
 	result.ProjectID = dbRes.ID.String()
 
 	err = workflow.ExecuteActivity(ctx, a.CreateNamespace, result.ProjectID, input.Name).Get(ctx, nil)
 	if err != nil {
-		compensateOptions := workflow.ActivityOptions{StartToCloseTimeout: 1 * time.Minute}
-		ctxComp := workflow.WithActivityOptions(ctx, compensateOptions)
+		compensateOptions := workflow.LocalActivityOptions{StartToCloseTimeout: 1 * time.Minute}
+		ctxComp := workflow.WithLocalActivityOptions(ctx, compensateOptions)
 
 		_ = workflow.ExecuteLocalActivity(ctxComp, a.DeleteProjectDBActivity, result.ProjectID).Get(ctx, nil)
 		return result, fmt.Errorf("failed to provision k8s namespace, rolled back: %w", err)
@@ -69,5 +73,4 @@ func CreateProjectWorkflow(ctx workflow.Context, input CreateProjectInput) (Proj
 	result.Status = utils.ProjectStatusReady
 	result.Namespace = fmt.Sprintf("km-%s", input.Name)
 	return result, nil
-
 }

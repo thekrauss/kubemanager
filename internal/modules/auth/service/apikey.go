@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
+
 	"github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/auth/repository"
 	"github.com/thekrauss/kubemanager/internal/modules/utils"
@@ -35,6 +37,16 @@ type APIKeyCreatedResponse struct {
 func (s *APIKeyService) CreateAPIKey(ctx context.Context, input CreateAPIKeyInput) (*APIKeyCreatedResponse, error) {
 	uID, _ := uuid.Parse(input.UserID)
 
+	var validScopes []domain.PermissionType
+
+	for _, scopeStr := range input.Scopes {
+		perm, err := domain.PermissionTypes.NewFromString(ctx, scopeStr)
+		if err != nil {
+			return nil, betoerrors.Wrap(err, betoerrors.CodeDBNotFound, fmt.Sprintf("invalid scope provided: %s", scopeStr))
+		}
+		validScopes = append(validScopes, perm)
+	}
+
 	rawKey, err := utils.GenerateSecureKey("k8m", 32)
 	if err != nil {
 		return nil, betoerrors.New(betoerrors.CodeInternal, "failed to generate key")
@@ -48,7 +60,7 @@ func (s *APIKeyService) CreateAPIKey(ctx context.Context, input CreateAPIKeyInpu
 		Name:    input.Name,
 		Prefix:  dbPrefix,
 		KeyHash: keyHash,
-		Scopes:  input.Scopes,
+		Scopes:  validScopes,
 	}
 
 	if err := s.Repo.CreateAPIKey(ctx, apiKey); err != nil {

@@ -7,8 +7,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	"gorm.io/gorm"
+
+	"github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 )
 
 type pgAuthRepo struct {
@@ -137,35 +138,36 @@ func (r *pgAuthRepo) UpdateAPIKeyUsage(ctx context.Context, keyID uuid.UUID) err
 }
 
 func (r *pgAuthRepo) SeedDefaultRoles(ctx context.Context) error {
-	roleSpecs := map[string][]string{
-		domain.RoleViewer: {
-			domain.PermProjectView,
-			domain.PermLogsView,
+	roleSpecs := map[domain.RoleType][]domain.PermissionType{
+		domain.RoleTypes.Viewer: {
+			domain.PermissionTypes.ProjectView,
+			domain.PermissionTypes.LogsView,
 		},
-		domain.RoleDeveloper: {
-			domain.PermProjectView,
-			domain.PermProjectEdit,
-			domain.PermWorkloadCreate,
-			domain.PermLogsView,
+		domain.RoleTypes.Developer: {
+			domain.PermissionTypes.ProjectView,
+			domain.PermissionTypes.ProjectEdit,
+			domain.PermissionTypes.WorkloadCreate,
+			domain.PermissionTypes.LogsView,
 		},
-		domain.RoleOwner: {
-			domain.PermProjectView,
-			domain.PermProjectEdit,
-			domain.PermProjectDelete,
-			domain.PermWorkloadCreate,
-			domain.PermWorkloadDelete,
-			domain.PermLogsView,
-			domain.PermShellExec,
+		domain.RoleTypes.Owner: {
+			domain.PermissionTypes.ProjectView,
+			domain.PermissionTypes.ProjectEdit,
+			domain.PermissionTypes.ProjectDelete,
+			domain.PermissionTypes.WorkloadCreate,
+			domain.PermissionTypes.WorkloadDelete,
+			domain.PermissionTypes.LogsView,
+			domain.PermissionTypes.ShellExec,
 		},
 	}
 
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		for roleName, permSlugs := range roleSpecs {
+		for roleEnum, permEnums := range roleSpecs {
 			var permissions []domain.Permission
-			for _, slug := range permSlugs {
+
+			for _, permEnum := range permEnums {
 				var perm domain.Permission
 
-				if err := tx.Where(domain.Permission{Slug: slug}).
+				if err := tx.Where(domain.Permission{Slug: permEnum}).
 					Attrs(domain.Permission{ID: uuid.New()}).
 					FirstOrCreate(&perm).Error; err != nil {
 					return err
@@ -174,8 +176,7 @@ func (r *pgAuthRepo) SeedDefaultRoles(ctx context.Context) error {
 			}
 
 			var role domain.Role
-
-			if err := tx.Where(domain.Role{Name: roleName}).
+			if err := tx.Where(domain.Role{Name: roleEnum.String()}).
 				Attrs(domain.Role{ID: uuid.New()}).
 				FirstOrCreate(&role).Error; err != nil {
 				return err
@@ -185,7 +186,7 @@ func (r *pgAuthRepo) SeedDefaultRoles(ctx context.Context) error {
 				return err
 			}
 
-			log.Printf("Seeded Role: %s with %d permissions", roleName, len(permissions))
+			log.Printf("Seeded Role: %s with %d permissions", roleEnum.String(), len(permissions))
 		}
 		return nil
 	})

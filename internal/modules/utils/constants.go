@@ -1,6 +1,5 @@
 package utils
 
-// --- Project Status (Machine State) ---
 const (
 	ProjectStatusPending      = "PENDING"
 	ProjectStatusProvisioning = "PROVISIONING"
@@ -29,6 +28,13 @@ const (
 	WorkloadDegraded = "DEGRADED"
 	WorkloadFailed   = "FAILED"
 	WorkloadScaling  = "SCALING"
+)
+
+const (
+	PhaseHelmChartLoading      = "HELM_CHART_LOADING"
+	PhaseHelmValuesInjecting   = "HELM_VALUES_INJECTING"
+	PhaseHelmReleaseInstalling = "HELM_INSTALLING"
+	PhaseHelmReleaseSuccess    = "HELM_SUCCESS"
 )
 
 const (

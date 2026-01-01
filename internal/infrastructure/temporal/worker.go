@@ -1,19 +1,20 @@
 package temporal
 
 import (
-	"github.com/thekrauss/kubemanager/internal/core/configs"
-	"github.com/thekrauss/kubemanager/internal/infrastructure/workflows/ping"
-	"github.com/thekrauss/kubemanager/internal/modules/projects/activities"
-	"github.com/thekrauss/kubemanager/internal/modules/projects/repository"
-	"github.com/thekrauss/kubemanager/internal/modules/projects/workflows"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/thekrauss/kubemanager/internal/core/configs"
+	"github.com/thekrauss/kubemanager/internal/infrastructure/workflows/ping"
+	"github.com/thekrauss/kubemanager/internal/modules/projects/activities"
+	"github.com/thekrauss/kubemanager/internal/modules/projects/repository"
+	"github.com/thekrauss/kubemanager/internal/modules/projects/workflows"
 )
 
-func StartWorker(c client.Client, cfg *configs.GlobalConfig, logger *zap.SugaredLogger, k8s *kubernetes.Clientset, db *gorm.DB) {
+func StartWorker(c client.Client, cfg *configs.GlobalConfig, logger *zap.SugaredLogger, k8s *kubernetes.Clientset, db *gorm.DB) worker.Worker {
 
 	w := worker.New(c, cfg.Temporal.TaskQueue, worker.Options{})
 
@@ -38,4 +39,6 @@ func StartWorker(c client.Client, cfg *configs.GlobalConfig, logger *zap.Sugared
 			logger.Fatalw("Unable to start worker", "error", err)
 		}
 	}()
+
+	return w
 }

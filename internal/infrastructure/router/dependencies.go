@@ -19,7 +19,9 @@ import (
 	"github.com/thekrauss/kubemanager/internal/core/cache"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/database"
 	"github.com/thekrauss/kubemanager/internal/middleware/security"
+	authdomain "github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/auth/repository"
+	wkldomain "github.com/thekrauss/kubemanager/internal/modules/workloads/domain"
 )
 
 func (a *App) initDependencies() error {
@@ -92,6 +94,21 @@ func (a *App) initDatabase() error {
 		return errors.Wrap(err, errors.CodeDBError, "database initialization failed")
 	}
 	a.DB = gormDB
+
+	a.Logger.Info("Running Auto-Migration...")
+	err = a.DB.AutoMigrate(
+		&authdomain.User{},
+		&authdomain.Project{},
+		&authdomain.UserSession{},
+		&authdomain.ProjectMember{},
+		&authdomain.Role{},
+		&authdomain.Permission{},
+		&authdomain.APIKey{},
+		&wkldomain.Workload{},
+	)
+	if err != nil {
+		return fmt.Errorf("auto-migration failed: %w", err)
+	}
 	log.Infow("Database connected",
 		"driver", cfg.Database.Driver,
 		"host", cfg.Database.Host,

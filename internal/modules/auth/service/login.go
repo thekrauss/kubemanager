@@ -6,13 +6,15 @@ import (
 
 	"github.com/google/uuid"
 	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
+
 	"github.com/thekrauss/kubemanager/internal/core/cache"
 	"github.com/thekrauss/kubemanager/internal/core/configs"
 	"github.com/thekrauss/kubemanager/internal/middleware/security"
 
+	"go.uber.org/zap"
+
 	"github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/auth/repository"
-	"go.uber.org/zap"
 )
 
 type AuthService struct {
@@ -81,7 +83,7 @@ func (s *AuthService) Login(ctx context.Context, req *domain.LoginRequest) (*dom
 
 	accessToken, err := s.JWT.GenerateAccessToken(
 		user.ID.String(),
-		user.Role,
+		user.Role.String(),
 		s.Config.JWT.AccessExpiration,
 	)
 	if err != nil {
@@ -93,7 +95,7 @@ func (s *AuthService) Login(ctx context.Context, req *domain.LoginRequest) (*dom
 	session := cache.SessionData{
 		UserID:       user.ID.String(),
 		Email:        user.Email,
-		GlobalRole:   user.Role,
+		GlobalRole:   user.Role.String(),
 		ProjectRoles: projectRolesMap,
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
@@ -173,7 +175,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, req *domain.RefreshToken
 
 	newAccessToken, err := s.JWT.GenerateAccessToken(
 		user.ID.String(),
-		user.Role,
+		user.Role.String(),
 		s.Config.JWT.AccessExpiration,
 	)
 	if err != nil {
@@ -184,7 +186,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, req *domain.RefreshToken
 	session := cache.SessionData{
 		UserID:       user.ID.String(),
 		Email:        user.Email,
-		GlobalRole:   user.Role,
+		GlobalRole:   user.Role.String(),
 		ProjectRoles: projectRolesMap,
 		AccessToken:  newAccessToken,
 		RefreshToken: req.RefreshToken,

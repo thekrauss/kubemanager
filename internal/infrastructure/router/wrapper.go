@@ -8,10 +8,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/robertbakker/swaggerui"
 	"github.com/sirupsen/logrus"
-	"github.com/thekrauss/kubemanager/internal/core/configs"
-	"github.com/thekrauss/kubemanager/internal/middleware/security"
 	"github.com/wI2L/fizz"
 	"github.com/wI2L/fizz/openapi"
+
+	"github.com/thekrauss/kubemanager/internal/core/configs"
+	"github.com/thekrauss/kubemanager/internal/middleware/security"
 )
 
 const PathAPIRoot = "/kmanager/v1"

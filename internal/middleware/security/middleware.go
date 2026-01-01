@@ -10,11 +10,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+
 	"github.com/thekrauss/kubemanager/internal/core/cache"
 	"github.com/thekrauss/kubemanager/internal/core/configs"
 	"github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	authRepos "github.com/thekrauss/kubemanager/internal/modules/auth/repository"
-	"go.uber.org/zap"
 )
 
 const (
@@ -48,7 +49,7 @@ func (m *MiddlewareManager) AuthMiddleware() gin.HandlerFunc {
 			"/swagger/swagger-ui.css", "/swagger/swagger-ui-bundle.js",
 			"/swagger/swagger-ui-standalone-preset.js", "/swagger/favicon",
 			"/docs", "/docs/", "/openapi.json", "/healthz", "/metrics",
-			"/api/v1/health", "/kmanager/v1/auth/login", "/api/v1/auth/refresh",
+			"/api/v1/health", "/kmanager/v1/auth/login", "/api/v1/auth/refresh", "/kmanager/v1/auth/register",
 		}
 
 		path := c.Request.URL.Path
@@ -58,6 +59,8 @@ func (m *MiddlewareManager) AuthMiddleware() gin.HandlerFunc {
 				return
 			}
 		}
+
+		m.Logger.Debugw("Access check", "path", path, "is_public", publicPaths)
 
 		authHeader := c.GetHeader("Authorization")
 
@@ -197,7 +200,7 @@ func (m *MiddlewareManager) handleAPIKeyAuth(c *gin.Context, rawKey string) {
 	virtualSession := &cache.SessionData{
 		UserID:       user.ID.String(),
 		Email:        user.Email,
-		GlobalRole:   user.Role,
+		GlobalRole:   user.Role.String(),
 		ProjectRoles: projectRoles,
 	}
 

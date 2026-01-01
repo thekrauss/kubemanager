@@ -7,24 +7,36 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/thekrauss/beto-shared/pkg/errors"
+	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
+
 	"github.com/thekrauss/kubemanager/internal/core/cache"
 	"github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 )
 
-func (s *AuthService) CreateUser(ctx context.Context, d *domain.User) (*domain.User, error) {
-	existing, _ := s.AuthRepo.GetUserByEmail(ctx, d.Email)
-	if existing != nil {
-		return nil, errors.New(errors.CodeConflict, " User with this email already exists")
+func (s *AuthService) CreateUser(ctx context.Context, req *domain.RegisterRequest) (*domain.User, error) {
 
+	existing, _ := s.AuthRepo.GetUserByEmail(ctx, req.Email)
+	if existing != nil {
+		return nil, betoerrors.New(betoerrors.CodeConflict, "User with this email already exists")
+	}
+	hashedPassword, err := s.Hasher.HashPassword(req.Password)
+	if err != nil {
+		return nil, betoerrors.New(betoerrors.CodeInternal, "failed to hash password")
 	}
 
-	newUser := d
+	newUser := &domain.User{
+		Email:        req.Email,
+		PasswordHash: hashedPassword,
+		FullName:     req.FullName,
+		Role:         domain.RoleTypes.User,
+		IsActive:     true,
+	}
+
 	if err := s.AuthRepo.CreateUser(ctx, newUser); err != nil {
 		return nil, err
 	}
 
 	cacheKey := fmt.Sprintf("%s%s%s", cache.ServiceKeyPrefix, cache.KeyUser, newUser.ID)
-
 	_ = s.Cache.SetUser(ctx, cacheKey, newUser, time.Hour)
 
 	return newUser, nil

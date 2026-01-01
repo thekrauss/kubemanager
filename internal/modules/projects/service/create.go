@@ -4,13 +4,14 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
+	"k8s.io/client-go/kubernetes"
+
 	"github.com/thekrauss/kubemanager/internal/core/configs"
 	"github.com/thekrauss/kubemanager/internal/modules/projects/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/projects/repository"
 	"github.com/thekrauss/kubemanager/internal/modules/projects/workflows"
 	"github.com/thekrauss/kubemanager/internal/modules/utils"
-	"go.uber.org/zap"
-	"k8s.io/client-go/kubernetes"
 
 	"go.temporal.io/sdk/client"
 )
@@ -23,11 +24,19 @@ type ProjectService struct {
 	K8sClient      *kubernetes.Clientset
 }
 
-func NewProjectService(tc client.Client, cfg *configs.GlobalConfig, log *zap.SugaredLogger) *ProjectService {
+func NewProjectService(
+	tc client.Client,
+	cfg *configs.GlobalConfig,
+	log *zap.SugaredLogger,
+	repo repository.ProjectRepository,
+	k8s *kubernetes.Clientset,
+) *ProjectService {
 	return &ProjectService{
 		TemporalClient: tc,
 		Config:         cfg,
 		Logger:         log.With("service", "ProjectService"),
+		Repos:          repo,
+		K8sClient:      k8s,
 	}
 }
 

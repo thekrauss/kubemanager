@@ -5,9 +5,10 @@ import (
 
 	"github.com/google/uuid"
 	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
+	"go.uber.org/zap"
+
 	"github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/auth/repository"
-	"go.uber.org/zap"
 )
 
 type RBACService struct {
@@ -32,7 +33,7 @@ func (s *RBACService) ListAllRoles(ctx context.Context) ([]domain.RoleDTO, error
 	for _, r := range roles {
 		perms := make([]string, len(r.Permissions))
 		for i, p := range r.Permissions {
-			perms[i] = p.Slug
+			perms[i] = p.Slug.String()
 		}
 		result = append(result, domain.RoleDTO{
 			ID:          r.ID.String(),
@@ -145,7 +146,7 @@ func (s *RBACService) GetUserProjectPermissions(ctx context.Context, projectIDSt
 
 	permSlugs := make([]string, len(member.Role.Permissions))
 	for i, p := range member.Role.Permissions {
-		permSlugs[i] = p.Slug
+		permSlugs[i] = p.Slug.String()
 	}
 
 	return &domain.PermissionsResponse{

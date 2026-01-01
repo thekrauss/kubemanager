@@ -4,9 +4,10 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
+
 	"github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	dauth "github.com/thekrauss/kubemanager/internal/modules/auth/domain"
-	"gorm.io/gorm"
 )
 
 type ProjectRepository interface {

@@ -1,0 +1,36 @@
+{
+  "Package": "domain",
+  "Enums": [
+    {
+      "Name": "RoleType",
+      "Plural": "RoleTypes",
+      "Values": {
+        "OWNER": "Owner",
+        "DEVELOPER": "Developer",
+        "VIEWER": "Viewer",
+        "USER": "User"
+      },
+      "AllowUnknown": false,
+      "DBSerializer": true,
+      "JSONSerializer": true,
+      "Filename": "role_enum.go"
+    },
+    {
+      "Name": "PermissionType",
+      "Plural": "PermissionTypes",
+      "Values": {
+        "project:view": "ProjectView",
+        "project:edit": "ProjectEdit",
+        "project:delete": "ProjectDelete",
+        "k8s:workload:create": "WorkloadCreate",
+        "k8s:workload:delete": "WorkloadDelete",
+        "k8s:logs:view": "LogsView",
+        "k8s:shell:exec": "ShellExec"
+      },
+      "AllowUnknown": false,
+      "DBSerializer": true,
+      "JSONSerializer": true,
+      "Filename": "permission_enum.go"
+    }
+  ]
+}

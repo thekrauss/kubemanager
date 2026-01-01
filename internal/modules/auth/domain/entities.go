@@ -26,9 +26,11 @@ type User struct {
 	PasswordHash string    `gorm:"not null"`
 	FullName     string
 	AvatarURL    string
-	Role         string `gorm:"default:'user'"`
-	IsActive     bool   `gorm:"default:true"`
-	IsVerified   bool   `gorm:"default:false"`
+
+	Role RoleType `gorm:"default:'USER'"`
+
+	IsActive   bool `gorm:"default:true"`
+	IsVerified bool `gorm:"default:false"`
 
 	Sessions    []UserSession   `gorm:"foreignKey:UserID"`
 	APIKeys     []APIKey        `gorm:"foreignKey:UserID"`
@@ -56,8 +58,8 @@ type Role struct {
 }
 
 type Permission struct {
-	ID   uuid.UUID `gorm:"type:uuid;primary_key"`
-	Slug string    `gorm:"unique"` //"project:create"
+	ID   uuid.UUID      `gorm:"type:uuid;primary_key"`
+	Slug PermissionType `gorm:"unique"`
 }
 
 type ProjectMember struct {
@@ -72,6 +74,7 @@ type ProjectMember struct {
 
 	JoinedAt time.Time
 }
+
 type APIKey struct {
 	ID     uuid.UUID `gorm:"type:uuid;primary_key;default:uuid_generate_v4()"`
 	UserID uuid.UUID `gorm:"not null"`
@@ -80,7 +83,7 @@ type APIKey struct {
 	Prefix  string `gorm:"type:varchar(10);not null;index"`
 	KeyHash string `gorm:"type:varchar(255);not null"`
 
-	Scopes []string `gorm:"type:jsonb;serializer:json"`
+	Scopes []PermissionType `gorm:"type:jsonb;serializer:json"`
 
 	LastUsedAt *time.Time
 	ExpiresAt  *time.Time

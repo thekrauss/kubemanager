@@ -3,9 +3,10 @@ package main
 import (
 	"log"
 
-	"github.com/thekrauss/kubemanager/internal/infrastructure/workflows/ping"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
+
+	"github.com/thekrauss/kubemanager/internal/infrastructure/workflows/ping"
 )
 
 func main() {

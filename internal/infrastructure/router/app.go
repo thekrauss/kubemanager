@@ -5,16 +5,18 @@ import (
 	"net/http"
 
 	"github.com/thekrauss/beto-shared/pkg/logger"
-	"github.com/thekrauss/kubemanager/internal/core/cache"
-	"github.com/thekrauss/kubemanager/internal/core/configs"
-	"github.com/thekrauss/kubemanager/internal/infrastructure/temporal"
-	"github.com/thekrauss/kubemanager/internal/middleware/security"
 	"go.opencensus.io/trace"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/worker"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"gorm.io/gorm"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/thekrauss/kubemanager/internal/core/cache"
+	"github.com/thekrauss/kubemanager/internal/core/configs"
+	"github.com/thekrauss/kubemanager/internal/infrastructure/temporal"
+	"github.com/thekrauss/kubemanager/internal/middleware/security"
 )
 
 type App struct {
@@ -26,6 +28,7 @@ type App struct {
 	GRPCServer     *grpc.Server
 	HTTPServer     *http.Server
 	TemporalClient client.Client
+	TemporalWorker worker.Worker
 	K8sClient      *kubernetes.Clientset
 
 	MiddlewareManager *security.MiddlewareManager
@@ -56,10 +59,10 @@ func (a *App) Run(ctx context.Context) error {
 		a.Logger.Fatalw("domain init failed", "error", err)
 		return err
 	}
-	temporal.StartWorker(a.TemporalClient, a.Config, a.Logger, a.K8sClient, a.DB)
+	a.TemporalWorker = temporal.StartWorker(a.TemporalClient, a.Config, a.Logger, a.K8sClient, a.DB)
 	a.startHTTPServer()
 
-	gracefulShutdown(a.GRPCServer, a.HTTPServer, a.Config.Server.ShutdownTimeout)
+	a.gracefulShutdown(a.GRPCServer, a.HTTPServer, a.Config.Server.ShutdownTimeout)
 
 	a.Logger.Infow("Application stopped gracefully")
 	return nil

@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/thekrauss/beto-shared/pkg/errors"
+
 	"github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/auth/service"
 )
@@ -37,13 +38,18 @@ type ForgotPasswordInput struct {
 	Email string `json:"email" binding:"required,email"`
 }
 
-func (ctrl *AuthController) Register(c *gin.Context, in *domain.User) (*domain.User, error) {
+func (ctrl *AuthController) Register(c *gin.Context, in *domain.RegisterRequest) (*domain.RegisterResponse, error) {
 	user, err := ctrl.AuthService.CreateUser(c.Request.Context(), in)
 	if err != nil {
 		return nil, err
 	}
-	user.PasswordHash = ""
-	return user, nil
+
+	return &domain.RegisterResponse{
+		ID:        user.ID.String(),
+		Email:     user.Email,
+		FullName:  user.FullName,
+		CreatedAt: user.CreatedAt,
+	}, nil
 }
 
 func (ctrl *AuthController) Logout(c *gin.Context, in *domain.LogoutRequest) error {

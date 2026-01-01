@@ -9,8 +9,9 @@ import (
 var (
 	AuthGroup = RootGroup.NewGroup("/auth", "Gestion de l'authentification et des tokens")
 
-	RBACGroup    = RootGroup.NewGroup("/rbac", "Gestion des rôles et permissions")
-	ProjectGroup = RootGroup.NewGroup("/projects", "Gestion des projets et membres")
+	RBACGroup = RootGroup.NewGroup("/rbac", "Configuration globale des rôles")
+
+	ProjectGroup = RootGroup.NewGroup("/projects", "Gestion des projets et de leurs membres")
 
 	APIKeyGroup = RootGroup.NewGroup("/users/api-keys", "Gestion des clés API utilisateur")
 )
@@ -31,9 +32,9 @@ func addRBACRoutes(app *App) {
 	r := app.Controllers.RBAC
 
 	RBACGroup.AddRoute("/roles", http.MethodGet, "Lister tous les rôles disponibles", tonic.Handler(r.ListAllRoles, http.StatusOK))
-	ProjectGroup.AddRoute("/assign-role", http.MethodPost, "Assigner un rôle à un utilisateur", tonic.Handler(r.AssignRole, http.StatusOK))
-	ProjectGroup.AddRoute("/:projectID/members", http.MethodGet, "Lister les membres d'un projet", tonic.Handler(r.ListProjectMembers, http.StatusOK))
-	ProjectGroup.AddRoute("/:projectID/members/:userID", http.MethodDelete, "Révoquer l'accès d'un membre", tonic.Handler(r.RevokeProjectAccess, http.StatusOK))
+	RBACGroup.AddRoute("/assign-role", http.MethodPost, "Assigner un rôle à un utilisateur", tonic.Handler(r.AssignRole, http.StatusOK))
+	RBACGroup.AddRoute("/:projectID/members", http.MethodGet, "Lister les membres d'un projet", tonic.Handler(r.ListProjectMembers, http.StatusOK))
+	RBACGroup.AddRoute("/:projectID/members/:userID", http.MethodDelete, "Révoquer l'accès d'un membre", tonic.Handler(r.RevokeProjectAccess, http.StatusOK))
 }
 
 func addAPIKeyRoutes(app *App) {
@@ -42,4 +43,10 @@ func addAPIKeyRoutes(app *App) {
 	APIKeyGroup.AddRoute("", http.MethodGet, "Lister les clés API", tonic.Handler(ctrl.ListKeys, http.StatusOK))
 	APIKeyGroup.AddRoute("", http.MethodPost, "Créer une nouvelle clé API", tonic.Handler(ctrl.CreateKey, http.StatusCreated))
 	APIKeyGroup.AddRoute("/:id", http.MethodDelete, "Révoquer une clé API", tonic.Handler(ctrl.RevokeKey, http.StatusOK))
+}
+
+func addProjectRoutes(app *App) {
+	r := app.Controllers.Project
+	ProjectGroup.AddRoute("", http.MethodPost, "Créer un projet", tonic.Handler(r.CreateProject, http.StatusCreated))
+	ProjectGroup.AddRoute("/:id/status", http.MethodGet, "Récupérer le statut détaillé d'un projet", tonic.Handler(r.GetProjectStatus, http.StatusOK))
 }
