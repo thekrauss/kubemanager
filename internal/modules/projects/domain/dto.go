@@ -30,3 +30,15 @@ type NamespaceStatus struct {
 	Exists bool   `json:"exists"`
 	Phase  string `json:"phase"`
 }
+
+type NamespaceMetrics struct {
+	CPUUsage      string   `json:"cpu_usage_actual"`    // Le réel (mClient)
+	MemoryUsage   string   `json:"memory_usage_actual"` // Le réel (mClient)
+	ReservedUsage UsageDTO `json:"reserved_usage"`      // Le provisionné (DB)
+}
+
+type UsageDTO struct {
+	CPU     string `json:"cpu"`
+	Memory  string `json:"memory"`
+	Storage string `json:"storage"`
+}

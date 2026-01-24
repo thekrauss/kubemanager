@@ -1,0 +1,7 @@
+# helm/charts/standard-app/Chart.yaml
+apiVersion: v2
+name: standard-app
+description: Un template universel pour les workloads Kubemanager
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

@@ -10,6 +10,6 @@ build-tools:
 .PHONY: gen-enums
 gen-enums: build-tools
 	@echo "Generating Enums..."
-	@# Lance l'outil à la racine (.)
+	@# the tool at the root (.)
 	@$(ENUMGEN_BINARY)
 	@echo "Enums generated successfully!"

@@ -16,13 +16,20 @@ import (
 	"github.com/thekrauss/beto-shared/pkg/redis"
 	"github.com/wI2L/fizz"
 	"github.com/wI2L/fizz/openapi"
+	ginprometheus "github.com/zsais/go-gin-prometheus"
+
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 )
 
 func (a *App) startHTTPServer() {
 
 	engine := gin.New()
+
+	p := ginprometheus.NewPrometheus("gin")
+	p.MetricsPath = "/metrics"
+	p.Use(engine)
 
 	origins := a.Config.Server.AllowedOrigins
 	if len(origins) == 0 {
@@ -39,6 +46,15 @@ func (a *App) startHTTPServer() {
 	engine.Use(gin.Recovery())
 
 	engine.Use(otelgin.Middleware(a.Config.ServiceName))
+	engine.Use(func(c *gin.Context) {
+		span := trace.SpanFromContext(c.Request.Context())
+		if span.SpanContext().IsValid() {
+			traceID := span.SpanContext().TraceID().String()
+			c.Set("trace_id", traceID)
+			a.Logger = a.Logger.With("trace_id", traceID)
+		}
+		c.Next()
+	})
 
 	engine.Use(a.MiddlewareManager.AuthMiddleware())
 

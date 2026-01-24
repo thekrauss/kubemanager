@@ -26,6 +26,7 @@ type GlobalConfig struct {
 	Frontend    FrontendConfig   `mapstructure:"frontend"`
 	Roles       RolesConfig      `mapstructure:"roles"`
 	Kubernetes  KubernetesConfig `mapstructure:"kubernetes"`
+	Vps         Vps              `mapstructure:"vps"`
 }
 
 type JWTConfig struct {
@@ -96,6 +97,10 @@ type MetricsConfig struct {
 type TracingConfig struct {
 	Exporter       string `mapstructure:"exporter"`
 	JaegerEndpoint string `mapstructure:"jaeger_endpoint"`
+}
+
+type Vps struct {
+	AdressIp string `mapstructure:"adress_ip"`
 }
 
 type FrontendConfig struct {

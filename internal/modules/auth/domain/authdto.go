@@ -1,6 +1,8 @@
 package domain
 
-import "time"
+import (
+	"time"
+)
 
 type AssignRoleRequest struct {
 	UserID    string `json:"user_id" validate:"required,uuid"`

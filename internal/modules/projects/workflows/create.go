@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	dauth "github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/utils"
 
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
@@ -21,6 +23,14 @@ func (a *ProjectActivities) CreateNamespace(ctx context.Context, projectID strin
 }
 
 func (a *ProjectActivities) DeleteProjectDBActivity(ctx context.Context, projectID string) error {
+	return nil
+}
+
+func (a *ProjectActivities) ReconcileProjectResources(ctx context.Context, nsName, cpu, mem string) error {
+	return nil
+}
+
+func (a *ProjectActivities) AssignProjectRole(ctx context.Context, userID, projectID, roleName string) error {
 	return nil
 }
 
@@ -43,6 +53,10 @@ type ProjectResult struct {
 func CreateProjectWorkflow(ctx workflow.Context, input CreateProjectInput) (ProjectResult, error) {
 	options := workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: time.Second,
+			MaximumAttempts: 3,
+		},
 	}
 	ctx = workflow.WithActivityOptions(ctx, options)
 
@@ -69,8 +83,23 @@ func CreateProjectWorkflow(ctx workflow.Context, input CreateProjectInput) (Proj
 		_ = workflow.ExecuteLocalActivity(ctxComp, a.DeleteProjectDBActivity, result.ProjectID).Get(ctx, nil)
 		return result, fmt.Errorf("failed to provision k8s namespace, rolled back: %w", err)
 	}
+	err = workflow.ExecuteActivity(ctx, a.ReconcileProjectResources, result.Namespace, input.CpuLimit, input.MemoryLimit).Get(ctx, nil)
+	if err != nil {
+		return result, err
+	}
 
 	result.Status = utils.ProjectStatusReady
 	result.Namespace = fmt.Sprintf("km-%s", input.Name)
+
+	rbacInput := &domain.AssignRoleRequest{
+		UserID:    input.OwnerID,
+		ProjectID: result.ProjectID,
+		RoleName:  domain.RoleTypes.Owner.String(),
+	}
+
+	err = workflow.ExecuteActivity(ctx, a.AssignProjectRole, rbacInput).Get(ctx, nil)
+	if err != nil {
+		return result, err
+	}
 	return result, nil
 }

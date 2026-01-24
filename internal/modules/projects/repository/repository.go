@@ -31,7 +31,7 @@ func (r *pgProjectRepo) CreateProject(ctx context.Context, project *dauth.Projec
 		}
 
 		var role dauth.Role
-		if err := tx.Where("name = ?", dauth.RoleOwner).First(&role).Error; err != nil {
+		if err := tx.Where("name = ?", domain.RoleTypes.Owner).First(&role).Error; err != nil {
 			return err
 		}
 

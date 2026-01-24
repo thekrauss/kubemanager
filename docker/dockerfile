@@ -23,6 +23,11 @@ COPY internal/core/configs /app/internal/core/configs
 
 COPY internal/infrastructure/database/migrations ./migrations
 
+COPY internal/infrastructure/helm/charts /app/internal/infrastructure/helm/charts
+
+RUN mkdir -p /.cache /.config /.local && \
+    chown -R appuser:appgroup /app /.cache /.config /.local
+
 USER appuser
 
 EXPOSE 8080

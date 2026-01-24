@@ -1,0 +1,24 @@
+replicaCount: 1
+image:
+  repository: nginx
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+
+ingress:
+  enabled: true
+  host: ""
+
+persistence:
+  enabled: true
+  size: 1Gi
+  storageClass: "local-path" 
+  accessMode: ReadWriteOnce

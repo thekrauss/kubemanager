@@ -21,7 +21,9 @@ import (
 	"github.com/thekrauss/kubemanager/internal/middleware/security"
 	authdomain "github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/auth/repository"
+	projectRepos "github.com/thekrauss/kubemanager/internal/modules/projects/repository"
 	wkldomain "github.com/thekrauss/kubemanager/internal/modules/workloads/domain"
+	workloadsRepo "github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
 )
 
 func (a *App) initDependencies() error {
@@ -137,11 +139,15 @@ func (a *App) initSecurity() {
 }
 
 func (a *App) initRepositories() {
-	a.Logger.Info("Initializing repositories...")
+	a.Logger.Info("itializing repositories...")
 	authRepo := repository.NewAuthRepository(a.DB)
+	projectRepo := projectRepos.NewProjectRepository(a.DB)
+	workloadRepo := workloadsRepo.NewWorkloadRepository(a.DB)
 
 	a.Repos = &RepositoryContainer{
-		Auth: authRepo,
+		Auth:     authRepo,
+		Project:  projectRepo,
+		Workload: workloadRepo,
 	}
 }
 
@@ -159,7 +165,7 @@ func (a *App) initDomain(ctx context.Context) error {
 }
 
 func (a *App) initTemporalClient() error {
-	a.Logger.Info("Connecting to Temporal Server...")
+	a.Logger.Info("connecting to Temporal Server...")
 
 	opts := client.Options{
 		HostPort:  a.Config.Temporal.Host,
@@ -179,8 +185,11 @@ func (a *App) initTemporalClient() error {
 func (a *App) initKubernetes() error {
 	a.Logger.Info("Connecting to Kubernetes Cluster...")
 
+	configs, err := clientcmd.BuildConfigFromFlags("", a.Config.Kubernetes.KubeConfigPath)
+	if err != nil {
+	}
+
 	var config *rest.Config
-	var err error
 
 	kubeConfigPath := a.Config.Kubernetes.KubeConfigPath
 
@@ -209,7 +218,7 @@ func (a *App) initKubernetes() error {
 	} else {
 		a.Logger.Infow("Connected to Kubernetes", "version", serverVersion.String())
 	}
-
+	a.K8sConfig = configs
 	a.K8sClient = clientset
 	return nil
 }

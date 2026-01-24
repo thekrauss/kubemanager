@@ -167,7 +167,7 @@ func (r *pgAuthRepo) SeedDefaultRoles(ctx context.Context) error {
 			for _, permEnum := range permEnums {
 				var perm domain.Permission
 
-				if err := tx.Where(domain.Permission{Slug: permEnum}).
+				if err := tx.Where(domain.Permission{Slug: permEnum.String()}).
 					Attrs(domain.Permission{ID: uuid.New()}).
 					FirstOrCreate(&perm).Error; err != nil {
 					return err

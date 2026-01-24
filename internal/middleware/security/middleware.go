@@ -78,7 +78,7 @@ func (m *MiddlewareManager) AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-func (m *MiddlewareManager) RequireProjectPermission(permSlug string) gin.HandlerFunc {
+func (m *MiddlewareManager) RequireProjectPermission(perm domain.PermissionType) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sessionVal, exists := c.Get(UserSessionKey)
 		if !exists {
@@ -87,6 +87,11 @@ func (m *MiddlewareManager) RequireProjectPermission(permSlug string) gin.Handle
 		}
 		session := sessionVal.(*cache.SessionData)
 
+		if session.GlobalRole == m.Config.Roles.PlatformAdmin {
+			c.Next()
+			return
+		}
+
 		projectID := c.Param("project_id")
 		if projectID == "" {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Project ID missing in URL"})
@@ -94,26 +99,27 @@ func (m *MiddlewareManager) RequireProjectPermission(permSlug string) gin.Handle
 		}
 
 		roleName, hasRole := session.ProjectRoles[projectID]
-
-		if session.GlobalRole == m.Config.Roles.PlatformAdmin {
-			c.Next()
-			return
-		}
-
 		if !hasRole {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Forbidden: You are not a member of this project"})
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Forbidden: No project access"})
 			return
 		}
 
-		if !domain.RoleHasPermission(roleName, permSlug) {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": fmt.Sprintf("Forbidden: Missing permission '%s'", permSlug)})
+		roleType, err := domain.RoleTypes.NewFromString(c.Request.Context(), roleName)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Invalid role configuration"})
+			return
+		}
+
+		if !domain.RoleHasPermission(roleType, perm) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error": fmt.Sprintf("Forbidden: Role %s lacks permission %s", roleName, perm.String()),
+			})
 			return
 		}
 
 		c.Next()
 	}
 }
-
 func (m *MiddlewareManager) GetSessionFromCtx(c context.Context) (*cache.SessionData, error) {
 	if ginCtx, ok := c.(*gin.Context); ok {
 		val, exists := ginCtx.Get(UserSessionKey)
@@ -200,7 +206,7 @@ func (m *MiddlewareManager) handleAPIKeyAuth(c *gin.Context, rawKey string) {
 	virtualSession := &cache.SessionData{
 		UserID:       user.ID.String(),
 		Email:        user.Email,
-		GlobalRole:   user.Role.String(),
+		GlobalRole:   user.Role,
 		ProjectRoles: projectRoles,
 	}
 

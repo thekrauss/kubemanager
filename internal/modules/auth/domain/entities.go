@@ -11,6 +11,10 @@ type Project struct {
 	Name        string    `gorm:"unique;not null"`
 	Description string
 
+	CpuLimit     string `gorm:"type:varchar(20);default:'2000m'"` // 2 vCPUs
+	MemoryLimit  string `gorm:"type:varchar(20);default:'4Gi'"`   // 4 Go RAM
+	StorageLimit string `gorm:"type:varchar(20);default:'10Gi'"`  // 10 Go Disque
+
 	Members      []ProjectMember `gorm:"foreignKey:ProjectID;constraint:OnDelete:CASCADE;"`
 	Status       string          `gorm:"default:'PENDING'"`
 	CurrentPhase string          `gorm:"default:'DB_INITIALIZING'"`
@@ -27,7 +31,7 @@ type User struct {
 	FullName     string
 	AvatarURL    string
 
-	Role RoleType `gorm:"default:'USER'"`
+	Role string `gorm:"default:'USER'"`
 
 	IsActive   bool `gorm:"default:true"`
 	IsVerified bool `gorm:"default:false"`
@@ -58,8 +62,8 @@ type Role struct {
 }
 
 type Permission struct {
-	ID   uuid.UUID      `gorm:"type:uuid;primary_key"`
-	Slug PermissionType `gorm:"unique"`
+	ID   uuid.UUID `gorm:"type:uuid;primary_key"`
+	Slug string    `gorm:"type:varchar(100);unique;not null"`
 }
 
 type ProjectMember struct {

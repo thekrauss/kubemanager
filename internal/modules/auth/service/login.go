@@ -83,7 +83,7 @@ func (s *AuthService) Login(ctx context.Context, req *domain.LoginRequest) (*dom
 
 	accessToken, err := s.JWT.GenerateAccessToken(
 		user.ID.String(),
-		user.Role.String(),
+		user.Role,
 		s.Config.JWT.AccessExpiration,
 	)
 	if err != nil {
@@ -95,7 +95,7 @@ func (s *AuthService) Login(ctx context.Context, req *domain.LoginRequest) (*dom
 	session := cache.SessionData{
 		UserID:       user.ID.String(),
 		Email:        user.Email,
-		GlobalRole:   user.Role.String(),
+		GlobalRole:   user.Role,
 		ProjectRoles: projectRolesMap,
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
@@ -175,7 +175,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, req *domain.RefreshToken
 
 	newAccessToken, err := s.JWT.GenerateAccessToken(
 		user.ID.String(),
-		user.Role.String(),
+		user.Role,
 		s.Config.JWT.AccessExpiration,
 	)
 	if err != nil {
@@ -186,7 +186,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, req *domain.RefreshToken
 	session := cache.SessionData{
 		UserID:       user.ID.String(),
 		Email:        user.Email,
-		GlobalRole:   user.Role.String(),
+		GlobalRole:   user.Role,
 		ProjectRoles: projectRolesMap,
 		AccessToken:  newAccessToken,
 		RefreshToken: req.RefreshToken,

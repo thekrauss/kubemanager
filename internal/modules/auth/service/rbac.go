@@ -33,7 +33,7 @@ func (s *RBACService) ListAllRoles(ctx context.Context) ([]domain.RoleDTO, error
 	for _, r := range roles {
 		perms := make([]string, len(r.Permissions))
 		for i, p := range r.Permissions {
-			perms[i] = p.Slug.String()
+			perms[i] = p.Slug
 		}
 		result = append(result, domain.RoleDTO{
 			ID:          r.ID.String(),
@@ -146,7 +146,7 @@ func (s *RBACService) GetUserProjectPermissions(ctx context.Context, projectIDSt
 
 	permSlugs := make([]string, len(member.Role.Permissions))
 	for i, p := range member.Role.Permissions {
-		permSlugs[i] = p.Slug.String()
+		permSlugs[i] = p.Slug
 	}
 
 	return &domain.PermissionsResponse{

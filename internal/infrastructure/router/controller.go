@@ -7,25 +7,31 @@ import (
 	projectCtrl "github.com/thekrauss/kubemanager/internal/modules/projects"
 	projectRepos "github.com/thekrauss/kubemanager/internal/modules/projects/repository"
 	projectSvc "github.com/thekrauss/kubemanager/internal/modules/projects/service"
+	workloadsCtrl "github.com/thekrauss/kubemanager/internal/modules/workloads"
+	workloadsRepo "github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
+	workloadsSvc "github.com/thekrauss/kubemanager/internal/modules/workloads/service"
 )
 
 type RepositoryContainer struct {
-	Auth    authRepos.AuthRepository
-	Project projectRepos.ProjectRepository
+	Auth     authRepos.AuthRepository
+	Project  projectRepos.ProjectRepository
+	Workload workloadsRepo.WorkloadRepository
 }
 
 type ServiceContainer struct {
-	Auth    *authSvc.AuthService
-	RBAC    *authSvc.RBACService
-	APIKey  *authSvc.APIKeyService
-	Project *projectSvc.ProjectService
+	Auth     *authSvc.AuthService
+	RBAC     *authSvc.RBACService
+	APIKey   *authSvc.APIKeyService
+	Project  *projectSvc.ProjectService
+	Workload *workloadsSvc.WorkloadService
 }
 
 type ControllerContainer struct {
-	Auth    *authCtrl.AuthController
-	RBAC    *authCtrl.RBACController
-	APIKey  *authCtrl.APIKeyController
-	Project *projectCtrl.ProjectHandler
+	Auth     *authCtrl.AuthController
+	RBAC     *authCtrl.RBACController
+	APIKey   *authCtrl.APIKeyController
+	Project  *projectCtrl.ProjectHandler
+	Workload *workloadsCtrl.WorkloadController
 }
 
 func AddAllRoutes(a *App) {
@@ -33,4 +39,5 @@ func AddAllRoutes(a *App) {
 	addRBACRoutes(a)
 	addAPIKeyRoutes(a)
 	addProjectRoutes(a)
+	addWorkloadRoutes(a)
 }

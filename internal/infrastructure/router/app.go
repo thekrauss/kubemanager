@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc"
 	"gorm.io/gorm"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/thekrauss/kubemanager/internal/core/cache"
 	"github.com/thekrauss/kubemanager/internal/core/configs"
@@ -30,6 +31,7 @@ type App struct {
 	TemporalClient client.Client
 	TemporalWorker worker.Worker
 	K8sClient      *kubernetes.Clientset
+	K8sConfig      *rest.Config
 
 	MiddlewareManager *security.MiddlewareManager
 	Cache             cache.CacheRedis
@@ -54,12 +56,23 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	defer a.TracerShutdown()
 	defer a.TemporalClient.Close()
+	defer a.Logger.Sync()
 
 	if err := a.initDomainLayers(); err != nil {
 		a.Logger.Fatalw("domain init failed", "error", err)
 		return err
 	}
-	a.TemporalWorker = temporal.StartWorker(a.TemporalClient, a.Config, a.Logger, a.K8sClient, a.DB)
+
+	workerManager := temporal.NewWorkerManager(temporal.WorkerConfig{
+		Client:    a.TemporalClient,
+		Config:    a.Config,
+		Logger:    a.Logger,
+		K8sClient: a.K8sClient,
+		K8sConfig: a.K8sConfig,
+		DB:        a.DB,
+		RBACSvc:   a.Services.RBAC,
+	})
+	a.TemporalWorker = workerManager.Start()
 	a.startHTTPServer()
 
 	a.gracefulShutdown(a.GRPCServer, a.HTTPServer, a.Config.Server.ShutdownTimeout)

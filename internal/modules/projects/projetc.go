@@ -23,3 +23,7 @@ type GetProjectStatusRequest struct {
 func (h *ProjectHandler) GetProjectStatus(c *gin.Context, in *GetProjectStatusRequest) (*domain.ProjectStatusResponse, error) {
 	return h.ProjectService.GetProjectStatus(c.Request.Context(), in.ProjectID)
 }
+
+func (h *ProjectHandler) DeleteProject(c *gin.Context, in *GetProjectStatusRequest) (*domain.ProjectResponse, error) {
+	return h.ProjectService.DeleteProject(c.Request.Context(), in.ProjectID)
+}

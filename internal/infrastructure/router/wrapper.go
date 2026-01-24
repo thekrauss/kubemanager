@@ -1,6 +1,8 @@
 package router
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/thekrauss/kubemanager/internal/core/configs"
 	"github.com/thekrauss/kubemanager/internal/middleware/security"
+	"github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 )
 
 const PathAPIRoot = "/kmanager/v1"
@@ -157,7 +160,12 @@ func registerGroup(fg *fizz.RouterGroup, group *RouteGroup, absPath string, mw *
 		handlers := []gin.HandlerFunc{r.Handler}
 
 		if r.Right != "" {
-			permissionMiddleware := mw.RequireProjectPermission(r.Right)
+			perm, err := domain.PermissionTypes.NewFromString(context.Background(), r.Right)
+			if err != nil {
+				panic(fmt.Sprintf("Invalid permission defined in route: %s", r.Right))
+			}
+
+			permissionMiddleware := mw.RequireProjectPermission(perm)
 			handlers = append([]gin.HandlerFunc{permissionMiddleware}, handlers...)
 
 			options = append(options, fizz.Security(&openapi.SecurityRequirement{

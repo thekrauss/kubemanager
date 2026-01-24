@@ -28,7 +28,6 @@ func (s *AuthService) CreateUser(ctx context.Context, req *domain.RegisterReques
 		Email:        req.Email,
 		PasswordHash: hashedPassword,
 		FullName:     req.FullName,
-		Role:         domain.RoleTypes.User,
 		IsActive:     true,
 	}
 
@@ -49,7 +48,6 @@ type UpdateUserInput struct {
 	FullName  *string `json:"full_name"`
 	AvatarURL *string `json:"avatar_url"`
 	IsActive  *bool   `json:"is_active"`
-	Role      *string `json:"role"`
 }
 
 func (s *AuthService) UpdateUser(ctx context.Context, input UpdateUserInput) (*domain.User, error) {
