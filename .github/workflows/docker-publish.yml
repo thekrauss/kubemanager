@@ -1,0 +1,86 @@
+name: Kubemanager CI/CD
+
+on:
+  push:
+    branches: [ "main", "preprod" ]
+  pull_request:
+    branches: [ "main", "preprod" ]
+
+jobs:
+  quality-check:
+    name: Quality & Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.1' 
+          cache: true
+
+      - name: Install Protoc & Tools
+        run: |
+          sudo apt-get install -y protobuf-compiler
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+      
+      - name: Generate Proto
+        run: make proto 
+
+      - name:  Run Unit Tests
+        run: go test -v ./internal/... ./pkg/...
+
+      - name: Vulnerability Check
+        run: |
+          echo "Scanning for vulnerabilities in the whole project..."
+          govulncheck ./...
+
+  build-and-push:
+    name: Docker Build & Push
+    needs: quality-check
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preprod')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          push: true
+          tags: |
+            thekrauss/kubemanager:${{ github.ref == 'refs/heads/main' && 'latest' || 'preprod' }}
+            thekrauss/kubemanager:${{ github.sha }}
+  deploy:
+    name: Deploy to VPS
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Executing remote ssh commands
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd /home/${{ secrets.VPS_USER }}/kubemanager 
+            
+            docker compose pull kubemanager
+            
+            docker compose up -d kubemanager
+            
+            docker image prune -f
+            
+            echo "Deployment successful for SHA ${{ github.sha }}"

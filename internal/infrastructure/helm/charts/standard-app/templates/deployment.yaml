@@ -2,28 +2,85 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Release.Name }}
+  labels:
+    app: {{ .Release.Name }}
+
 spec:
   replicas: {{ .Values.replicaCount }}
+
   selector:
     matchLabels:
       app: {{ .Release.Name }}
+
   template:
     metadata:
       labels:
         app: {{ .Release.Name }}
+
     spec:
       containers:
         - name: {{ .Release.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+
           ports:
-            - containerPort: {{ .Values.service.port }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          replicas: {{ .Values.replicaCount }}
+            - containerPort: {{ .Values.service.targetPort | default 8080 }}
+          
+          #security container
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+
+          # environment variables from a Secret
           envFrom:
             - secretRef:
                 name: {{ .Values.envSecretName }}
+
+          # environnement directes 
+          {{- if .Values.envVars }}
           env:
             {{- range $key, $val := .Values.envVars }}
             - name: {{ $key }}
               value: {{ $val | quote }}
+            {{- end }}
+          {{- end }}
+
+          # volumes persistants 
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+            - name: storage
+              mountPath: /data
+          {{- end }}
+
+          # Ressources CPU / Mémoire
+          resources:
+            requests:
+              cpu: {{ .Values.resources.requests.cpu | default "100m" }}
+              memory: {{ .Values.resources.requests.memory | default "128Mi" }}
+            limits:
+              cpu: {{ .Values.resources.limits.cpu | default "200m" }}
+              memory: {{ .Values.resources.limits.memory | default "256Mi" }}
+
+          # Liveness Probe
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.service.targetPort | default 8080 }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          # Readiness Probe
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.service.targetPort | default 8080 }}
+            initialDelaySeconds: 2
+            periodSeconds: 5
+
+      # Statement des volumes persistants
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+            - name: storage
+              mountPath: {{ .Values.persistence.mountPath | default "/data" }}
           {{- end }}

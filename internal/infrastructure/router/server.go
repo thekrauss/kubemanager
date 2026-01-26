@@ -14,14 +14,37 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 	"github.com/thekrauss/beto-shared/pkg/redis"
+	"github.com/thekrauss/kubemanager/internal/middleware/security"
 	"github.com/wI2L/fizz"
 	"github.com/wI2L/fizz/openapi"
 	ginprometheus "github.com/zsais/go-gin-prometheus"
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/worker"
 
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 )
+
+type TemporalComponents struct {
+	Client client.Client
+	Worker worker.Worker
+}
+
+type Security struct {
+	JWTManager security.JWTManager
+	Middleware *security.MiddlewareManager
+}
+
+type Servers struct {
+	HTTP *http.Server
+	GRPC *grpc.Server
+}
+
+type Observability struct {
+	Tracer         trace.Tracer
+	TracerShutdown func()
+}
 
 func (a *App) startHTTPServer() {
 
@@ -56,7 +79,7 @@ func (a *App) startHTTPServer() {
 		c.Next()
 	})
 
-	engine.Use(a.MiddlewareManager.AuthMiddleware())
+	engine.Use(a.Security.Middleware.AuthMiddleware())
 
 	engine.GET("/api/v1/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -76,14 +99,14 @@ func (a *App) startHTTPServer() {
 
 	AddAllRoutes(a)
 
-	RegisterRoutes(f, a.MiddlewareManager)
+	RegisterRoutes(f, a.Security.Middleware)
 
 	addr := fmt.Sprintf(":%d", a.Config.Server.HTTPPort)
-	a.HTTPServer = &http.Server{Addr: addr, Handler: engine}
+	a.Servers.HTTP = &http.Server{Addr: addr, Handler: engine}
 
 	go func() {
 		a.Logger.Infof("HTTP server listening on %s", addr)
-		if err := a.HTTPServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := a.Servers.HTTP.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			a.Logger.Fatalf("HTTP server error: %v", err)
 		}
 	}()
@@ -97,8 +120,8 @@ func (a *App) gracefulShutdown(grpcServer *grpc.Server, httpServer *http.Server,
 	<-stop
 	log.Println("shutting down servers...")
 
-	if a.TemporalWorker != nil {
-		a.TemporalWorker.Stop()
+	if a.Temporal.Client != nil {
+		a.Temporal.Worker.Stop()
 		log.Println("Temporal worker stopped")
 	}
 

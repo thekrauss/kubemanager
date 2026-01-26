@@ -7,14 +7,10 @@ import (
 )
 
 var (
-	AuthGroup = RootGroup.NewGroup("/auth", "Gestion de l'authentification et des tokens")
-
-	RBACGroup = RootGroup.NewGroup("/rbac", "Configuration globale des rôles")
-
-	ProjectGroup = RootGroup.NewGroup("/projects", "Gestion des projets et de leurs membres")
-
-	APIKeyGroup = RootGroup.NewGroup("/users/api-keys", "Gestion des clés API utilisateur")
-
+	AuthGroup     = RootGroup.NewGroup("/auth", "Gestion de l'authentification et des tokens")
+	RBACGroup     = RootGroup.NewGroup("/rbac", "Configuration globale des rôles")
+	ProjectGroup  = RootGroup.NewGroup("/projects", "Gestion des projets et de leurs membres")
+	APIKeyGroup   = RootGroup.NewGroup("/users/api-keys", "Gestion des clés API utilisateur")
 	WorkloadGroup = RootGroup.NewGroup("/workloads", "Gestion des déploiements Helm (Workloads)")
 )
 
@@ -46,14 +42,23 @@ func addAPIKeyRoutes(app *App) {
 
 func addProjectRoutes(app *App) {
 	r := app.Controllers.Project
+	//ProjectGroup.AddRoute("", http.MethodGet, "Lister mes projets", tonic.Handler(r.ListProjects, http.StatusOK))
 	ProjectGroup.AddRoute("", http.MethodPost, "Créer un projet", tonic.Handler(r.CreateProject, http.StatusCreated))
-	ProjectGroup.AddRoute("/:id/status", http.MethodGet, "Récupérer le statut détaillé d'un projet", tonic.Handler(r.GetProjectStatus, http.StatusOK))
+	//ProjectGroup.AddRoute("/:id", http.MethodGet, "Détails d'un projet", tonic.Handler(r.GetProject, http.StatusOK))
+	ProjectGroup.AddRoute("/:id/status", http.MethodGet, "Statut K8s d'un projet", tonic.Handler(r.GetProjectStatus, http.StatusOK))
+	ProjectGroup.AddRoute("/:id/metrics", http.MethodGet, "Métriques de consommation", tonic.Handler(r.GetProjectMetrics, http.StatusOK))
 	ProjectGroup.AddRoute("/:id", http.MethodDelete, "Supprimer un projet", tonic.Handler(r.DeleteProject, http.StatusAccepted))
 }
 
 func addWorkloadRoutes(app *App) {
 	r := app.Controllers.Workload
-	WorkloadGroup.AddRoute("", http.MethodPost, "Déployer un nouveau workload", tonic.Handler(r.CreateWorkload, http.StatusAccepted))
+
+	//WorkloadGroup.AddRoute("", http.MethodGet, "Lister tous les workloads", tonic.Handler(r.ListWorkloads, http.StatusOK))
 	WorkloadGroup.AddRoute("/:id", http.MethodGet, "Statut détaillé d'un workload", tonic.Handler(r.GetWorkloadStatus, http.StatusOK))
 
+	WorkloadGroup.AddRoute("", http.MethodPost, "Déployer un nouveau workload", tonic.Handler(r.CreateWorkload, http.StatusAccepted))
+	//WorkloadGroup.AddRoute("/:id", http.MethodPut, "Mettre à jour un workload (Scaling/Image)", tonic.Handler(r.UpdateWorkload, http.StatusAccepted))
+	//WorkloadGroup.AddRoute("/:id", http.MethodDelete, "Supprimer et désinstaller un workload", tonic.Handler(r.DeleteWorkload, http.StatusAccepted))
+
+	//WorkloadGroup.AddRoute("/:id/logs", http.MethodGet, "Récupérer les logs des pods", tonic.Handler(r.GetWorkloadLogs, http.StatusOK))
 }

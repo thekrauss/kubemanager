@@ -11,7 +11,9 @@ type CreateWorkloadRequest struct {
 	CPULimit    string `json:"cpu_limit" default:"200m"`
 	MemoryLimit string `json:"memory_limit" default:"256Mi"`
 
-	TargetPort int `json:"target_port" default:"8080"`
+	TargetPort  int    `json:"target_port" default:"8080"`
+	ServiceType string `json:"service_type" default:"ClusterIP"` //"ClusterIP" ou "LoadBalancer"
+	MountPath   string `json:"mount_path" default:"/data"`
 
 	PersistenceEnabled bool   `json:"persistence_enabled" default:"false"`
 	StorageSize        string `json:"storage_size" default:"1Gi"`

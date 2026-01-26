@@ -22,6 +22,8 @@ type DeployWorkloadInput struct {
 	StorageSize        string
 	StorageClass       string
 	Replicas           int
+	ServiceType        string //"ClusterIP" ou "LoadBalancer"
+	TargetPort         int
 }
 
 func DeployWorkloadWorkflow(ctx workflow.Context, input DeployWorkloadInput) error {
@@ -76,6 +78,10 @@ func DeployWorkloadWorkflow(ctx workflow.Context, input DeployWorkloadInput) err
 		PersistenceEnabled: input.PersistenceEnabled,
 		StorageSize:        input.StorageSize,
 		StorageClass:       input.StorageClass,
+		Replicas:           input.Replicas,
+		ServiceType:        input.ServiceType,
+		Secrets:            input.Secrets,
+		TargetPort:         input.TargetPort,
 	}
 	err = workflow.ExecuteActivity(ctx, helmActs.InstallChart, helmInput).Get(ctx, nil)
 	if err != nil {

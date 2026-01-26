@@ -19,13 +19,13 @@ func (a *App) initDomainLayers() error {
 
 	apiKeyService := authSvc.NewAPIKeyService(a.Repos.Auth)
 	rbacService := authSvc.NewRBACService(a.Repos.Auth, a.Logger)
-	authService := authSvc.NewAuthService(a.Config, a.Repos.Auth, a.JWTManager, a.Cache, a.Logger, hasher)
+	authService := authSvc.NewAuthService(a.Config, a.Repos.Auth, a.Security.JWTManager, a.Cache, a.Logger, hasher)
 
 	projectRepo := projectRepos.NewProjectRepository(a.DB)
-	projectService := projectSvc.NewProjectService(a.TemporalClient, a.Config, a.Logger, projectRepo, a.K8sClient)
+	projectService := projectSvc.NewProjectService(a.Temporal.Client, a.Config, a.Logger, projectRepo, a.K8sProvider.Client)
 
 	workloadRepo := workloadsRepo.NewWorkloadRepository(a.DB)
-	workloadService := workloadsSvc.NewWorkloadService(a.TemporalClient, workloadRepo, projectRepo)
+	workloadService := workloadsSvc.NewWorkloadService(a.Temporal.Client, workloadRepo, projectRepo)
 
 	authController := authCtrl.NewAuthController(authService, rbacService)
 	rbacController := authCtrl.NewRBACController(rbacService)

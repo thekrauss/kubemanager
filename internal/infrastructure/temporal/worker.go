@@ -9,7 +9,6 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/thekrauss/kubemanager/internal/core/configs"
-	"github.com/thekrauss/kubemanager/internal/infrastructure/workflows/ping"
 	authSvc "github.com/thekrauss/kubemanager/internal/modules/auth/service"
 	projectActivities "github.com/thekrauss/kubemanager/internal/modules/projects/activities"
 	projectRepo "github.com/thekrauss/kubemanager/internal/modules/projects/repository"
@@ -75,7 +74,6 @@ func (m *WorkerManager) Start() worker.Worker {
 }
 
 func (m *WorkerManager) registerWorkflows(w worker.Worker) {
-	w.RegisterWorkflow(ping.PingWorkflow)
 	w.RegisterWorkflow(projectWorkflows.CreateProjectWorkflow)
 	w.RegisterWorkflow(workloadWorkflows.DeployWorkloadWorkflow)
 }
@@ -84,7 +82,6 @@ func (m *WorkerManager) registerActivities(w worker.Worker, acts ...interface{})
 	for _, a := range acts {
 		w.RegisterActivity(a)
 	}
-	w.RegisterActivity(ping.PingActivity)
 }
 
 func (m *WorkerManager) run(w worker.Worker) {

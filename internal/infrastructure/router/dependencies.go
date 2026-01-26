@@ -6,15 +6,9 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	sharedDB "github.com/thekrauss/beto-shared/pkg/db"
-	"github.com/thekrauss/beto-shared/pkg/errors"
-	"github.com/thekrauss/beto-shared/pkg/logger"
 	"github.com/thekrauss/beto-shared/pkg/tracing"
+	k8sprovider "github.com/thekrauss/kubemanager/internal/infrastructure/kubernetes"
 	"go.temporal.io/sdk/client"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-
-	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/thekrauss/kubemanager/internal/core/cache"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/database"
@@ -63,42 +57,36 @@ func (a *App) initDependencies() error {
 
 func (a *App) initTracing(ctx context.Context) error {
 	if a.Config.Tracing.JaegerEndpoint == "" {
+		a.Observability.TracerShutdown = func() {}
 		return nil
 	}
-	_, shutdown, err := tracing.InitTracerProvider(ctx, a.Config.ServiceName, a.Config.Tracing.JaegerEndpoint, 1.0)
+
+	_, shutdown, err := tracing.InitTracerProvider(
+		ctx,
+		a.Config.ServiceName,
+		a.Config.Tracing.JaegerEndpoint,
+		1.0,
+	)
 	if err != nil {
 		a.Logger.Warnw("Tracing initialization failed", "error", err)
+		a.Observability.TracerShutdown = func() {}
 		return nil
 	}
-	a.TracerShutdown = shutdown
+
+	a.Observability.TracerShutdown = shutdown
 	return nil
 }
 
 func (a *App) initDatabase() error {
-
-	cfg := *a.Config
-	log := logger.L()
-
-	dbCfg := sharedDB.Config{
-		Driver:   cfg.Database.Driver,
-		Host:     cfg.Database.Host,
-		Port:     cfg.Database.Port,
-		User:     cfg.Database.User,
-		Password: cfg.Database.Password,
-		Name:     cfg.Database.Name,
-		SSLMode:  cfg.Database.SSLMode,
-		LogLevel: a.Config.Logger.Level,
-	}
-
-	migrationsPath := "./migrations"
-	gormDB, err := database.InitDatabase(dbCfg, migrationsPath)
+	a.Logger.Info("initializing Database Provider...")
+	provider, err := database.NewDBProvider(a.Config.Database, a.Config.Logger.Level)
 	if err != nil {
-		return errors.Wrap(err, errors.CodeDBError, "database initialization failed")
+		return err
 	}
-	a.DB = gormDB
+	a.DB = provider.DB
 
 	a.Logger.Info("Running Auto-Migration...")
-	err = a.DB.AutoMigrate(
+	err = provider.Migrate(
 		&authdomain.User{},
 		&authdomain.Project{},
 		&authdomain.UserSession{},
@@ -111,11 +99,6 @@ func (a *App) initDatabase() error {
 	if err != nil {
 		return fmt.Errorf("auto-migration failed: %w", err)
 	}
-	log.Infow("Database connected",
-		"driver", cfg.Database.Driver,
-		"host", cfg.Database.Host,
-		"name", cfg.Database.Name,
-	)
 	return nil
 }
 
@@ -134,8 +117,14 @@ func (a *App) initCache(ctx context.Context) error {
 }
 
 func (a *App) initSecurity() {
-	a.JWTManager = security.NewJWTManager(&a.Config.JWT, a.Config.ServiceName)
-	a.MiddlewareManager = security.NewMiddlewareManager(a.Config, a.JWTManager, a.Cache, a.Logger, a.Repos.Auth)
+	a.Security.JWTManager = security.NewJWTManager(&a.Config.JWT, a.Config.ServiceName)
+	a.Security.Middleware = security.NewMiddlewareManager(
+		a.Config,
+		a.Security.JWTManager,
+		a.Cache,
+		a.Logger,
+		a.Repos.Auth,
+	)
 }
 
 func (a *App) initRepositories() {
@@ -165,7 +154,7 @@ func (a *App) initDomain(ctx context.Context) error {
 }
 
 func (a *App) initTemporalClient() error {
-	a.Logger.Info("connecting to Temporal Server...")
+	a.Logger.Info("Connecting to Temporal Server...")
 
 	opts := client.Options{
 		HostPort:  a.Config.Temporal.Host,
@@ -177,48 +166,27 @@ func (a *App) initTemporalClient() error {
 		return fmt.Errorf("unable to create temporal client: %w", err)
 	}
 
-	a.TemporalClient = c
+	a.Temporal.Client = c
 	a.Logger.Info("Connected to Temporal successfully")
 	return nil
 }
 
 func (a *App) initKubernetes() error {
-	a.Logger.Info("Connecting to Kubernetes Cluster...")
+	a.Logger.Info("Initializing Kubernetes Provider...")
 
-	configs, err := clientcmd.BuildConfigFromFlags("", a.Config.Kubernetes.KubeConfigPath)
+	k8sProvider, err := k8sprovider.NewKubernetesProvider(a.Config.Kubernetes.KubeConfigPath)
 	if err != nil {
+		return err
 	}
 
-	var config *rest.Config
+	a.K8sProvider = k8sProvider
 
-	kubeConfigPath := a.Config.Kubernetes.KubeConfigPath
-
-	if kubeConfigPath != "" {
-		config, err = clientcmd.BuildConfigFromFlags("", kubeConfigPath)
-		if err != nil {
-			return fmt.Errorf("failed to load kubeconfig from %s: %w", kubeConfigPath, err)
-		}
-		a.Logger.Infof("Loaded KubeConfig from: %s", kubeConfigPath)
+	version, err := k8sProvider.GetServerVersion()
+	if err != nil {
+		a.Logger.Warnw("K8s ping failed", "error", err)
 	} else {
-		config, err = rest.InClusterConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load in-cluster config: %w", err)
-		}
-		a.Logger.Info("Loaded In-Cluster KubeConfig")
+		a.Logger.Infow("Connected to Kubernetes", "version", version)
 	}
 
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return fmt.Errorf("failed to create k8s clientset: %w", err)
-	}
-
-	serverVersion, err := clientset.Discovery().ServerVersion()
-	if err != nil {
-		a.Logger.Warnw("Failed to ping K8s server (check connectivity)", "error", err)
-	} else {
-		a.Logger.Infow("Connected to Kubernetes", "version", serverVersion.String())
-	}
-	a.K8sConfig = configs
-	a.K8sClient = clientset
 	return nil
 }

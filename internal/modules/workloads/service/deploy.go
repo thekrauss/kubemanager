@@ -52,6 +52,10 @@ func (s *WorkloadService) DeployNewWorkload(ctx context.Context, in *WorkloadSer
 		replicas = 1
 	}
 
+	if err := s.validateNetwork(in.TargetPort); err != nil {
+		return nil, err
+	}
+
 	requestedTotalCPU := s.parseCPU(in.CPULimit) * replicas
 	limitCPU := s.parseCPU(project.CpuLimit)
 	if (currentCPU + requestedTotalCPU) > limitCPU {
@@ -77,14 +81,18 @@ func (s *WorkloadService) DeployNewWorkload(ctx context.Context, in *WorkloadSer
 	targetNamespace := fmt.Sprintf("km-%s", project.Name)
 
 	workload := &domain.Workload{
-		ID:          uuid.New(),
-		ProjectID:   pID,
-		Name:        in.Name,
-		Namespace:   targetNamespace,
-		Image:       in.Image,
-		CPULimit:    in.CPULimit,
-		MemoryLimit: in.MemoryLimit,
-		Status:      "STARTING",
+		ID:                 uuid.New(),
+		ProjectID:          pID,
+		Name:               in.Name,
+		Namespace:          targetNamespace,
+		Image:              in.Image,
+		Replicas:           in.Replicas,
+		CPULimit:           in.CPULimit,
+		MemoryLimit:        in.MemoryLimit,
+		TargetPort:         in.TargetPort,
+		PersistenceEnabled: in.PersistenceEnabled,
+		StorageSize:        in.StorageSize,
+		Status:             "STARTING",
 	}
 
 	if err := s.Repo.Create(ctx, workload); err != nil {
@@ -106,6 +114,8 @@ func (s *WorkloadService) DeployNewWorkload(ctx context.Context, in *WorkloadSer
 		Replicas:           in.Replicas,
 		PersistenceEnabled: in.PersistenceEnabled,
 		StorageSize:        in.StorageSize,
+		TargetPort:         in.TargetPort,
+		ServiceType:        in.ServiceType,
 	})
 
 	return workload, err
@@ -172,4 +182,32 @@ func (s *WorkloadService) parseStorage(storage string) int64 {
 func (s *WorkloadService) parseStorageToBytes(storage string) int64 {
 	res, _ := resource.ParseQuantity(storage)
 	return res.Value()
+}
+
+func (s *WorkloadService) validateNetwork(port int) error {
+
+	if port <= 0 || port > 65535 {
+		return fmt.Errorf("invalid target port: %d (must be between 1 and 65535)", port)
+	}
+	reservedPorts := map[int]string{
+		22:   "SSH",
+		443:  "HTTPS (Reserved for Ingress Controller)",
+		5432: "PostgreSQL",
+		6379: "Redis",
+		7233: "Temporal Server",
+		8233: "Temporal UI",
+		9090: "Prometheus",
+		3000: "Grafana",
+		8080: "Kubemanager API",
+	}
+
+	if serviceName, reserved := reservedPorts[port]; reserved {
+		return fmt.Errorf("port %d is reserved for %s and cannot be used by workloads", port, serviceName)
+	}
+
+	if port < 1024 && port != 80 {
+		return fmt.Errorf("ports below 1024 (except 80) are system-privileged and not allowed")
+	}
+
+	return nil
 }

@@ -6,7 +6,9 @@ image:
 
 service:
   type: ClusterIP
-  port: 80
+  port: 80         
+  targetPort: 8080 
+  protocol: TCP
 
 resources:
   limits:

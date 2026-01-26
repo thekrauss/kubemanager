@@ -27,3 +27,7 @@ func (h *ProjectHandler) GetProjectStatus(c *gin.Context, in *GetProjectStatusRe
 func (h *ProjectHandler) DeleteProject(c *gin.Context, in *GetProjectStatusRequest) (*domain.ProjectResponse, error) {
 	return h.ProjectService.DeleteProject(c.Request.Context(), in.ProjectID)
 }
+
+func (h *ProjectHandler) GetProjectMetrics(c *gin.Context, in *GetProjectStatusRequest) (*domain.NamespaceMetrics, error) {
+	return h.ProjectService.GetMetrics(c.Request.Context(), in.ProjectID)
+}

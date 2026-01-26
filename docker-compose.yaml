@@ -113,6 +113,47 @@ services:
     networks:
       - backend
 
+  prometheus:
+      image: prom/prometheus:latest
+      volumes:
+        - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      command:
+        - '--config.file=/etc/prometheus/prometheus.yml'
+      ports:
+        - "9090:9090"
+      networks:
+        - backend
+
+  loki:
+      image: grafana/loki:2.9.0
+      ports:
+        - "3100:3100"
+      command: -config.file=/etc/loki/local-config.yaml
+      networks:
+        - backend
+
+  promtail:
+      image: grafana/promtail:2.9.0
+      volumes:
+        - /var/lib/docker/containers:/var/lib/docker/containers:ro
+        - ./docker/promtail/promtail-config.yml:/etc/promtail/config.yml
+      command: -config.file=/etc/promtail/config.yml
+      networks:
+        - backend
+
+  grafana:
+      image: grafana/grafana:latest
+      ports:
+        - "3000:3000"
+      environment:
+        - GF_SECURITY_ADMIN_PASSWORD=admin
+        - GF_AUTH_ANONYMOUS_ENABLED=true
+      depends_on:
+        - prometheus
+        - loki
+      networks:
+        - backend
+
 volumes:
   redisdata:
   k8sdbdata:

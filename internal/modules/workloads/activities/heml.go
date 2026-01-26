@@ -31,6 +31,8 @@ type InstallWorkloadInput struct {
 	StorageSize        string
 	StorageClass       string
 	Replicas           int
+	TargetPort         int
+	MountPath          string
 }
 
 func (a *WorkloadActivities) InstallChart(ctx context.Context, input InstallWorkloadInput) error {
@@ -64,10 +66,17 @@ func (a *WorkloadActivities) InstallChart(ctx context.Context, input InstallWork
 			"host": input.ExternalURL,
 		},
 
+		"service": map[string]interface{}{
+			"type":       input.ServiceType,
+			"port":       80,
+			"targetPort": input.TargetPort,
+		},
+
 		"persistence": map[string]interface{}{
 			"enabled":      input.PersistenceEnabled,
 			"size":         input.StorageSize,
 			"storageClass": input.StorageClass,
+			"mountPath":    input.MountPath,
 		},
 		"envSecretName": input.ReleaseName + "-env",
 	}

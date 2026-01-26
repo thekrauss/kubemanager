@@ -2,41 +2,29 @@ package router
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/thekrauss/beto-shared/pkg/logger"
-	"go.opencensus.io/trace"
-	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/worker"
 	"go.uber.org/zap"
-	"google.golang.org/grpc"
 	"gorm.io/gorm"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 
 	"github.com/thekrauss/kubemanager/internal/core/cache"
 	"github.com/thekrauss/kubemanager/internal/core/configs"
+	k8sprovider "github.com/thekrauss/kubemanager/internal/infrastructure/kubernetes"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/temporal"
-	"github.com/thekrauss/kubemanager/internal/middleware/security"
 )
 
 type App struct {
 	Config *configs.GlobalConfig
-	DB     *gorm.DB
 	Logger *zap.SugaredLogger
 
-	JWTManager     security.JWTManager
-	GRPCServer     *grpc.Server
-	HTTPServer     *http.Server
-	TemporalClient client.Client
-	TemporalWorker worker.Worker
-	K8sClient      *kubernetes.Clientset
-	K8sConfig      *rest.Config
+	DB          *gorm.DB
+	K8sProvider *k8sprovider.ProviderK8s
+	Cache       cache.CacheRedis
+	Temporal    TemporalComponents
 
-	MiddlewareManager *security.MiddlewareManager
-	Cache             cache.CacheRedis
-	TracerShutdown    func()
-	Tracer            trace.Tracer
+	Security      Security
+	Servers       Servers
+	Observability Observability
 
 	Repos       *RepositoryContainer
 	Services    *ServiceContainer
@@ -49,13 +37,12 @@ func NewApp(cfg *configs.GlobalConfig) *App {
 }
 
 func (a *App) Run(ctx context.Context) error {
-
 	if err := a.initDependencies(); err != nil {
 		a.Logger.Fatalw("dependency init failed", "error", err)
 		return err
 	}
-	defer a.TracerShutdown()
-	defer a.TemporalClient.Close()
+	defer a.Observability.TracerShutdown()
+	defer a.Temporal.Client.Close()
 	defer a.Logger.Sync()
 
 	if err := a.initDomainLayers(); err != nil {
@@ -64,18 +51,20 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	workerManager := temporal.NewWorkerManager(temporal.WorkerConfig{
-		Client:    a.TemporalClient,
+		Client:    a.Temporal.Client,
 		Config:    a.Config,
 		Logger:    a.Logger,
-		K8sClient: a.K8sClient,
-		K8sConfig: a.K8sConfig,
+		K8sClient: a.K8sProvider.Client,
+		K8sConfig: a.K8sProvider.Config,
 		DB:        a.DB,
 		RBACSvc:   a.Services.RBAC,
 	})
-	a.TemporalWorker = workerManager.Start()
+
+	a.Temporal.Worker = workerManager.Start()
+
 	a.startHTTPServer()
 
-	a.gracefulShutdown(a.GRPCServer, a.HTTPServer, a.Config.Server.ShutdownTimeout)
+	a.gracefulShutdown(a.Servers.GRPC, a.Servers.HTTP, a.Config.Server.ShutdownTimeout)
 
 	a.Logger.Infow("Application stopped gracefully")
 	return nil
