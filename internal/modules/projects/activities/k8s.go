@@ -21,7 +21,7 @@ type ProjectK8sActivities struct {
 	K8sClient     *kubernetes.Clientset
 	MetricsClient *metricsv1.Clientset
 	Logger        *zap.SugaredLogger
-	Rbac          authSvc.RBACService
+	Rbac          authSvc.IRBACService
 }
 
 func (a *ProjectK8sActivities) CreateNamespace(ctx context.Context, projectID string, projectName string) error {

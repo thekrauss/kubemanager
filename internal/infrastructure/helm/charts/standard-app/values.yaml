@@ -24,3 +24,8 @@ persistence:
   size: 1Gi
   storageClass: "local-path" 
   accessMode: ReadWriteOnce
+
+networkPolicy:
+  enabled: true
+  ingressNSLabelKey: "kubernetes.io/metadata.name"
+  ingressNSLabelValue: "kube-system" 

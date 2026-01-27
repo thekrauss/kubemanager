@@ -7,8 +7,19 @@ import (
 	"github.com/thekrauss/kubemanager/internal/modules/projects/service"
 )
 
+type IProjectController interface {
+	CreateProject(c *gin.Context, in *domain.CreateProjectRequest) (*domain.ProjectResponse, error)
+	GetProjectStatus(c *gin.Context, in *GetProjectStatusRequest) (*domain.ProjectStatusResponse, error)
+	DeleteProject(c *gin.Context, in *GetProjectStatusRequest) (*domain.ProjectResponse, error)
+	GetProjectMetrics(c *gin.Context, in *GetProjectStatusRequest) (*domain.NamespaceMetrics, error)
+}
+
 type ProjectHandler struct {
-	ProjectService *service.ProjectService
+	ProjectService service.IProjectService
+}
+
+func NewProjectHandlers(ps service.IProjectService) *ProjectHandler {
+	return &ProjectHandler{ProjectService: ps}
 }
 
 func (h *ProjectHandler) CreateProject(c *gin.Context, in *domain.CreateProjectRequest) (*domain.ProjectResponse, error) {

@@ -10,6 +10,17 @@ import (
 	"github.com/thekrauss/kubemanager/internal/modules/auth/service"
 )
 
+type IAuthController interface {
+	Login(c *gin.Context, in *domain.LoginRequest) (*domain.LoginResponse, error)
+	ValidateToken(c *gin.Context, in *domain.TokenRequest) (*domain.TokenResponse, error)
+	RefreshToken(c *gin.Context, in *domain.RefreshTokenRequest) (*domain.RefreshTokenResponse, error)
+	Register(c *gin.Context, in *domain.RegisterRequest) (*domain.RegisterResponse, error)
+	Logout(c *gin.Context, in *domain.LogoutRequest) error
+	ForgotPassword(c *gin.Context, in *ForgotPasswordEmailRequest) (*MessageResponse, error)
+	ResetPassword(c *gin.Context, in *service.ResetPasswordInput) (*MessageResponse, error)
+	ChangePassword(c *gin.Context, in *service.ChangePasswordInput) (*MessageResponse, error)
+	UpdateProfile(c *gin.Context, in *service.UpdateUserInput) (*domain.User, error)
+}
 type AuthController struct {
 	AuthService *service.AuthService
 	RBACService *service.RBACService

@@ -6,6 +6,10 @@ import (
 	"github.com/thekrauss/kubemanager/internal/modules/workloads/service"
 )
 
+type IWorkloadController interface {
+	CreateWorkload(c *gin.Context, in *domain.CreateWorkloadRequest) (*domain.WorkloadResponse, error)
+	GetWorkloadStatus(c *gin.Context, in *GetWorkloadRequest) (*domain.WorkloadStatusResponse, error)
+}
 type WorkloadController struct {
 	WorkloadService *service.WorkloadService
 }

@@ -18,6 +18,15 @@ import (
 	"go.temporal.io/sdk/client"
 )
 
+type IProjectService interface {
+	CreateProject(ctx context.Context, req domain.CreateProjectRequest, ownerID string) (*domain.ProjectResponse, error)
+	DeleteProject(ctx context.Context, projectID string) (*domain.ProjectResponse, error)
+	GetProjectStatus(ctx context.Context, projectID string) (*domain.ProjectStatusResponse, error)
+	GetMetrics(ctx context.Context, projectID string) (*domain.NamespaceMetrics, error)
+}
+
+var _ IProjectService = (*ProjectService)(nil)
+
 type ProjectService struct {
 	TemporalClient client.Client
 	Config         *configs.GlobalConfig
@@ -34,7 +43,7 @@ func NewProjectService(
 	log *zap.SugaredLogger,
 	repo repository.ProjectRepository,
 	k8s *kubernetes.Clientset,
-) *ProjectService {
+) IProjectService {
 	return &ProjectService{
 		TemporalClient: tc,
 		Config:         cfg,
@@ -43,7 +52,6 @@ func NewProjectService(
 		K8sClient:      k8s,
 	}
 }
-
 func (s *ProjectService) CreateProject(ctx context.Context, req domain.CreateProjectRequest, ownerID string) (*domain.ProjectResponse, error) {
 	workflowID := "project-create-" + uuid.New().String()
 

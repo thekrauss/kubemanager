@@ -7,6 +7,12 @@ import (
 	"github.com/thekrauss/kubemanager/internal/modules/auth/service"
 )
 
+type IAPIKeyController interface {
+	ListKeys(c *gin.Context) ([]service.APIKeyDTO, error)
+	CreateKey(c *gin.Context, input *service.CreateAPIKeyInput) (*service.APIKeyCreatedResponse, error)
+	RevokeKey(c *gin.Context, in *RevokeKeyInput) error
+}
+
 type APIKeyController struct {
 	Service *service.APIKeyService
 }

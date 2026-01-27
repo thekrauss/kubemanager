@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	metricsv1 "k8s.io/metrics/pkg/client/clientset/versioned"
 
 	"github.com/thekrauss/kubemanager/internal/core/configs"
 	authSvc "github.com/thekrauss/kubemanager/internal/modules/auth/service"
@@ -15,7 +16,6 @@ import (
 	projectWorkflows "github.com/thekrauss/kubemanager/internal/modules/projects/workflows"
 	workloadActivities "github.com/thekrauss/kubemanager/internal/modules/workloads/activities"
 	workloadWorkflows "github.com/thekrauss/kubemanager/internal/modules/workloads/workflows"
-	metricsv1 "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
 type WorkerConfig struct {
@@ -25,46 +25,43 @@ type WorkerConfig struct {
 	K8sClient *kubernetes.Clientset
 	K8sConfig *rest.Config
 	DB        *gorm.DB
-	RBACSvc   *authSvc.RBACService
+	RBACSvc   authSvc.IRBACService
 }
 
-type WorkerManager struct {
-	wrk WorkerConfig
+func NewWorkerManager(cfg WorkerConfig) *WorkerConfig {
+	return &cfg
 }
 
-func NewWorkerManager(cfg WorkerConfig) *WorkerManager {
-	return &WorkerManager{wrk: cfg}
-}
+func (m *WorkerConfig) Start() worker.Worker {
+	w := worker.New(m.Client, m.Config.Temporal.TaskQueue, worker.Options{})
 
-func (m *WorkerManager) Start() worker.Worker {
-	w := worker.New(m.wrk.Client, m.wrk.Config.Temporal.TaskQueue, worker.Options{})
-
-	metricsClient, err := metricsv1.NewForConfig(m.wrk.K8sConfig)
+	metricsClient, err := metricsv1.NewForConfig(m.K8sConfig)
 	if err != nil {
-		m.wrk.Logger.Fatalf("Impossible de créer le client metrics: %v", err)
+		m.Logger.Fatalf("Impossible de créer le client metrics: %v", err)
 	}
+
 	projDBActs := &projectActivities.ProjectDBActivities{
-		Repo:   projectRepo.NewProjectRepository(m.wrk.DB),
-		Logger: m.wrk.Logger,
+		Repo:   projectRepo.NewProjectRepository(m.DB),
+		Logger: m.Logger,
 	}
 
 	projK8sActs := &projectActivities.ProjectK8sActivities{
-		K8sClient:     m.wrk.K8sClient,
+		K8sClient:     m.K8sClient,
 		MetricsClient: metricsClient,
-		Logger:        m.wrk.Logger,
-		Rbac:          *m.wrk.RBACSvc,
+		Logger:        m.Logger,
+		Rbac:          m.RBACSvc,
 	}
 
 	workloadDBActs := &workloadActivities.WorkloadDBActivities{
-		DB:     m.wrk.DB,
-		Logger: m.wrk.Logger,
+		DB:     m.DB,
+		Logger: m.Logger,
 	}
 
 	helmActs := &workloadActivities.WorkloadActivities{
-		K8sConfig: m.wrk.K8sConfig,
+		K8sConfig: m.K8sConfig,
+		K8sClient: m.K8sClient,
 	}
 
-	// register
 	m.registerWorkflows(w)
 	m.registerActivities(w, projDBActs, projK8sActs, workloadDBActs, helmActs)
 
@@ -73,20 +70,24 @@ func (m *WorkerManager) Start() worker.Worker {
 	return w
 }
 
-func (m *WorkerManager) registerWorkflows(w worker.Worker) {
+func (m *WorkerConfig) registerWorkflows(w worker.Worker) {
 	w.RegisterWorkflow(projectWorkflows.CreateProjectWorkflow)
 	w.RegisterWorkflow(workloadWorkflows.DeployWorkloadWorkflow)
 }
 
-func (m *WorkerManager) registerActivities(w worker.Worker, acts ...interface{}) {
+func (m *WorkerConfig) registerActivities(w worker.Worker, acts ...interface{}) {
 	for _, a := range acts {
 		w.RegisterActivity(a)
 	}
 }
 
-func (m *WorkerManager) run(w worker.Worker) {
-	m.wrk.Logger.Info("temp Worker started: Modules [Projects, Workloads, RBAC] Active")
+func (m *WorkerConfig) run(w worker.Worker) {
+	m.Logger.Infow("Temporal Worker started",
+		"queue", m.Config.Temporal.TaskQueue,
+		"modules", []string{"Projects", "Workloads", "RBAC"},
+	)
+
 	if err := w.Run(worker.InterruptCh()); err != nil {
-		m.wrk.Logger.Fatalw("Unable to start worker", "error", err)
+		m.Logger.Fatalw("Unable to start worker", "error", err)
 	}
 }

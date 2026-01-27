@@ -72,6 +72,12 @@ func (a *WorkloadActivities) InstallChart(ctx context.Context, input InstallWork
 			"targetPort": input.TargetPort,
 		},
 
+		"networkPolicy": map[string]interface{}{
+			"enabled":             true,
+			"ingressNSLabelKey":   "kubernetes.io/metadata.name",
+			"ingressNSLabelValue": "kube-system",
+		},
+
 		"persistence": map[string]interface{}{
 			"enabled":      input.PersistenceEnabled,
 			"size":         input.StorageSize,

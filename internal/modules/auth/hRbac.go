@@ -7,6 +7,13 @@ import (
 	"github.com/thekrauss/kubemanager/internal/modules/auth/service"
 )
 
+type IRBACController interface {
+	ListAllRoles(c *gin.Context) ([]domain.RoleDTO, error)
+	AssignRole(c *gin.Context, in *domain.AssignRoleRequest) error
+	ListProjectMembers(c *gin.Context, in *ListMembersInput) ([]domain.ProjectMemberDTO, error)
+	RevokeProjectAccess(c *gin.Context, in *RevokeAccessInput) error
+}
+
 type RBACController struct {
 	RBACService *service.RBACService
 }

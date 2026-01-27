@@ -1,13 +1,13 @@
 package router
 
 import (
-	authCtrl "github.com/thekrauss/kubemanager/internal/modules/auth"
+	controller "github.com/thekrauss/kubemanager/internal/modules/auth"
 	authRepos "github.com/thekrauss/kubemanager/internal/modules/auth/repository"
 	authSvc "github.com/thekrauss/kubemanager/internal/modules/auth/service"
-	projectCtrl "github.com/thekrauss/kubemanager/internal/modules/projects"
+	"github.com/thekrauss/kubemanager/internal/modules/projects"
 	projectRepos "github.com/thekrauss/kubemanager/internal/modules/projects/repository"
 	projectSvc "github.com/thekrauss/kubemanager/internal/modules/projects/service"
-	workloadsCtrl "github.com/thekrauss/kubemanager/internal/modules/workloads"
+	workload "github.com/thekrauss/kubemanager/internal/modules/workloads"
 	workloadsRepo "github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
 	workloadsSvc "github.com/thekrauss/kubemanager/internal/modules/workloads/service"
 )
@@ -19,19 +19,19 @@ type RepositoryContainer struct {
 }
 
 type ServiceContainer struct {
-	Auth     *authSvc.AuthService
-	RBAC     *authSvc.RBACService
-	APIKey   *authSvc.APIKeyService
-	Project  *projectSvc.ProjectService
+	Auth     authSvc.IAuthService
+	RBAC     authSvc.IRBACService
+	APIKey   authSvc.IAPIKeyService
+	Project  projectSvc.IProjectService
 	Workload *workloadsSvc.WorkloadService
 }
 
 type ControllerContainer struct {
-	Auth     *authCtrl.AuthController
-	RBAC     *authCtrl.RBACController
-	APIKey   *authCtrl.APIKeyController
-	Project  *projectCtrl.ProjectHandler
-	Workload *workloadsCtrl.WorkloadController
+	Auth     controller.IAuthController
+	APIKey   controller.IAPIKeyController
+	RBAC     controller.IRBACController
+	Project  projects.IProjectController
+	Workload workload.IWorkloadController
 }
 
 func AddAllRoutes(a *App) {
