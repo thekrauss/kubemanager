@@ -1,0 +1,14 @@
+{
+  "identities": [
+    {
+      "name": "platform",
+      "credentials": [{ "accessKey": "betorun", "secretKey": "betorun-dev-secret" }],
+      "actions": ["Admin", "Read", "List", "Tagging", "Write"]
+    },
+    {
+      "name": "edge",
+      "credentials": [{ "accessKey": "edge", "secretKey": "edge-dev-secret" }],
+      "actions": ["Read:betorun-sites"]
+    }
+  ]
+}
