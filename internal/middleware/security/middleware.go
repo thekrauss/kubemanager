@@ -95,6 +95,7 @@ type MiddlewareManager struct {
 	keyAuth        KeyAuthenticator
 	clusterAgents  ClusterAgentResolver
 	sts            TokenVerifier
+	mfa            *MFAConfig
 }
 
 func NewMiddlewareManager(
@@ -214,6 +215,8 @@ func (m *MiddlewareManager) handleBearer(c *gin.Context, tokenString string) {
 			Roles:    verified.Roles,
 			Scopes:   splitScope(verified.Scope),
 			JTI:      verified.ID,
+			Acr:      verified.Acr,
+			AuthTime: verified.AuthTime,
 		}
 		if verified.ExpiresAt != nil {
 			claims.ExpiresAt = verified.ExpiresAt.Unix()
@@ -383,6 +386,8 @@ func (m *MiddlewareManager) applyBearerClaims(c *gin.Context, claims authcache.A
 		c.Set("scopes", claims.Scopes)
 	}
 	c.Set("authMethod", "bearer")
+	c.Set(ctxAuthAcr, claims.Acr)
+	c.Set(ctxAuthTime, claims.AuthTime)
 }
 
 // applyAPIKeyValidation injecte les infos API key dans le contexte Gin.

@@ -63,6 +63,7 @@ func (a *App) initDomainLayers() error {
 			SocialRedirectURI:   a.Config.Keycloak.SocialRedirectURI,
 			Cache:               a.AuthCache,
 			StateStore:          a.Cache, // Redis : cross-instance OK (fix H9)
+			StepUpACR:           firstOrEmpty(a.Config.IAM.MFAACRValues),
 		})
 		identityController = identityCtrl.NewController(identityService, a.AuthCache)
 	} else {
@@ -117,9 +118,24 @@ func (a *App) initDomainLayers() error {
 		Realtime: realtimeController,
 		Clusters: clustersController,
 		Site:     siteController,
-		IAM:      iamapi.NewController(policies, a.IAM, a.ServiceAccounts, a.ClusterAgents, a.STS),
+		IAM:      a.newIAMController(policies),
 	}
 
 	a.Logger.Info("Domain layers successfully initialized.")
 	return nil
+}
+
+func firstOrEmpty(list []string) string {
+	if len(list) == 0 {
+		return ""
+	}
+	return list[0]
+}
+
+func (a *App) newIAMController(policies *iam.PolicyService) *iamapi.Controller {
+	ctrl := iamapi.NewController(policies, a.IAM, a.ServiceAccounts, a.ClusterAgents, a.STS)
+	ctrl.OrgPolicies = a.OrgPolicies
+	ctrl.MFA = iamapi.MFASettings{ACRValues: a.Config.IAM.MFAACRValues, MaxAge: a.stepUpMaxAge(),
+		AccountSecurityURL: iamapi.AccountSecurityURL(a.Config.Keycloak.IssuerURL)}
+	return ctrl
 }

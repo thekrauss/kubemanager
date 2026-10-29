@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,7 +35,7 @@ type KeycloakClient interface {
 	// OAuth2 Authorization Code + PKCE (login hébergé et social).
 	// GetAuthorizationURL builds the Keycloak authorization endpoint URL; an
 	// empty idpName means the hosted login page. Pure URL construction.
-	GetAuthorizationURL(idpName, redirectURI, state, codeChallenge string) string
+	GetAuthorizationURL(idpName, redirectURI, state, codeChallenge string, opts ...AuthRequestOptions) string
 	ExchangeCodeForToken(ctx context.Context, code, redirectURI, codeVerifier string) (*TokenPair, error)
 
 	// SendVerificationEmail triggers a VERIFY_EMAIL action email for the user.
@@ -713,7 +714,17 @@ func (c *Client) ResetPassword(ctx context.Context, keycloakUserID, newPassword 
 // GetAuthorizationURL returns the Keycloak authorization URL (Authorization
 // Code + PKCE S256). A non-empty idpName sets kc_idp_hint, which pre-selects a
 // social provider so users skip the Keycloak login page; empty = hosted login.
-func (c *Client) GetAuthorizationURL(idpName, redirectURI, state, codeChallenge string) string {
+// AuthRequestOptions : paramètres OIDC optionnels de la demande d'autorisation.
+type AuthRequestOptions struct {
+	// ACRValues : niveau d'authentification exigé (ex. "gold" = MFA, selon
+	// le mapping ACR → LoA du realm).
+	ACRValues string
+	// MaxAge : âge maximal de l'authentification, en secondes ; 0 force une
+	// ré-authentification (step-up). nil : non envoyé.
+	MaxAge *int
+}
+
+func (c *Client) GetAuthorizationURL(idpName, redirectURI, state, codeChallenge string, opts ...AuthRequestOptions) string {
 	params := url.Values{}
 	params.Set("client_id", c.authClientID())
 	params.Set("response_type", "code")
@@ -724,6 +735,14 @@ func (c *Client) GetAuthorizationURL(idpName, redirectURI, state, codeChallenge 
 	params.Set("code_challenge_method", "S256")
 	if idpName != "" {
 		params.Set("kc_idp_hint", idpName)
+	}
+	for _, o := range opts {
+		if o.ACRValues != "" {
+			params.Set("acr_values", o.ACRValues)
+		}
+		if o.MaxAge != nil {
+			params.Set("max_age", strconv.Itoa(*o.MaxAge))
+		}
 	}
 	return fmt.Sprintf("%s/realms/%s/protocol/openid-connect/auth?%s",
 		c.baseURL, url.PathEscape(c.realm), params.Encode())

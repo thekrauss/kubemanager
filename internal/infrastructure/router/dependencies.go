@@ -304,6 +304,15 @@ func (a *App) initSecurity() error {
 	}
 	a.Security.Middleware.SetClusterAgents(a.ClusterAgents)
 
+	// Double authentification des personnes (iam.md §9) : step-up sur les
+	// actions sensibles, iam.requireMfa par organisation.
+	a.OrgPolicies = iam.NewOrgPolicyService(a.DB, a.IAM, len(a.Config.IAM.MFAACRValues) > 0)
+	a.Security.Middleware.SetMFA(security.MFAConfig{ACRValues: a.Config.IAM.MFAACRValues,
+		MaxAge: a.stepUpMaxAge(), Policy: a.OrgPolicies})
+	if len(a.Config.IAM.MFAACRValues) == 0 {
+		a.Logger.Warnw("iam: mfa_acr_values is empty — step-up and organization MFA requirement are disabled")
+	}
+
 	// STS : jetons machine (iam.md §7.3). Obligatoire, comme le pepper.
 	if err := a.initSTS(); err != nil {
 		return err
@@ -436,4 +445,11 @@ func (a *App) initSTS() error {
 		}
 	}()
 	return nil
+}
+
+func (a *App) stepUpMaxAge() time.Duration {
+	if a.Config.IAM.StepUpMaxAge > 0 {
+		return a.Config.IAM.StepUpMaxAge
+	}
+	return security.DefaultStepUpMaxAge
 }

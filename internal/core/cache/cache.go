@@ -22,6 +22,9 @@ type AccessTokenClaims struct {
 	Scopes    []string
 	ExpiresAt int64
 	JTI       string
+	// Acr et AuthTime : niveau et instant de l'authentification (MFA, step-up).
+	Acr      string
+	AuthTime int64
 }
 
 type APIKeyValidation struct {

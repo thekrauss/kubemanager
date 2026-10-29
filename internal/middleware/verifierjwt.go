@@ -28,6 +28,10 @@ type Claims struct {
 	RealmAccess       RealmAccess `json:"realm_access"`
 	PreferredUsername string      `json:"preferred_username"`
 	Email             string      `json:"email"`
+	// Acr : niveau d'authentification atteint (mapping ACR → LoA du realm Keycloak).
+	Acr string `json:"acr"`
+	// AuthTime : instant (Unix) de la dernière authentification interactive.
+	AuthTime int64 `json:"auth_time"`
 	jwt.RegisteredClaims
 }
 

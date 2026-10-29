@@ -191,3 +191,36 @@ func TestE2E_Groups(t *testing.T) {
 	_, err = groups.Get(ctx, orgID, g.ID)
 	assert.ErrorIs(t, err, iam.ErrGroupNotFound)
 }
+
+// iam.requireMfa : posé sur l'organisation, vaut pour ses projets.
+func TestE2E_OrgRequireMFA(t *testing.T) {
+	db := e2eDB(t)
+	ctx := context.Background()
+	engine := iam.NewEngine(&iam.GormStore{DB: db}, 0)
+	awa := iam.UserPrincipal(uuid.MustParse("11111111-1111-1111-1111-111111111111"))
+	project := iam.ProjectName(uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
+	ancestry, err := engine.Ancestry(ctx, project)
+	require.NoError(t, err)
+	orgID, _ := ancestry[1].Organization()
+
+	off := iam.NewOrgPolicyService(db, engine, false)
+	_, err = off.SetRequireMFA(ctx, awa, orgID, true)
+	assert.ErrorIs(t, err, iam.ErrMFANotConfigured, "pas d'exigence sans MFA vérifiable")
+
+	svc := iam.NewOrgPolicyService(db, engine, true)
+	p, err := svc.SetRequireMFA(ctx, awa, orgID, true)
+	require.NoError(t, err)
+	assert.True(t, p.RequireMFA)
+	req, err := svc.RequiresMFA(ctx, project.Child("sites", uuid.New()))
+	require.NoError(t, err)
+	assert.True(t, req, "hérité par les ressources des projets")
+	other, err := svc.RequiresMFA(ctx, iam.ProjectName(uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")))
+	require.NoError(t, err)
+	_ = other // autre organisation : dépend de la base, seul l'héritage compte ici
+
+	_, err = svc.SetRequireMFA(ctx, awa, orgID, false)
+	require.NoError(t, err)
+	req, err = svc.RequiresMFA(ctx, project)
+	require.NoError(t, err)
+	assert.False(t, req, "désactivation immédiate sur ce réplica")
+}

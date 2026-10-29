@@ -104,20 +104,24 @@ type PermissionInfo struct {
 	CustomRoles bool
 	// PlatformOnly : ne peut être accordée que sur la ressource "platform".
 	PlatformOnly bool
+	// Sensitive : action à fort impact (accès, clés, suppression, paiement) ;
+	// une personne doit s'être authentifiée récemment avec double
+	// authentification (step-up, iam.md §9).
+	Sensitive bool
 }
 
 var catalog = map[Permission]PermissionInfo{
 	OrganizationsGet:          {Title: "Voir une organisation", CustomRoles: true},
-	OrganizationsUpdate:       {Title: "Modifier une organisation", CustomRoles: true},
+	OrganizationsUpdate:       {Title: "Modifier une organisation", CustomRoles: true, Sensitive: true},
 	OrganizationsGetIamPolicy: {Title: "Voir les accès d'une organisation", CustomRoles: true},
-	OrganizationsSetIamPolicy: {Title: "Modifier les accès d'une organisation", CustomRoles: true},
+	OrganizationsSetIamPolicy: {Title: "Modifier les accès d'une organisation", CustomRoles: true, Sensitive: true},
 	ProjectsCreate:            {Title: "Créer un projet", CustomRoles: true},
 	ProjectsGet:               {Title: "Voir un projet", CustomRoles: true},
 	ProjectsList:              {Title: "Lister les projets", CustomRoles: true},
 	ProjectsUpdate:            {Title: "Modifier un projet", CustomRoles: true},
-	ProjectsDelete:            {Title: "Supprimer un projet", CustomRoles: true},
+	ProjectsDelete:            {Title: "Supprimer un projet", CustomRoles: true, Sensitive: true},
 	ProjectsGetIamPolicy:      {Title: "Voir les accès d'un projet", CustomRoles: true},
-	ProjectsSetIamPolicy:      {Title: "Modifier les accès d'un projet", CustomRoles: true},
+	ProjectsSetIamPolicy:      {Title: "Modifier les accès d'un projet", CustomRoles: true, Sensitive: true},
 
 	WorkloadsList:     {Title: "Lister les conteneurs", CustomRoles: true},
 	WorkloadsGet:      {Title: "Voir un conteneur", CustomRoles: true},
@@ -148,34 +152,34 @@ var catalog = map[Permission]PermissionInfo{
 	ServiceAccountsGet:       {Title: "Voir un compte de service", CustomRoles: true},
 	ServiceAccountsCreate:    {Title: "Créer un compte de service", CustomRoles: true},
 	ServiceAccountsUpdate:    {Title: "Modifier un compte de service", CustomRoles: true},
-	ServiceAccountsDelete:    {Title: "Supprimer un compte de service", CustomRoles: true},
+	ServiceAccountsDelete:    {Title: "Supprimer un compte de service", CustomRoles: true, Sensitive: true},
 	ServiceAccountsActAs:     {Title: "Agir en tant que compte de service", CustomRoles: true},
 	ServiceAccountKeysList:   {Title: "Lister les clés d'un compte de service", CustomRoles: true},
-	ServiceAccountKeysCreate: {Title: "Créer une clé de compte de service", CustomRoles: true},
+	ServiceAccountKeysCreate: {Title: "Créer une clé de compte de service", CustomRoles: true, Sensitive: true},
 	ServiceAccountKeysDelete: {Title: "Supprimer une clé de compte de service", CustomRoles: true},
 	APIKeysList:              {Title: "Lister les clés API", CustomRoles: true},
-	APIKeysCreate:            {Title: "Créer une clé API", CustomRoles: true},
+	APIKeysCreate:            {Title: "Créer une clé API", CustomRoles: true, Sensitive: true},
 	APIKeysDelete:            {Title: "Révoquer une clé API", CustomRoles: true},
 	RolesList:                {Title: "Lister les rôles", CustomRoles: true},
-	RolesCreate:              {Title: "Créer un rôle personnalisé", CustomRoles: true},
-	RolesUpdate:              {Title: "Modifier un rôle personnalisé", CustomRoles: true},
-	RolesDelete:              {Title: "Supprimer un rôle personnalisé", CustomRoles: true},
+	RolesCreate:              {Title: "Créer un rôle personnalisé", CustomRoles: true, Sensitive: true},
+	RolesUpdate:              {Title: "Modifier un rôle personnalisé", CustomRoles: true, Sensitive: true},
+	RolesDelete:              {Title: "Supprimer un rôle personnalisé", CustomRoles: true, Sensitive: true},
 	GroupsList:               {Title: "Lister les groupes", CustomRoles: true},
 	GroupsGet:                {Title: "Voir un groupe et ses membres", CustomRoles: true},
 	GroupsCreate:             {Title: "Créer un groupe", CustomRoles: true},
-	GroupsUpdate:             {Title: "Modifier un groupe et ses membres", CustomRoles: true},
-	GroupsDelete:             {Title: "Supprimer un groupe", CustomRoles: true},
+	GroupsUpdate:             {Title: "Modifier un groupe et ses membres", CustomRoles: true, Sensitive: true},
+	GroupsDelete:             {Title: "Supprimer un groupe", CustomRoles: true, Sensitive: true},
 
 	BillingAccountsGet:    {Title: "Voir la facturation", CustomRoles: true},
-	BillingAccountsUpdate: {Title: "Modifier la facturation", CustomRoles: true},
-	BillingPaymentsCreate: {Title: "Effectuer un paiement", CustomRoles: true},
+	BillingAccountsUpdate: {Title: "Modifier la facturation", CustomRoles: true, Sensitive: true},
+	BillingPaymentsCreate: {Title: "Effectuer un paiement", CustomRoles: true, Sensitive: true},
 	AuditLogsRead:         {Title: "Lire le journal d'audit", CustomRoles: true},
 
 	PlatformClustersList:      {Title: "Lister les clusters de la plateforme", PlatformOnly: true},
 	PlatformClusterKeysList:   {Title: "Lister les clés de cluster", PlatformOnly: true},
-	PlatformClusterKeysCreate: {Title: "Créer une clé de cluster", PlatformOnly: true},
-	PlatformClusterKeysRotate: {Title: "Faire tourner une clé de cluster", PlatformOnly: true},
-	PlatformClusterKeysRevoke: {Title: "Révoquer une clé de cluster", PlatformOnly: true},
+	PlatformClusterKeysCreate: {Title: "Créer une clé de cluster", PlatformOnly: true, Sensitive: true},
+	PlatformClusterKeysRotate: {Title: "Faire tourner une clé de cluster", PlatformOnly: true, Sensitive: true},
+	PlatformClusterKeysRevoke: {Title: "Révoquer une clé de cluster", PlatformOnly: true, Sensitive: true},
 	PlatformClustersReport:    {Title: "Rendre compte de son cluster (watcher)", PlatformOnly: true},
 }
 

@@ -68,6 +68,7 @@ type App struct {
 	ServiceAccounts     *iam.ServiceAccountService
 	ClusterAgents       *iam.ClusterAgents
 	STS                 *sts.Service
+	OrgPolicies         *iam.OrgPolicyService
 
 	Security      Security
 	Servers       Servers

@@ -138,11 +138,22 @@ type oauthState struct {
 
 // LoginURL construit l'URL de la page de login Keycloak (Authorization Code +
 // PKCE). Le callback est le même que pour le social : HandleSocialCallback.
-func (s *service) LoginURL(ctx context.Context, redirectURI string) (string, error) {
+//
+// stepUp : ré-authentification obligatoire (max_age=0) au niveau MFA
+// (acr_values), demandée par l'API sur une action sensible (RFC 9470).
+func (s *service) LoginURL(ctx context.Context, redirectURI string, stepUp bool) (string, error) {
 	if s == nil || s.keycloak == nil {
 		return "", ErrIdentityServiceUnavailable
 	}
-	return s.authorizationURL(ctx, hostedLoginProvider, "", redirectURI)
+	var opts []keycloakadmin.AuthRequestOptions
+	if stepUp {
+		if s.stepUpACR == "" {
+			return "", ErrMFANotConfigured
+		}
+		zero := 0
+		opts = append(opts, keycloakadmin.AuthRequestOptions{ACRValues: s.stepUpACR, MaxAge: &zero})
+	}
+	return s.authorizationURL(ctx, hostedLoginProvider, "", redirectURI, opts...)
 }
 
 // SocialLoginURL construit l'URL d'autorisation Keycloak + kc_idp_hint.
@@ -162,7 +173,7 @@ func (s *service) SocialLoginURL(ctx context.Context, provider, redirectURI stri
 // dans StateStore (Redis en prod) avec TTL 10min, one-time use côté callback.
 // Fix H9 : store distribué pour que pod B puisse valider un state créé par pod A.
 // Le verifier ne quitte jamais le serveur ; seul son challenge S256 part dans l'URL.
-func (s *service) authorizationURL(ctx context.Context, provider, idpAlias, redirectURI string) (string, error) {
+func (s *service) authorizationURL(ctx context.Context, provider, idpAlias, redirectURI string, opts ...keycloakadmin.AuthRequestOptions) (string, error) {
 	if s.stateStore == nil {
 		return "", ErrIdentityServiceUnavailable
 	}
@@ -192,7 +203,7 @@ func (s *service) authorizationURL(ctx context.Context, provider, idpAlias, redi
 		return "", err
 	}
 
-	return s.keycloak.GetAuthorizationURL(idpAlias, redirectURI, state, challenge), nil
+	return s.keycloak.GetAuthorizationURL(idpAlias, redirectURI, state, challenge, opts...), nil
 }
 
 // newPKCEPair : code_verifier aléatoire (32 octets → 43 car. base64url, RFC 7636)

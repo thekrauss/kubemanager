@@ -201,7 +201,7 @@ func (ctrl *controller) LoginURL(c *gin.Context, in *identitytypes.LoginURLQuery
 	if in == nil {
 		return nil, betoerrors.New(betoerrors.CodeInvalidInput, "input is required")
 	}
-	loginURL, err := ctrl.service.LoginURL(c.Request.Context(), in.RedirectURI)
+	loginURL, err := ctrl.service.LoginURL(c.Request.Context(), in.RedirectURI, in.StepUp)
 	if err != nil {
 		return nil, err
 	}

@@ -126,6 +126,7 @@ type ChangePasswordRequest struct {
 
 type LoginURLQuery struct {
 	RedirectURI string `query:"redirect_uri" description:"Redirect URI absolue (optionnelle si fournie via config)"`
+	StepUp      bool   `query:"step_up" description:"Ré-authentification avec double authentification (réponse à STEP_UP_REQUIRED)"`
 }
 
 type LoginURLResponse struct {

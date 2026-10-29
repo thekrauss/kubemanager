@@ -29,6 +29,7 @@ var (
 	ErrInvalidState               = errors.New("invalid or expired oauth state token")
 	ErrUnknownProvider            = errors.New("unknown social provider — accepted: google, github")
 	ErrSubjectInvalid             = errors.New("keycloak user id (sub) is missing or invalid")
+	ErrMFANotConfigured           = errors.New("two-factor authentication is not configured on this platform")
 )
 
 // validProviders : nom exposé → alias IDP configuré dans Keycloak (voir bootstrap_platform.sh).
@@ -70,7 +71,8 @@ type Service interface {
 
 	// Authorization Code + PKCE : login hébergé Keycloak, ou social (kc_idp_hint).
 	// Les deux reviennent sur HandleSocialCallback.
-	LoginURL(ctx context.Context, redirectURI string) (string, error)
+	// LoginURL : stepUp demande une ré-authentification avec MFA (step-up).
+	LoginURL(ctx context.Context, redirectURI string, stepUp bool) (string, error)
 	SocialLoginURL(ctx context.Context, provider, redirectURI string) (string, error)
 	HandleSocialCallback(ctx context.Context, code, state, redirectURI string) (*LoginResult, error)
 
@@ -103,6 +105,7 @@ type Deps struct {
 	SocialRedirectURI   string          // redirect URI par défaut pour les flux sociaux
 	Cache               cache.AuthCache // legacy — conservé pour compat (non utilisé pour state)
 	StateStore          StateStore      // store distribué du state CSRF (fix H9 : Redis)
+	StepUpACR           string          // acr_values demandé pour un step-up (ex. "gold") ; vide : MFA non configuré
 }
 
 type service struct {
@@ -116,6 +119,7 @@ type service struct {
 	socialRedirectURI   string
 	cache               cache.AuthCache
 	stateStore          StateStore
+	stepUpACR           string
 }
 
 func NewService(deps Deps) Service {
@@ -130,6 +134,7 @@ func NewService(deps Deps) Service {
 		socialRedirectURI:   strings.TrimSpace(deps.SocialRedirectURI),
 		cache:               deps.Cache,
 		stateStore:          deps.StateStore,
+		stepUpACR:           strings.TrimSpace(deps.StepUpACR),
 	}
 }
 

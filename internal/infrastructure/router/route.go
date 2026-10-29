@@ -235,6 +235,8 @@ func addIAMRoutes(app *App) {
 	grp.AddRoute("/.well-known/openid-configuration", http.MethodGet, "STS : métadonnées de l'émetteur",
 		Public(), r.Discovery)
 
+	grp.AddRoute("/session", http.MethodGet, "État d'authentification de l'appelant (double authentification, validité du step-up)",
+		Authenticated(), tonic.Handler(r.Session, http.StatusOK))
 	grp.AddRoute("/ancestry", http.MethodGet, "Ascendance d'une ressource (projet → organisation → platform)",
 		g.PermFor(iamapi.AncestryPermission, security.ResourceQuery("resource")), tonic.Handler(r.Ancestry, http.StatusOK))
 
@@ -263,6 +265,13 @@ func addIAMRoutes(app *App) {
 		g.Perm(iam.PlatformClusterKeysRotate, security.PlatformResource), tonic.Handler(r.RotateClusterKey, http.StatusCreated))
 	ck.AddRoute("/:keyID", http.MethodDelete, "Révoquer une clé de watcher (effet immédiat)",
 		g.Perm(iam.PlatformClusterKeysRevoke, security.PlatformResource), tonic.Handler(r.RevokeClusterKey, http.StatusNoContent))
+
+	// Politique de sécurité d'une organisation (iam.md §9, §13).
+	orgs := RootGroup.NewGroup("/organizations/:id", "Organisation")
+	orgs.AddRoute("/securityPolicy", http.MethodGet, "Politique de sécurité (double authentification exigée…)",
+		g.Perm(iam.OrganizationsGet, security.OrganizationParam("id")), tonic.Handler(r.GetOrgSecurityPolicy, http.StatusOK))
+	orgs.AddRoute("/securityPolicy", http.MethodPut, "Modifier la politique de sécurité (step-up requis)",
+		g.Perm(iam.OrganizationsUpdate, security.OrganizationParam("id")), tonic.Handler(r.SetOrgSecurityPolicy, http.StatusOK))
 
 	// Groupes d'une organisation (iam.md §4).
 	groups := RootGroup.NewGroup("/organizations/:id/groups", "Groupes : personnes et comptes de service, membres de policies")

@@ -242,5 +242,17 @@
  {
   "fr": "vous ne pouvez pas mettre dans un rôle des permissions que vous n'avez pas",
   "en": "you cannot put in a role permissions you do not have"
+ },
+ {
+  "fr": "la double authentification n'est pas configurée sur cette plateforme",
+  "en": "two-factor authentication is not configured on this platform"
+ },
+ {
+  "fr": "une double authentification récente est requise pour cette action",
+  "en": "recent two-factor authentication required for this action"
+ },
+ {
+  "fr": "votre organisation exige la double authentification",
+  "en": "your organization requires two-factor authentication"
  }
 ]

@@ -344,6 +344,10 @@ func (m *MiddlewareManager) RequireFor(permFor func(iam.ResourceName) (iam.Permi
 			})
 			return
 		}
+		// Autorisé : reste la double authentification des personnes.
+		if !m.checkMFA(c, perm, resource) {
+			return
+		}
 		c.Next()
 	}
 }

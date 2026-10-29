@@ -31,3 +31,19 @@ func TestLoad_EnvWithoutFileKey(t *testing.T) {
 		t.Fatalf("service name = %q", cfg.ServiceName)
 	}
 }
+
+func TestLoad_MFAFromEnv(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("service_name: test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KUBEMANAGER_IAM_MFA_ACR_VALUES", "gold")
+	t.Setenv("KUBEMANAGER_IAM_STEP_UP_MAX_AGE", "15m")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.IAM.MFAACRValues) != 1 || cfg.IAM.MFAACRValues[0] != "gold" || cfg.IAM.StepUpMaxAge.Minutes() != 15 {
+		t.Fatalf("mfa = %v, max age = %v", cfg.IAM.MFAACRValues, cfg.IAM.StepUpMaxAge)
+	}
+}

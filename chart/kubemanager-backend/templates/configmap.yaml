@@ -31,6 +31,8 @@ data:
   KUBEMANAGER_KEYCLOAK_AUDIENCE: {{ .Values.config.keycloak.audience | quote }}
 
   KUBEMANAGER_IAM_STS_ISSUER: {{ .Values.config.iam.stsIssuer | quote }}
+  KUBEMANAGER_IAM_MFA_ACR_VALUES: {{ .Values.config.iam.mfaAcrValues | quote }}
+  KUBEMANAGER_IAM_STEP_UP_MAX_AGE: {{ .Values.config.iam.stepUpMaxAge | quote }}
 
   KUBEMANAGER_CENTRIFUGO_ENABLED: {{ .Values.config.centrifugo.enabled | quote }}
   KUBEMANAGER_CENTRIFUGO_URL: {{ .Values.config.centrifugo.url | quote }}

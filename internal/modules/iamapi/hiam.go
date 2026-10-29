@@ -28,6 +28,8 @@ type Controller struct {
 	STS             *sts.Service
 	CustomRoles     *iam.CustomRoleService
 	Groups          *iam.GroupService
+	OrgPolicies     *iam.OrgPolicyService
+	MFA             MFASettings
 }
 
 func NewController(policies *iam.PolicyService, engine *iam.Engine, sa *iam.ServiceAccountService, agents *iam.ClusterAgents, tokens *sts.Service) *Controller {

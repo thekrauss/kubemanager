@@ -57,6 +57,14 @@ type IAMConfig struct {
 	// clés de signature du STS stockées en base. Secret (env
 	// KUBEMANAGER_IAM_STS_KEY_ENCRYPTION_KEY en prod), remplaçable par un KMS.
 	STSKeyEncryptionKey string `mapstructure:"sts_key_encryption_key"`
+	// MFAACRValues : valeurs du claim acr (Keycloak, mapping ACR → niveau
+	// d'authentification du realm) qui attestent une double authentification,
+	// ex. ["gold"]. Vide : MFA non configuré (pas de step-up, organisation
+	// ne peut pas exiger le MFA).
+	MFAACRValues []string `mapstructure:"mfa_acr_values"`
+	// StepUpMaxAge : fraîcheur exigée de l'authentification MFA pour les
+	// actions sensibles (défaut 10 min).
+	StepUpMaxAge time.Duration `mapstructure:"step_up_max_age"`
 }
 
 // ObjectStoreConfig : stockage S3-compatible (SeaweedFS en dev) des sites statiques.

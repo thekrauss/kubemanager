@@ -76,6 +76,12 @@ config:
   iam:
     # STS : URL publique de l'émetteur des jetons machine (= <API>/kmanager/v1/iam).
     stsIssuer: "https://api.example.com/kmanager/v1/iam"
+    # Double authentification : valeurs acr (mapping ACR → LoA du realm
+    # Keycloak) qui attestent un MFA, séparées par des virgules. Vide :
+    # step-up et iam.requireMfa désactivés. Realm à configurer avant
+    # (docs/architecture/iam.md §9).
+    mfaAcrValues: "gold"
+    stepUpMaxAge: "10m"
   centrifugo:
     enabled: true
     url: "https://realtime.example.com"
