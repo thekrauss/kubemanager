@@ -138,5 +138,29 @@
  {
   "fr": "cette clé est déjà révoquée ou expirée : créez-en une nouvelle",
   "en": "this key is already revoked or expired: create a new one"
+ },
+ {
+  "fr": "expires_in_days doit être compris entre 1 et 365",
+  "en": "expires_in_days must be between 1 and 365"
+ },
+ {
+  "fr": "public_key_pem doit être une « PUBLIC KEY » PEM : ECDSA P-256 ou RSA d'au moins 2048 bits",
+  "en": "public_key_pem must be a PEM \"PUBLIC KEY\": ECDSA P-256 or RSA of at least 2048 bits"
+ },
+ {
+  "fr": "clé de compte de service introuvable",
+  "en": "service account key not found"
+ },
+ {
+  "fr": "sts : la clé de chiffrement doit faire 32 octets, encodée en base64",
+  "en": "sts: key encryption key must be 32 bytes, base64-encoded"
+ },
+ {
+  "fr": "sts : aucune clé de signature active",
+  "en": "sts: no active signing key"
+ },
+ {
+  "fr": "ce compte de service a déjà 10 clés valides : désactivez-en une d'abord",
+  "en": "this service account already has 10 valid keys: disable one first"
  }
 ]

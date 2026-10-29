@@ -94,6 +94,7 @@ type MiddlewareManager struct {
 	publicRoutes   map[string]bool
 	keyAuth        KeyAuthenticator
 	clusterAgents  ClusterAgentResolver
+	sts            TokenVerifier
 }
 
 func NewMiddlewareManager(
@@ -147,6 +148,11 @@ func (m *MiddlewareManager) AuthMiddleware() gin.HandlerFunc {
 		}
 		if tokenString == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing authorization header (Bearer or X-API-Key)"})
+			return
+		}
+		// Jeton machine du STS betorun, sinon jeton Keycloak (humains).
+		if m.sts != nil && m.sts.Owns(tokenString) {
+			m.handleSTSToken(c, tokenString)
 			return
 		}
 		m.handleBearer(c, tokenString)

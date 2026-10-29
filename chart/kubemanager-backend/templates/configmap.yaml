@@ -30,6 +30,8 @@ data:
   KUBEMANAGER_KEYCLOAK_ISSUER_URL: {{ .Values.config.keycloak.issuerUrl | quote }}
   KUBEMANAGER_KEYCLOAK_AUDIENCE: {{ .Values.config.keycloak.audience | quote }}
 
+  KUBEMANAGER_IAM_STS_ISSUER: {{ .Values.config.iam.stsIssuer | quote }}
+
   KUBEMANAGER_CENTRIFUGO_ENABLED: {{ .Values.config.centrifugo.enabled | quote }}
   KUBEMANAGER_CENTRIFUGO_URL: {{ .Values.config.centrifugo.url | quote }}
   KUBEMANAGER_CENTRIFUGO_API_URL: {{ .Values.config.centrifugo.apiUrl | quote }}

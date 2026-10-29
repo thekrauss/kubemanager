@@ -80,6 +80,10 @@ var sentinelErrors = []sentinelMapping{
 	{iam.ErrInvalidGraceDays, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
 	{iam.ErrClusterKeyNotFound, http.StatusNotFound, betoerrors.CodeNotFound, false},
 	{iam.ErrClusterKeyInactive, http.StatusConflict, "FAILED_PRECONDITION", false},
+	{iam.ErrInvalidPublicKey, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{iam.ErrInvalidSAKeyExpiry, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{iam.ErrTooManySAKeys, http.StatusConflict, "FAILED_PRECONDITION", false},
+	{iam.ErrSAKeyNotFound, http.StatusNotFound, betoerrors.CodeNotFound, false},
 }
 
 // classifyError : statut, code et message sûr à exposer.

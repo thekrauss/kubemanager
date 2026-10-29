@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/thekrauss/kubemanager/internal/iam"
+	"github.com/thekrauss/kubemanager/internal/iam/sts"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/objectstore"
 
 	"github.com/redis/go-redis/v9"
@@ -66,6 +67,7 @@ type App struct {
 	IAM                 *iam.Engine
 	ServiceAccounts     *iam.ServiceAccountService
 	ClusterAgents       *iam.ClusterAgents
+	STS                 *sts.Service
 
 	Security      Security
 	Servers       Servers

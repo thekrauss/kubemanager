@@ -117,7 +117,7 @@ func (a *App) initDomainLayers() error {
 		Realtime: realtimeController,
 		Clusters: clustersController,
 		Site:     siteController,
-		IAM:      iamapi.NewController(policies, a.IAM, a.ServiceAccounts, a.ClusterAgents),
+		IAM:      iamapi.NewController(policies, a.IAM, a.ServiceAccounts, a.ClusterAgents, a.STS),
 	}
 
 	a.Logger.Info("Domain layers successfully initialized.")

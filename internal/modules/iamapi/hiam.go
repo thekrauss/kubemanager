@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/thekrauss/kubemanager/internal/iam"
+	"github.com/thekrauss/kubemanager/internal/iam/sts"
 	"github.com/thekrauss/kubemanager/internal/middleware/security"
 )
 
@@ -24,10 +25,11 @@ type Controller struct {
 	Engine          *iam.Engine
 	ServiceAccounts *iam.ServiceAccountService
 	ClusterAgents   *iam.ClusterAgents
+	STS             *sts.Service
 }
 
-func NewController(policies *iam.PolicyService, engine *iam.Engine, sa *iam.ServiceAccountService, agents *iam.ClusterAgents) *Controller {
-	return &Controller{DB: policies.DB, Policies: policies, Engine: engine, ServiceAccounts: sa, ClusterAgents: agents}
+func NewController(policies *iam.PolicyService, engine *iam.Engine, sa *iam.ServiceAccountService, agents *iam.ClusterAgents, tokens *sts.Service) *Controller {
+	return &Controller{DB: policies.DB, Policies: policies, Engine: engine, ServiceAccounts: sa, ClusterAgents: agents, STS: tokens}
 }
 
 type GetPolicyRequest struct {

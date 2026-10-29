@@ -59,6 +59,11 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.existingSecret }}
                   key: IAM_API_KEY_PEPPER
+            - name: KUBEMANAGER_IAM_STS_KEY_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: IAM_STS_KEY_ENCRYPTION_KEY
             - name: KUBEMANAGER_CENTRIFUGO_API_KEY
               valueFrom:
                 secretKeyRef:

@@ -2,6 +2,7 @@ package configs
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -48,6 +49,14 @@ type IAMConfig struct {
 	// email retiré perd son rôle à la réconciliation suivante (≤ 10 min).
 	PlatformAdmins  []string `mapstructure:"platform_admins"`
 	PlatformSupport []string `mapstructure:"platform_support"`
+	// STSIssuer : URL publique du STS (émetteur des jetons machine), c'est-à-
+	// dire <URL publique de l'API>/kmanager/v1/iam. Le endpoint de jeton est
+	// <STSIssuer>/token et les clés publiques <STSIssuer>/.well-known/jwks.json.
+	STSIssuer string `mapstructure:"sts_issuer"`
+	// STSKeyEncryptionKey : 32 octets en base64 ; chiffre (AES-256-GCM) les
+	// clés de signature du STS stockées en base. Secret (env
+	// KUBEMANAGER_IAM_STS_KEY_ENCRYPTION_KEY en prod), remplaçable par un KMS.
+	STSKeyEncryptionKey string `mapstructure:"sts_key_encryption_key"`
 }
 
 // ObjectStoreConfig : stockage S3-compatible (SeaweedFS en dev) des sites statiques.
@@ -200,8 +209,8 @@ type MetricsConfig struct {
 }
 
 type TracingConfig struct {
-	Exporter       string  `mapstructure:"exporter"`
-	JaegerEndpoint string  `mapstructure:"jaeger_endpoint"`
+	Exporter       string `mapstructure:"exporter"`
+	JaegerEndpoint string `mapstructure:"jaeger_endpoint"`
 	// SampleRatio : ratio de sampling OTEL (0.0 → 1.0). Défaut 1.0 en dev,
 	// recommandé 0.01 (1%) en prod pour économiser Jaeger + CPU.
 	SampleRatio float64 `mapstructure:"sample_ratio"`
@@ -245,6 +254,13 @@ func Load(path string) (*GlobalConfig, error) {
 	v.SetEnvPrefix(EnvPrefix)
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
+	// AutomaticEnv ne sert à Unmarshal que pour les clés déjà connues de
+	// viper (présentes dans le fichier) : sans liaison explicite, une
+	// variable comme KUBEMANAGER_IAM_API_KEY_PEPPER serait ignorée si le
+	// fichier n'a pas de section iam (cas de la prod, configurée par l'env).
+	if err := bindEnvs(v, reflect.TypeOf(GlobalConfig{}), ""); err != nil {
+		return nil, err
+	}
 
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("erreur de chargement du fichier de configuration: %w", err)
@@ -257,4 +273,30 @@ func Load(path string) (*GlobalConfig, error) {
 
 	AppConfig = config
 	return &AppConfig, nil
+}
+
+// bindEnvs lie chaque clé de la configuration (tags mapstructure, récursif) à
+// sa variable KUBEMANAGER_<CLÉ>.
+func bindEnvs(v *viper.Viper, t reflect.Type, prefix string) error {
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		tag := strings.Split(f.Tag.Get("mapstructure"), ",")[0]
+		if tag == "" || tag == "-" {
+			continue
+		}
+		key := tag
+		if prefix != "" {
+			key = prefix + "." + tag
+		}
+		if f.Type.Kind() == reflect.Struct && f.Type != reflect.TypeOf(time.Duration(0)) && f.Type.PkgPath() != "time" {
+			if err := bindEnvs(v, f.Type, key); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := v.BindEnv(key); err != nil {
+			return fmt.Errorf("config: bind env %s: %w", key, err)
+		}
+	}
+	return nil
 }

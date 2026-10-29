@@ -73,6 +73,9 @@ config:
   keycloak:
     issuerUrl: "https://auth.example.com/realms/kubemanager"
     audience: "kubemanager-api"
+  iam:
+    # STS : URL publique de l'émetteur des jetons machine (= <API>/kmanager/v1/iam).
+    stsIssuer: "https://api.example.com/kmanager/v1/iam"
   centrifugo:
     enabled: true
     url: "https://realtime.example.com"
@@ -81,7 +84,8 @@ config:
 #  Secrets (references to an existing Secret — NOT created by this chart)
 # Keys expected in the Secret :
 #   DB_PASSWORD, REDIS_PASSWORD, JWT_SECRET, JWT_REFRESH_SECRET,
-#   KEYCLOAK_ADMIN_CLIENT_SECRET, IAM_API_KEY_PEPPER (≥ 32 octets), CENTRIFUGO_API_KEY,
+#   KEYCLOAK_ADMIN_CLIENT_SECRET, IAM_API_KEY_PEPPER (≥ 32 octets),
+#   IAM_STS_KEY_ENCRYPTION_KEY (32 octets en base64 : openssl rand -base64 32), CENTRIFUGO_API_KEY,
 #   CENTRIFUGO_TOKEN_HMAC_SECRET
 existingSecret: "kubemanager-secrets"
 

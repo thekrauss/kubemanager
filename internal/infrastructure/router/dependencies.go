@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/thekrauss/kubemanager/internal/iam"
+	"github.com/thekrauss/kubemanager/internal/iam/sts"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/objectstore"
 	sitesRepo "github.com/thekrauss/kubemanager/internal/modules/sites/repository"
 
@@ -302,6 +303,11 @@ func (a *App) initSecurity() error {
 		}
 	}
 	a.Security.Middleware.SetClusterAgents(a.ClusterAgents)
+
+	// STS : jetons machine (iam.md §7.3). Obligatoire, comme le pepper.
+	if err := a.initSTS(); err != nil {
+		return err
+	}
 	a.startPlatformRolesReconciler(context.Background())
 	return nil
 }
@@ -395,5 +401,39 @@ func (a *App) initKubernetes() error {
 		a.Logger.Infow("Connected to Kubernetes", "version", version)
 	}
 
+	return nil
+}
+
+// initSTS : trousseau de signature (chiffré par la KEK), rotation en tâche de
+// fond, vérification des jetons par le middleware.
+func (a *App) initSTS() error {
+	issuer := strings.TrimRight(strings.TrimSpace(a.Config.IAM.STSIssuer), "/")
+	if issuer == "" {
+		return fmt.Errorf("iam: sts_issuer is required (KUBEMANAGER_IAM_STS_ISSUER, ex. https://api.example.com/kmanager/v1/iam)")
+	}
+	keys, err := sts.NewKeyRing(a.DB, a.Config.IAM.STSKeyEncryptionKey)
+	if err != nil {
+		return fmt.Errorf("iam: %w (set iam.sts_key_encryption_key / KUBEMANAGER_IAM_STS_KEY_ENCRYPTION_KEY)", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := keys.Rotate(ctx); err != nil {
+		return fmt.Errorf("iam: sts signing keys: %w", err)
+	}
+	a.STS = sts.NewService(issuer, keys, a.DB)
+	a.ServiceAccounts.TokenURI = a.STS.TokenURI()
+	a.Security.Middleware.SetTokenVerifier(a.STS)
+
+	logErr := func(err error) { a.Logger.Errorw("sts background task failed", "error", err) }
+	go keys.Run(context.Background(), logErr)
+	go func() {
+		t := time.NewTicker(10 * time.Minute)
+		defer t.Stop()
+		for range t.C {
+			if err := a.STS.PurgeUsedAssertions(context.Background()); err != nil {
+				logErr(err)
+			}
+		}
+	}()
 	return nil
 }

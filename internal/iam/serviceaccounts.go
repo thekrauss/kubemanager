@@ -168,7 +168,9 @@ type ServiceAccountService struct {
 	DB     *gorm.DB
 	Engine *Engine
 	Pepper []byte
-	now    func() time.Time
+	// TokenURI : endpoint du STS, recopié dans les fichiers de clé.
+	TokenURI string
+	now      func() time.Time
 
 	usageMu  sync.Mutex
 	lastUsed map[string]time.Time // keyID → dernière écriture last_used_at
