@@ -23,10 +23,11 @@ type Controller struct {
 	Policies        *iam.PolicyService
 	Engine          *iam.Engine
 	ServiceAccounts *iam.ServiceAccountService
+	ClusterAgents   *iam.ClusterAgents
 }
 
-func NewController(policies *iam.PolicyService, engine *iam.Engine, sa *iam.ServiceAccountService) *Controller {
-	return &Controller{DB: policies.DB, Policies: policies, Engine: engine, ServiceAccounts: sa}
+func NewController(policies *iam.PolicyService, engine *iam.Engine, sa *iam.ServiceAccountService, agents *iam.ClusterAgents) *Controller {
+	return &Controller{DB: policies.DB, Policies: policies, Engine: engine, ServiceAccounts: sa, ClusterAgents: agents}
 }
 
 type GetPolicyRequest struct {

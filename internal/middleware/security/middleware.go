@@ -93,6 +93,7 @@ type MiddlewareManager struct {
 	authorizer     Authorizer
 	publicRoutes   map[string]bool
 	keyAuth        KeyAuthenticator
+	clusterAgents  ClusterAgentResolver
 }
 
 func NewMiddlewareManager(
@@ -399,37 +400,6 @@ func (m *MiddlewareManager) applyAPIKeyValidation(c *gin.Context, v authcache.AP
 		c.Set("apiKeyKind", v.Kind)
 	}
 	c.Set("authMethod", "apikey")
-}
-
-// RequireAPIKeyKind : bloque la route sauf si le caller a été authentifié
-// via une API key dont le Kind matche l'un des `allowed`.
-//
-// Usage typique — routes internes exposées à des agents/clusters K8s :
-//
-//	RealtimeGroup.Use(mgr.RequireAPIKeyKind("cluster"))
-//
-// Placé APRÈS AuthMiddleware : le context a déjà `authMethod` + `apiKeyKind`.
-func (m *MiddlewareManager) RequireAPIKeyKind(allowed ...string) gin.HandlerFunc {
-	set := make(map[string]struct{}, len(allowed))
-	for _, k := range allowed {
-		set[k] = struct{}{}
-	}
-	return func(c *gin.Context) {
-		if c.GetString("authMethod") != "apikey" {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "api key authentication required"})
-			return
-		}
-		kind := c.GetString("apiKeyKind")
-		if _, ok := set[kind]; !ok {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"error":         "api key kind not allowed for this route",
-				"required_kind": allowed,
-				"got_kind":      kind,
-			})
-			return
-		}
-		c.Next()
-	}
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

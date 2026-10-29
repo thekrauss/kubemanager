@@ -33,7 +33,9 @@ func ReconcilePlatformRoles(ctx context.Context, db *gorm.DB, desired []Platform
 	res := &PlatformReconcileResult{}
 	for _, a := range desired {
 		role, ok := LookupRole(a.Role)
-		if !ok || !role.PlatformOnly {
+		// Le rôle d'agent de cluster appartient aux comptes système, que la
+		// réconciliation (qui retire tout ce qui n'est pas déclaré) effacerait.
+		if !ok || !role.PlatformOnly || a.Role == RoleClusterAgent {
 			return nil, ErrInvalidBinding
 		}
 		want := map[Principal]bool{}

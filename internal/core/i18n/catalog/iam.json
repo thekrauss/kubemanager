@@ -114,5 +114,29 @@
  {
   "fr": "Vous ne pouvez pas accorder un rôle dont vous n'avez pas toutes les permissions",
   "en": "you cannot grant a role with permissions you do not have"
+ },
+ {
+  "fr": "cluster_id doit faire 1 à 100 caractères : lettres, chiffres, « . », « _ » ou « - »",
+  "en": "cluster_id must be 1-100 chars: letters, digits, '.', '_' or '-'"
+ },
+ {
+  "fr": "grace_days doit être compris entre 0 et 30",
+  "en": "grace_days must be between 0 and 30"
+ },
+ {
+  "fr": "référence de cluster invalide",
+  "en": "invalid cluster reference"
+ },
+ {
+  "fr": "cet appel est réservé au compte de service d'un cluster (watcher)",
+  "en": "this call is reserved for a cluster's agent service account"
+ },
+ {
+  "fr": "cette clé appartient à un autre cluster",
+  "en": "this key belongs to another cluster"
+ },
+ {
+  "fr": "cette clé est déjà révoquée ou expirée : créez-en une nouvelle",
+  "en": "this key is already revoked or expired: create a new one"
  }
 ]

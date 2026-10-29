@@ -19,9 +19,6 @@ type IRBACService interface {
 
 type IAPIKeyService interface {
 	CreateAPIKey(ctx context.Context, input CreateAPIKeyInput) (*APIKeyCreatedResponse, error)
-	CreateClusterKey(ctx context.Context, input CreateClusterKeyInput) (*APIKeyCreatedResponse, error)
-	ListClusterKeys(ctx context.Context) ([]ClusterKeyDTO, error)
-	RotateClusterKey(ctx context.Context, input RotateClusterKeyInput) (*APIKeyCreatedResponse, error)
 	ListUserKeys(ctx context.Context, userIDStr string) ([]APIKeyDTO, error)
 	GetKey(ctx context.Context, userIDStr, keyIDStr string) (*APIKeyDTO, error)
 	ListAudit(ctx context.Context, userIDStr string) ([]APIKeyAuditEntry, error)

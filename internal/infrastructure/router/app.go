@@ -65,6 +65,7 @@ type App struct {
 	ObjectStore         objectstore.Store // nil si sites désactivés
 	IAM                 *iam.Engine
 	ServiceAccounts     *iam.ServiceAccountService
+	ClusterAgents       *iam.ClusterAgents
 
 	Security      Security
 	Servers       Servers

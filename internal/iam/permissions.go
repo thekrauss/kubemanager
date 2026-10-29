@@ -86,6 +86,10 @@ const (
 	PlatformClusterKeysList   Permission = "platform.clusterKeys.list"
 	PlatformClusterKeysCreate Permission = "platform.clusterKeys.create"
 	PlatformClusterKeysRotate Permission = "platform.clusterKeys.rotate"
+	PlatformClusterKeysRevoke Permission = "platform.clusterKeys.revoke"
+	// PlatformClustersReport : le watcher d'un cluster rend compte de son
+	// cluster (enrôlement, configuration, événements des pods).
+	PlatformClustersReport Permission = "platform.clusters.report"
 )
 
 // PermissionInfo : métadonnées d'une permission (doc, UI, rôles personnalisés).
@@ -161,6 +165,8 @@ var catalog = map[Permission]PermissionInfo{
 	PlatformClusterKeysList:   {Title: "Lister les clés de cluster", PlatformOnly: true},
 	PlatformClusterKeysCreate: {Title: "Créer une clé de cluster", PlatformOnly: true},
 	PlatformClusterKeysRotate: {Title: "Faire tourner une clé de cluster", PlatformOnly: true},
+	PlatformClusterKeysRevoke: {Title: "Révoquer une clé de cluster", PlatformOnly: true},
+	PlatformClustersReport:    {Title: "Rendre compte de son cluster (watcher)", PlatformOnly: true},
 }
 
 // Known : la permission figure au catalogue.

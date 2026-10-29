@@ -63,6 +63,7 @@ var (
 
 	platformAdminPerms = []Permission{
 		PlatformClustersList, PlatformClusterKeysList, PlatformClusterKeysCreate, PlatformClusterKeysRotate,
+		PlatformClusterKeysRevoke,
 	}
 )
 
@@ -124,7 +125,15 @@ var predefinedRoles = []Role{
 	{Name: "roles/platform.support", Title: "Support plateforme",
 		Description: "Staff betorun : consulte la flotte.",
 		Permissions: []Permission{PlatformClustersList, PlatformClusterKeysList}, PlatformOnly: true},
+	// Attribué par la plateforme au compte de service système d'un cluster,
+	// jamais à une personne (iam.md §7.4).
+	{Name: RoleClusterAgent, Title: "Agent de cluster",
+		Description: "Compte système du watcher d'un cluster : rend compte de ce seul cluster.",
+		Permissions: []Permission{PlatformClustersReport}, PlatformOnly: true},
 }
+
+// RoleClusterAgent : rôle du compte de service système d'un cluster.
+const RoleClusterAgent = "roles/platform.clusterAgent"
 
 var rolesByName = func() map[string]Role {
 	m := make(map[string]Role, len(predefinedRoles))

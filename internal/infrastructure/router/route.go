@@ -14,7 +14,7 @@ import (
 	workloadsRepo "github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
 )
 
-// Chaque route déclare son accès (Public, Authenticated, Perm, APIKeyKind) :
+// Chaque route déclare son accès (Public, Authenticated, Perm, ClusterAgent) :
 // voir access.go et docs/architecture/iam.md §5.
 
 var (
@@ -33,12 +33,13 @@ func addClusterRoutes(app *App) {
 		return
 	}
 	g := newGuards(app)
-	watcher := g.APIKeyKind("cluster")
+	// La clé d'un cluster ne vaut que pour ce cluster.
+	watcher := g.ClusterAgent(security.ClusterParam("clusterID"))
 
 	// Signatures EXACT respectées pour que le watcher existant marche sans modif.
 	ClustersGroup.AddRoute("/ClusterService/Enroll", http.MethodPost,
 		"Enroll : enregistre un cluster K3s au démarrage du watcher",
-		watcher, tonic.Handler(r.Enroll, http.StatusOK))
+		g.ClusterAgent(security.ClusterJSONBody("cluster_id")), tonic.Handler(r.Enroll, http.StatusOK))
 	ClustersGroup.AddRoute("/ConfigService/:clusterID/Get", http.MethodGet,
 		"GetConfig : retourne dedup/batch/enabled_reasons au watcher",
 		watcher, tonic.Handler(r.GetConfig, http.StatusOK))
@@ -106,7 +107,6 @@ func addRBACRoutes(app *App) {
 
 func addAPIKeyRoutes(app *App) {
 	r := app.Controllers.APIKey
-	g := newGuards(app)
 
 	// Clés de l'appelant uniquement (le service filtre par userID).
 	APIKeyGroup.AddRoute("", http.MethodGet, "Lister les clés API", Authenticated(), tonic.Handler(r.ListKeys, http.StatusOK))
@@ -115,13 +115,6 @@ func addAPIKeyRoutes(app *App) {
 	APIKeyGroup.AddRoute("/:id", http.MethodGet, "Introspection d'une clé API", Authenticated(), tonic.Handler(r.GetKey, http.StatusOK))
 	APIKeyGroup.AddRoute("/:id", http.MethodDelete, "Révoquer une clé API", Authenticated(), tonic.Handler(r.RevokeKey, http.StatusOK))
 
-	adminGroup := RootGroup.NewGroup("/admin/cluster-keys", "Admin — gestion des cluster API keys (watchers)")
-	adminGroup.AddRoute("", http.MethodPost, "Provisionner une API key kind=cluster pour un watcher K8s",
-		g.Perm(iam.PlatformClusterKeysCreate, security.PlatformResource), tonic.Handler(r.CreateClusterKey, http.StatusCreated))
-	adminGroup.AddRoute("", http.MethodGet, "Liste toutes les cluster keys (status: active|expiring|expired|revoked)",
-		g.Perm(iam.PlatformClusterKeysList, security.PlatformResource), tonic.Handler(r.ListClusterKeys, http.StatusOK))
-	adminGroup.AddRoute("/:id/rotate", http.MethodPost, "Rotation : génère une new key + programme l'expiration de l'ancienne",
-		g.Perm(iam.PlatformClusterKeysRotate, security.PlatformResource), tonic.Handler(r.RotateClusterKey, http.StatusCreated))
 }
 
 func addProjectRoutes(app *App) {
@@ -234,6 +227,17 @@ func addIAMRoutes(app *App) {
 
 	grp.AddRoute("/auditLogs", http.MethodGet, "Journal d'audit d'une ressource (et de ses descendantes)",
 		g.Perm(iam.AuditLogsRead, security.ResourceQuery("resource")), tonic.Handler(r.ListAuditLogs, http.StatusOK))
+
+	// Clés des watchers : comptes de service système des clusters (staff).
+	ck := RootGroup.NewGroup("/admin/cluster-keys", "Admin — clés des watchers (comptes de service système des clusters)")
+	ck.AddRoute("", http.MethodPost, "Créer une clé de watcher (crée le compte système du cluster au besoin ; secret affiché une seule fois)",
+		g.Perm(iam.PlatformClusterKeysCreate, security.PlatformResource), tonic.Handler(r.CreateClusterKey, http.StatusCreated))
+	ck.AddRoute("", http.MethodGet, "Lister les clés de watcher, v2 et legacy (active|expiring|expired|revoked)",
+		g.Perm(iam.PlatformClusterKeysList, security.PlatformResource), tonic.Handler(r.ListClusterKeys, http.StatusOK))
+	ck.AddRoute("/:keyID/rotate", http.MethodPost, "Rotation sans coupure : nouvelle clé, l'ancienne expire après la période de grâce",
+		g.Perm(iam.PlatformClusterKeysRotate, security.PlatformResource), tonic.Handler(r.RotateClusterKey, http.StatusCreated))
+	ck.AddRoute("/:keyID", http.MethodDelete, "Révoquer une clé de watcher (effet immédiat)",
+		g.Perm(iam.PlatformClusterKeysRevoke, security.PlatformResource), tonic.Handler(r.RevokeClusterKey, http.StatusNoContent))
 
 	// Comptes de service et clés API v2, sous le projet.
 	sas := RootGroup.NewGroup("/projects/:id/serviceAccounts", "Comptes de service et clés API")

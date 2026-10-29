@@ -13,7 +13,7 @@ const (
 	accessPublic accessKind = iota + 1
 	accessAuthenticated
 	accessPermission
-	accessAPIKeyKind
+	accessClusterAgent
 )
 
 // Access : qui peut appeler une route. Argument obligatoire de AddRoute :
@@ -60,19 +60,10 @@ func (g guards) PermFor(permFor func(iam.ResourceName) (iam.Permission, error), 
 		summary: "permission IAM `*.getIamPolicy` / `*.setIamPolicy` selon le type de ressource"}
 }
 
-// APIKeyKind : clé API d'un type donné (ex. "cluster" pour le watcher).
-func (g guards) APIKeyKind(kinds ...string) Access {
-	return Access{kind: accessAPIKeyKind, guard: g.mw.RequireAPIKeyKind(kinds...),
-		summary: "clé API de type " + joinKinds(kinds)}
-}
-
-func joinKinds(kinds []string) string {
-	out := ""
-	for i, k := range kinds {
-		if i > 0 {
-			out += ", "
-		}
-		out += k
-	}
-	return out
+// ClusterAgent : watcher d'un cluster : compte de service système du cluster
+// visé par la requête, avec platform.clusters.report (iam.md §7.4).
+func (g guards) ClusterAgent(ref security.ClusterRef) Access {
+	return Access{kind: accessClusterAgent, permission: iam.PlatformClustersReport,
+		guard:   g.mw.RequireClusterAgent(ref),
+		summary: "agent du cluster visé (compte de service système), permission IAM `platform.clusters.report`"}
 }

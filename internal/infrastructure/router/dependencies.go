@@ -294,6 +294,14 @@ func (a *App) initSecurity() error {
 	}
 	a.ServiceAccounts = sa
 	a.Security.Middleware.SetKeyAuthenticator(sa)
+	a.ClusterAgents = iam.NewClusterAgents(sa)
+	if a.AuthCache != nil {
+		authCache := a.AuthCache
+		a.ClusterAgents.RevokeLegacyPrefix = func(ctx context.Context, prefix string) {
+			_ = authCache.RevokeAPIKeyPrefix(ctx, prefix, 30*24*time.Hour)
+		}
+	}
+	a.Security.Middleware.SetClusterAgents(a.ClusterAgents)
 	a.startPlatformRolesReconciler(context.Background())
 	return nil
 }

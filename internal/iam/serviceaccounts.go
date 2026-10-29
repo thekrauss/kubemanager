@@ -22,8 +22,11 @@ import (
 
 // ServiceAccount : identité machine d'un projet (iam.md §7).
 type ServiceAccount struct {
-	ID          uuid.UUID      `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	ProjectID   uuid.UUID      `gorm:"type:uuid;not null" json:"project_id"`
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	ProjectID uuid.UUID `gorm:"type:uuid" json:"project_id"`
+	// ClusterID : compte système du watcher de ce cluster (iam.md §7.4) ;
+	// vide pour un compte de projet. Exactement l'un des deux est renseigné.
+	ClusterID   *string        `json:"cluster_id,omitempty"`
 	AccountID   string         `gorm:"not null" json:"account_id"`
 	DisplayName string         `json:"display_name"`
 	Description string         `json:"description"`
@@ -282,7 +285,12 @@ func (s *ServiceAccountService) CreateKey(ctx context.Context, caller Principal,
 	if !d.Allowed {
 		return nil, ErrActAsRequired
 	}
+	return s.issueKey(ctx, s.DB, sa.ID, string(caller), req)
+}
 
+// issueKey : génère et enregistre une clé pour le compte saID ; le secret
+// n'est renvoyé qu'ici.
+func (s *ServiceAccountService) issueKey(ctx context.Context, db *gorm.DB, saID uuid.UUID, createdBy string, req CreateKeyRequest) (*CreatedAPIKey, error) {
 	env := req.Env
 	if env == "" {
 		env = APIKeyEnvLive
@@ -310,12 +318,12 @@ func (s *ServiceAccountService) CreateKey(ctx context.Context, caller Principal,
 		return nil, err
 	}
 	key := APIKey{
-		ID: uuid.New(), KeyID: keyID, ServiceAccountID: sa.ID, DisplayName: strings.TrimSpace(req.DisplayName),
+		ID: uuid.New(), KeyID: keyID, ServiceAccountID: saID, DisplayName: strings.TrimSpace(req.DisplayName),
 		Env: env, SecretHMAC: hashSecret(s.Pepper, secret), RestrictionsRaw: rawRestrictions,
 		Restrictions: req.Restrictions, ExpiresAt: s.now().Add(time.Duration(days) * 24 * time.Hour),
-		CreatedBy: string(caller), CreatedAt: s.now(),
+		CreatedBy: createdBy, CreatedAt: s.now(),
 	}
-	if err := s.DB.WithContext(ctx).Create(&key).Error; err != nil {
+	if err := db.WithContext(ctx).Create(&key).Error; err != nil {
 		return nil, err
 	}
 	audit.Annotate(ctx, "api_key_id", key.KeyID) // jamais le secret
