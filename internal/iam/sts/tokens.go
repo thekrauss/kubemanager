@@ -185,8 +185,9 @@ func (s *Service) checkStatus(ctx context.Context, p iam.Principal, keyID string
 		return true, nil
 	}
 	var keyOK bool
-	err = db.Raw(`SELECT disabled_at IS NULL FROM service_account_keys
-		WHERE key_id = ? AND service_account_id = ?`, keyID, id).Row().Scan(&keyOK)
+	// Désactivée, ou arrivée à échéance (fin de la grâce d'une rotation).
+	err = db.Raw(`SELECT disabled_at IS NULL AND valid_before > ? FROM service_account_keys
+		WHERE key_id = ? AND service_account_id = ?`, s.now(), keyID, id).Row().Scan(&keyOK)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}

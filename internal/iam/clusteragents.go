@@ -43,12 +43,26 @@ var (
 	ErrClusterKeyNotFound    = errors.New("cluster key not found")
 	ErrNotClusterAgent       = errors.New("this call is reserved for a cluster's agent service account")
 	ErrClusterAgentMismatch  = errors.New("this key belongs to another cluster")
-	ErrInvalidClusterKeyDays = errors.New("expires_in_days must be between 1 and 90")
+	ErrInvalidClusterKeyDays = errors.New("expires_in_days must be between 1 and 90 for an API key, 365 for a key file")
+	ErrInvalidClusterKeyType = errors.New("type must be api_key or key_file")
 	ErrClusterKeyInactive    = errors.New("this key is already revoked or expired: create a new one")
 )
 
 // Clé legacy km_… : forme de son identifiant dans l'API (son préfixe public).
 const legacyKeyPrefix = "km_"
+
+// Types et formats des clés de cluster.
+const (
+	// ClusterKeyAPIKey : clé API v2 (btr_live_…), secret envoyé à chaque appel.
+	ClusterKeyAPIKey = "api_key"
+	// ClusterKeyFile : fichier de clé (clé asymétrique) ; le watcher obtient
+	// des jetons d'1 h auprès du STS, aucun secret ne circule. Recommandé.
+	ClusterKeyFile = "key_file"
+
+	formatV2      = "v2"
+	formatKeyFile = "key_file"
+	formatLegacy  = "legacy"
+)
 
 // ClusterKey : vue staff d'une clé de cluster (jamais le secret).
 type ClusterKey struct {
@@ -57,7 +71,7 @@ type ClusterKey struct {
 	Principal        Principal `json:"principal"`
 	// KeyID : identifiant public (v2) ou préfixe "km_…" (legacy).
 	KeyID       string     `json:"key_id"`
-	Format      string     `json:"format"` // v2 | legacy
+	Format      string     `json:"format"` // v2 | key_file | legacy
 	DisplayName string     `json:"display_name"`
 	Status      string     `json:"status"` // active | expiring | expired | revoked
 	CreatedAt   time.Time  `json:"created_at"`
@@ -67,10 +81,12 @@ type ClusterKey struct {
 	LastUsedIP  string     `json:"last_used_ip,omitempty"`
 }
 
-// CreatedClusterKey : seule réponse qui contient le secret.
+// CreatedClusterKey : seule réponse qui contient le secret (clé API) ou la
+// clé privée (fichier de clé).
 type CreatedClusterKey struct {
 	ClusterKey
-	Key string `json:"key"`
+	Key     string   `json:"key,omitempty"`
+	KeyFile *KeyFile `json:"key_file,omitempty"`
 }
 
 // ClusterAgents : clés et comptes système des clusters.
@@ -117,7 +133,8 @@ func (a *ClusterAgents) ClusterOf(ctx context.Context, p Principal) (string, err
 type CreateClusterKeyRequest struct {
 	ClusterID     string `json:"cluster_id" binding:"required" desc:"Identifiant du cluster (ex: prod-fr-north-1)"`
 	DisplayName   string `json:"display_name" desc:"Libellé de la clé"`
-	ExpiresInDays int    `json:"expires_in_days" desc:"1 à 90 (défaut 90)"`
+	ExpiresInDays int    `json:"expires_in_days" desc:"Clé API : 1 à 90 ; fichier de clé : 1 à 365 (défaut 90)"`
+	Type          string `json:"type" desc:"api_key (défaut) ou key_file (recommandé : jetons courts, aucun secret sur le réseau)"`
 }
 
 // CreateKey : crée au besoin le compte système du cluster, puis une clé
@@ -127,16 +144,20 @@ func (a *ClusterAgents) CreateKey(ctx context.Context, caller Principal, req Cre
 	if !clusterIDRe.MatchString(clusterID) {
 		return nil, ErrInvalidClusterID
 	}
-	if req.ExpiresInDays < 0 || req.ExpiresInDays > MaxAPIKeyLifetimeDays {
+	kind, err := clusterKeyType(req.Type)
+	if err != nil {
+		return nil, err
+	}
+	if req.ExpiresInDays < 0 || req.ExpiresInDays > maxDays(kind) {
 		return nil, ErrInvalidClusterKeyDays
 	}
 	var created *CreatedClusterKey
-	err := a.SA.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = a.SA.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		saID, err := a.ensureAccount(ctx, tx, caller, clusterID)
 		if err != nil {
 			return err
 		}
-		created, err = a.issue(ctx, tx, caller, saID, clusterID, req.DisplayName, req.ExpiresInDays)
+		created, err = a.issue(ctx, tx, caller, kind, saID, clusterID, req.DisplayName, req.ExpiresInDays)
 		return err
 	})
 	if err != nil {
@@ -181,12 +202,38 @@ func (a *ClusterAgents) ensureAccount(ctx context.Context, tx *gorm.DB, caller P
 	return id, nil
 }
 
-func (a *ClusterAgents) issue(ctx context.Context, tx *gorm.DB, caller Principal, saID uuid.UUID, clusterID, name string, days int) (*CreatedClusterKey, error) {
+func clusterKeyType(t string) (string, error) {
+	switch t {
+	case "", ClusterKeyAPIKey:
+		return ClusterKeyAPIKey, nil
+	case ClusterKeyFile:
+		return ClusterKeyFile, nil
+	}
+	return "", ErrInvalidClusterKeyType
+}
+
+func maxDays(kind string) int {
+	if kind == ClusterKeyFile {
+		return MaxSAKeyLifetimeDays
+	}
+	return MaxAPIKeyLifetimeDays
+}
+
+func (a *ClusterAgents) issue(ctx context.Context, tx *gorm.DB, caller Principal, kind string, saID uuid.UUID, clusterID, name string, days int) (*CreatedClusterKey, error) {
 	if strings.TrimSpace(name) == "" {
 		name = "watcher " + clusterID
 	}
+	name = truncate(name, 100)
+	if kind == ClusterKeyFile {
+		key, err := a.SA.createSAKey(ctx, tx, saID, string(caller), CreateSAKeyRequest{DisplayName: name, ExpiresInDays: days},
+			keyFileMeta{ClusterID: clusterID})
+		if err != nil {
+			return nil, err
+		}
+		return &CreatedClusterKey{ClusterKey: a.saKeyView(key.ServiceAccountKey, clusterID), KeyFile: key.KeyFile}, nil
+	}
 	key, err := a.SA.issueKey(ctx, tx, saID, string(caller), CreateKeyRequest{
-		DisplayName:   truncate(name, 100),
+		DisplayName:   name,
 		Env:           APIKeyEnvLive,
 		ExpiresInDays: days,
 		// Défense en profondeur : même si le compte recevait d'autres rôles,
@@ -196,8 +243,7 @@ func (a *ClusterAgents) issue(ctx context.Context, tx *gorm.DB, caller Principal
 	if err != nil {
 		return nil, err
 	}
-	view := a.v2View(key.APIKey, clusterID)
-	return &CreatedClusterKey{ClusterKey: view, Key: key.Key}, nil
+	return &CreatedClusterKey{ClusterKey: a.v2View(key.APIKey, clusterID), Key: key.Key}, nil
 }
 
 // List : toutes les clés de cluster (v2 et legacy), cluster par cluster.
@@ -216,6 +262,12 @@ func (a *ClusterAgents) List(ctx context.Context) ([]ClusterKey, error) {
 	for _, k := range v2 {
 		out = append(out, a.v2View(k.APIKey, k.ClusterID))
 	}
+
+	files, err := a.keyFiles(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, files...)
 
 	legacy, err := a.legacyKeys(ctx, "")
 	if err != nil {
@@ -237,6 +289,10 @@ type RotateClusterKeyRequest struct {
 	// si Immediate, au plus 30).
 	GraceDays int  `json:"grace_days" desc:"Jours de validité restants pour l'ancienne clé (défaut 7, max 30)"`
 	Immediate bool `json:"immediate" desc:"Invalider l'ancienne clé tout de suite (clé compromise)"`
+	// Type : type de la nouvelle clé ; par défaut celui de l'ancienne (une
+	// clé legacy devient une clé API). Permet de passer d'une clé API à un
+	// fichier de clé sans coupure.
+	Type string `json:"type" desc:"api_key ou key_file (défaut : type de l'ancienne clé)"`
 }
 
 const maxClusterKeyGraceDays = 30
@@ -263,6 +319,14 @@ func (a *ClusterAgents) Rotate(ctx context.Context, caller Principal, keyID stri
 	if old.Status == "revoked" || old.Status == "expired" {
 		return nil, ErrClusterKeyInactive
 	}
+	newType := req.Type
+	if newType == "" && old.Format == formatKeyFile {
+		newType = ClusterKeyFile
+	}
+	kind, err := clusterKeyType(newType)
+	if err != nil {
+		return nil, err
+	}
 	until := a.SA.now().Add(grace)
 
 	var created *CreatedClusterKey
@@ -271,26 +335,40 @@ func (a *ClusterAgents) Rotate(ctx context.Context, caller Principal, keyID stri
 		if err != nil {
 			return err
 		}
-		created, err = a.issue(ctx, tx, caller, saID, old.ClusterID, old.DisplayName, 0)
+		created, err = a.issue(ctx, tx, caller, kind, saID, old.ClusterID, old.DisplayName, 0)
 		if err != nil {
 			return err
 		}
-		if old.Format == "legacy" {
-			return tx.Exec(`UPDATE api_keys SET expires_at = LEAST(COALESCE(expires_at, ?), ?) WHERE prefix = ? AND kind = 'cluster'`,
-				until, until, old.KeyID).Error
-		}
-		return tx.Exec(`UPDATE api_keys_v2 SET expires_at = LEAST(expires_at, ?) WHERE key_id = ?`, until, old.KeyID).Error
+		return a.expire(tx, old, until, req.Immediate)
 	})
 	if err != nil {
 		return nil, err
 	}
-	if old.Format == "legacy" && grace == 0 && a.RevokeLegacyPrefix != nil {
+	if old.Format == formatLegacy && grace == 0 && a.RevokeLegacyPrefix != nil {
 		a.RevokeLegacyPrefix(ctx, old.KeyID)
 	}
 	audit.Annotate(ctx, "cluster_id", old.ClusterID)
 	audit.Annotate(ctx, "rotated_key_id", old.KeyID)
 	audit.Annotate(ctx, "old_key_valid_until", until)
 	return created, nil
+}
+
+// expire : l'ancienne clé cesse de fonctionner à until (tout de suite si immediate).
+func (a *ClusterAgents) expire(tx *gorm.DB, old *ClusterKey, until time.Time, immediate bool) error {
+	switch old.Format {
+	case formatKeyFile:
+		if immediate {
+			// Les jetons déjà émis avec elle tombent aussi (vérification du STS).
+			return tx.Exec(`UPDATE service_account_keys SET valid_before = LEAST(valid_before, ?),
+				disabled_at = COALESCE(disabled_at, ?) WHERE key_id = ?`, until, until, old.KeyID).Error
+		}
+		return tx.Exec(`UPDATE service_account_keys SET valid_before = LEAST(valid_before, ?) WHERE key_id = ?`,
+			until, old.KeyID).Error
+	case formatLegacy:
+		return tx.Exec(`UPDATE api_keys SET expires_at = LEAST(COALESCE(expires_at, ?), ?) WHERE prefix = ? AND kind = 'cluster'`,
+			until, until, old.KeyID).Error
+	}
+	return tx.Exec(`UPDATE api_keys_v2 SET expires_at = LEAST(expires_at, ?) WHERE key_id = ?`, until, old.KeyID).Error
 }
 
 // Revoke : effet immédiat.
@@ -301,7 +379,13 @@ func (a *ClusterAgents) Revoke(ctx context.Context, keyID string) error {
 	}
 	now := a.SA.now()
 	db := a.SA.DB.WithContext(ctx)
-	if old.Format == "legacy" {
+	switch old.Format {
+	case formatKeyFile:
+		if err := db.Exec(`UPDATE service_account_keys SET disabled_at = COALESCE(disabled_at, ?) WHERE key_id = ?`,
+			now, old.KeyID).Error; err != nil {
+			return err
+		}
+	case formatLegacy:
 		if err := db.Exec(`UPDATE api_keys SET revoked_at = COALESCE(revoked_at, ?), is_active = FALSE WHERE prefix = ? AND kind = 'cluster'`,
 			now, old.KeyID).Error; err != nil {
 			return err
@@ -309,9 +393,11 @@ func (a *ClusterAgents) Revoke(ctx context.Context, keyID string) error {
 		if a.RevokeLegacyPrefix != nil {
 			a.RevokeLegacyPrefix(ctx, old.KeyID)
 		}
-	} else if err := db.Exec(`UPDATE api_keys_v2 SET revoked_at = COALESCE(revoked_at, ?) WHERE key_id = ?`,
-		now, old.KeyID).Error; err != nil {
-		return err
+	default:
+		if err := db.Exec(`UPDATE api_keys_v2 SET revoked_at = COALESCE(revoked_at, ?) WHERE key_id = ?`,
+			now, old.KeyID).Error; err != nil {
+			return err
+		}
 	}
 	audit.Annotate(ctx, "cluster_id", old.ClusterID)
 	audit.Annotate(ctx, "api_key_id", old.KeyID)
@@ -342,10 +428,50 @@ func (a *ClusterAgents) find(ctx context.Context, keyID string) (*ClusterKey, er
 		return nil, err
 	}
 	if row.KeyID == "" {
-		return nil, ErrClusterKeyNotFound
+		files, err := a.keyFiles(ctx, keyID)
+		if err != nil {
+			return nil, err
+		}
+		if len(files) == 0 {
+			return nil, ErrClusterKeyNotFound
+		}
+		return &files[0], nil
 	}
 	view := a.v2View(row.APIKey, row.ClusterID)
 	return &view, nil
+}
+
+// keyFiles : clés asymétriques des comptes système (toutes, ou celle-ci).
+func (a *ClusterAgents) keyFiles(ctx context.Context, keyID string) ([]ClusterKey, error) {
+	var rows []struct {
+		ServiceAccountKey
+		ClusterID string
+	}
+	q := `SELECT k.*, sa.cluster_id FROM service_account_keys k
+		JOIN service_accounts sa ON sa.id = k.service_account_id
+		WHERE sa.cluster_id IS NOT NULL AND sa.deleted_at IS NULL`
+	args := []any{}
+	if keyID != "" {
+		q += ` AND k.key_id = ?`
+		args = append(args, keyID)
+	}
+	if err := a.SA.DB.WithContext(ctx).Raw(q, args...).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]ClusterKey, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, a.saKeyView(r.ServiceAccountKey, r.ClusterID))
+	}
+	return out, nil
+}
+
+func (a *ClusterAgents) saKeyView(k ServiceAccountKey, clusterID string) ClusterKey {
+	expires := k.ValidBefore
+	return ClusterKey{
+		ClusterID: clusterID, ServiceAccountID: k.ServiceAccountID, Principal: ServiceAccountPrincipal(k.ServiceAccountID),
+		KeyID: k.KeyID, Format: formatKeyFile, DisplayName: k.DisplayName, CreatedAt: k.CreatedAt, ExpiresAt: &expires,
+		RevokedAt: k.DisabledAt, LastUsedAt: k.LastUsedAt, Status: a.status(k.DisabledAt != nil, &expires),
+	}
 }
 
 // legacyKeys : clés km_… de type cluster (toutes, ou celle de ce préfixe).
@@ -372,7 +498,7 @@ func (a *ClusterAgents) legacyKeys(ctx context.Context, prefix string) ([]Cluste
 	}
 	out := make([]ClusterKey, 0, len(rows))
 	for _, r := range rows {
-		k := ClusterKey{ClusterID: r.ClusterID, KeyID: r.Prefix, Format: "legacy", DisplayName: r.Name,
+		k := ClusterKey{ClusterID: r.ClusterID, KeyID: r.Prefix, Format: formatLegacy, DisplayName: r.Name,
 			CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, RevokedAt: r.RevokedAt, LastUsedAt: r.LastUsedAt}
 		if r.ServiceAccountID != nil {
 			k.ServiceAccountID = *r.ServiceAccountID
@@ -389,7 +515,7 @@ func (a *ClusterAgents) v2View(k APIKey, clusterID string) ClusterKey {
 	expires := k.ExpiresAt
 	return ClusterKey{
 		ClusterID: clusterID, ServiceAccountID: k.ServiceAccountID, Principal: ServiceAccountPrincipal(k.ServiceAccountID),
-		KeyID: k.KeyID, Format: "v2", DisplayName: k.DisplayName, CreatedAt: k.CreatedAt, ExpiresAt: &expires,
+		KeyID: k.KeyID, Format: formatV2, DisplayName: k.DisplayName, CreatedAt: k.CreatedAt, ExpiresAt: &expires,
 		RevokedAt: k.RevokedAt, LastUsedAt: k.LastUsedAt, LastUsedIP: k.LastUsedIP,
 		Status: a.status(k.RevokedAt != nil, &expires),
 	}

@@ -292,3 +292,104 @@ func kidOf(t *testing.T, tok string) string {
 	require.NoError(t, err)
 	return parsed.Header["kid"].(string)
 }
+
+// Watcher sans secret longue durée : fichier de clé du compte système du
+// cluster → jeton STS → routes du watcher, pour son cluster seulement.
+func TestE2E_ClusterAgentKeyFile(t *testing.T) {
+	d := db(t)
+	ctx := context.Background()
+	engine := iam.NewEngine(&iam.GormStore{DB: d}, iam.DefaultCacheTTL)
+	ring, err := sts.NewKeyRing(d, kek)
+	require.NoError(t, err)
+	require.NoError(t, ring.Rotate(ctx))
+	svc := sts.NewService(issuer, ring, d)
+	sas, err := iam.NewServiceAccountService(d, engine, []byte("integration-test-pepper-0123456789abcdef"))
+	require.NoError(t, err)
+	sas.TokenURI = svc.TokenURI()
+	agents := iam.NewClusterAgents(sas)
+	staff := iam.UserPrincipal(uuid.MustParse("11111111-1111-1111-1111-111111111111"))
+
+	gin.SetMode(gin.TestMode)
+	mw := security.NewMiddlewareManager(&configs.GlobalConfig{}, nil, zap.NewNop().Sugar(), nil, nil, nil, nil, nil, nil)
+	mw.SetAuthorizer(engine)
+	mw.SetKeyAuthenticator(sas)
+	mw.SetTokenVerifier(svc)
+	mw.SetClusterAgents(agents)
+	ctrl := &iamapi.Controller{STS: svc}
+	r := gin.New()
+	r.POST("/iam/token", ctrl.Token)
+	api := r.Group("/", mw.AuthMiddleware())
+	api.POST("/events/:clusterID", mw.RequireClusterAgent(security.ClusterParam("clusterID")), func(c *gin.Context) { c.Status(http.StatusOK) })
+	call := func(path, token string) int {
+		req := httptest.NewRequest("POST", path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	tokenFor := func(f *iam.KeyFile) string {
+		t.Helper()
+		now := time.Now()
+		tok := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.MapClaims{"iss": f.Principal, "sub": f.Principal, "aud": f.TokenURI,
+			"iat": now.Unix(), "exp": now.Add(5 * time.Minute).Unix(), "jti": uuid.NewString()})
+		tok.Header["kid"] = f.KeyID
+		signed, err := tok.SignedString(parsePriv(t, f.PrivateKey))
+		require.NoError(t, err)
+		form := url.Values{"grant_type": {sts.GrantJWTBearer}, "assertion": {signed}}
+		req := httptest.NewRequest("POST", "/iam/token", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var body map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &body)
+		return body["access_token"].(string)
+	}
+
+	cluster := "k3s-" + uuid.NewString()[:8]
+	_, err = agents.CreateKey(ctx, staff, iam.CreateClusterKeyRequest{ClusterID: cluster, Type: "ssh"})
+	assert.ErrorIs(t, err, iam.ErrInvalidClusterKeyType)
+	_, err = agents.CreateKey(ctx, staff, iam.CreateClusterKeyRequest{ClusterID: cluster, ExpiresInDays: 200})
+	assert.ErrorIs(t, err, iam.ErrInvalidClusterKeyDays, "clé API : 90 jours max")
+
+	// Passage d'une clé API à un fichier de clé par rotation.
+	apiKey, err := agents.CreateKey(ctx, staff, iam.CreateClusterKeyRequest{ClusterID: cluster})
+	require.NoError(t, err)
+	kf, err := agents.Rotate(ctx, staff, apiKey.KeyID, iam.RotateClusterKeyRequest{Type: iam.ClusterKeyFile})
+	require.NoError(t, err)
+	require.NotNil(t, kf.KeyFile)
+	assert.Empty(t, kf.Key)
+	assert.Equal(t, cluster, kf.KeyFile.ClusterID)
+	assert.Equal(t, "key_file", kf.Format)
+	assert.Equal(t, apiKey.ServiceAccountID, kf.ServiceAccountID, "même compte système")
+
+	access := tokenFor(kf.KeyFile)
+	assert.Equal(t, http.StatusOK, call("/events/"+cluster, access))
+	assert.Equal(t, http.StatusForbidden, call("/events/autre-cluster", access), "jeton d'un autre cluster")
+
+	list, err := agents.List(ctx)
+	require.NoError(t, err)
+	var listed bool
+	for _, k := range list {
+		listed = listed || (k.KeyID == kf.KeyID && k.Format == "key_file" && k.Status == "active")
+	}
+	assert.True(t, listed)
+
+	// Rotation planifiée d'un fichier de clé : nouveau fichier, l'ancien vit la grâce.
+	kf2, err := agents.Rotate(ctx, staff, kf.KeyID, iam.RotateClusterKeyRequest{GraceDays: 1})
+	require.NoError(t, err)
+	require.NotNil(t, kf2.KeyFile, "le type est conservé")
+	assert.Equal(t, http.StatusOK, call("/events/"+cluster, access))
+
+	// Rotation immédiate (clé compromise) : les jetons déjà émis tombent aussi.
+	access2 := tokenFor(kf2.KeyFile)
+	_, err = agents.Rotate(ctx, staff, kf2.KeyID, iam.RotateClusterKeyRequest{Immediate: true, Type: iam.ClusterKeyFile})
+	require.NoError(t, err)
+	svc.ForgetStatus()
+	assert.Equal(t, http.StatusUnauthorized, call("/events/"+cluster, access2))
+
+	// Révocation.
+	require.NoError(t, agents.Revoke(ctx, kf.KeyID))
+	svc.ForgetStatus()
+	assert.Equal(t, http.StatusUnauthorized, call("/events/"+cluster, access))
+}

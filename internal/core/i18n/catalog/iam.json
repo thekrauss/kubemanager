@@ -162,5 +162,13 @@
  {
   "fr": "ce compte de service a déjà 10 clés valides : désactivez-en une d'abord",
   "en": "this service account already has 10 valid keys: disable one first"
+ },
+ {
+  "fr": "expires_in_days doit être compris entre 1 et 90 pour une clé API, 365 pour un fichier de clé",
+  "en": "expires_in_days must be between 1 and 90 for an API key, 365 for a key file"
+ },
+ {
+  "fr": "type doit valoir api_key ou key_file",
+  "en": "type must be api_key or key_file"
  }
 ]

@@ -77,6 +77,7 @@ var sentinelErrors = []sentinelMapping{
 	{iam.ErrActAsRequired, http.StatusForbidden, "PERMISSION_DENIED", false},
 	{iam.ErrInvalidClusterID, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
 	{iam.ErrInvalidClusterKeyDays, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{iam.ErrInvalidClusterKeyType, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
 	{iam.ErrInvalidGraceDays, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
 	{iam.ErrClusterKeyNotFound, http.StatusNotFound, betoerrors.CodeNotFound, false},
 	{iam.ErrClusterKeyInactive, http.StatusConflict, "FAILED_PRECONDITION", false},
