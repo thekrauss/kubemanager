@@ -97,6 +97,11 @@ func (a *App) startHTTPServer() {
 		c.Next()
 	})
 
+	// Langue de la requête (cookie btr_locale > Accept-Language > fr), puis
+	// traduction des messages des réponses JSON, refus de l'authentification
+	// et du rate limit compris (internal/core/i18n).
+	engine.Use(middleware.Locale())
+	engine.Use(middleware.TranslateMessages())
 	engine.Use(middleware.RateLimitMiddleware(middleware.RateLimitConfig{
 		Enabled: a.Config.RateLimit.Enabled,
 		Limit:   a.Config.RateLimit.Limit,

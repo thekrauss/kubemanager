@@ -1,0 +1,42 @@
+[
+ {
+  "fr": "Port cible invalide : %d (entre 1 et 65535)",
+  "en": "invalid target port: %d (must be between 1 and 65535)"
+ },
+ {
+  "fr": "Identifiant de conteneur invalide",
+  "en": "invalid workload id"
+ },
+ {
+  "fr": "Aucun pod trouvé pour ce conteneur",
+  "en": "no pods found for workload"
+ },
+ {
+  "fr": "Les ports inférieurs à 1024 (sauf 80) sont réservés au système",
+  "en": "ports below 1024 (except 80) are system-privileged and not allowed"
+ },
+ {
+  "fr": "Projet introuvable",
+  "en": "project not found"
+ },
+ {
+  "fr": "Quota dépassé : limite de CPU atteinte (%d/%d m)",
+  "en": "quota exceeded: CPU limit reached (%d/%d m)"
+ },
+ {
+  "fr": "Quota dépassé : limite de mémoire atteinte",
+  "en": "quota exceeded: Memory limit reached"
+ },
+ {
+  "fr": "Quota dépassé : limite de stockage atteinte",
+  "en": "quota exceeded: Storage limit reached"
+ },
+ {
+  "fr": "Le stockage ne peut pas être réduit",
+  "en": "reduction of storage size is not supported"
+ },
+ {
+  "fr": "Conteneur introuvable",
+  "en": "workload not found"
+ }
+]

@@ -84,7 +84,16 @@ func classifyError(err error) (int, ErrorBody) {
 	var bindErr tonic.BindError
 	var bindErrPtr *tonic.BindError
 	if errors.As(err, &bindErr) || errors.As(err, &bindErrPtr) {
-		return http.StatusBadRequest, body(betoerrors.CodeInvalidInput, err.Error())
+		msg := err.Error()
+		if bindErrPtr != nil {
+			bindErr = *bindErrPtr
+		}
+		// Lignes du validator, sans le préfixe de tonic : le middleware de
+		// traduction les reformule dans la langue de l'utilisateur.
+		if ve := bindErr.ValidationErrors(); len(ve) > 0 {
+			msg = ve.Error()
+		}
+		return http.StatusBadRequest, body(betoerrors.CodeInvalidInput, msg)
 	}
 	var typed *betoerrors.Error
 	if errors.As(err, &typed) {

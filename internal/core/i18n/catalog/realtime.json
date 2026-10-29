@@ -1,0 +1,18 @@
+[
+ {
+  "fr": "Le canal est obligatoire",
+  "en": "channel is required"
+ },
+ {
+  "fr": "Le canal doit commencer par « project:<projectID> »",
+  "en": "channel must start with 'project:<projectID>'"
+ },
+ {
+  "fr": "Identifiant de projet invalide dans le canal",
+  "en": "invalid projectID in channel"
+ },
+ {
+  "fr": "Vous ne faites pas partie de ce projet",
+  "en": "not a member of this project"
+ }
+]

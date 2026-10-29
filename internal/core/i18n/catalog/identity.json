@@ -1,0 +1,50 @@
+[
+ {
+  "fr": "Adresse e-mail non vérifiée : consultez votre boîte de réception",
+  "en": "email address not verified — check your inbox"
+ },
+ {
+  "fr": "Service d'identité momentanément indisponible",
+  "en": "identity service unavailable"
+ },
+ {
+  "fr": "Données d'initialisation invalides",
+  "en": "invalid bootstrap payload"
+ },
+ {
+  "fr": "Identifiants invalides",
+  "en": "invalid credentials"
+ },
+ {
+  "fr": "Lien de connexion invalide ou expiré",
+  "en": "invalid or expired oauth state token"
+ },
+ {
+  "fr": "Données d'inscription invalides",
+  "en": "invalid register payload"
+ },
+ {
+  "fr": "Un compte existe déjà avec cette adresse",
+  "en": "keycloak user already exists"
+ },
+ {
+  "fr": "Identifiant de compte manquant ou invalide",
+  "en": "keycloak user id (sub) is missing or invalid"
+ },
+ {
+  "fr": "Compte introuvable",
+  "en": "keycloak user not found"
+ },
+ {
+  "fr": "Le nom du projet est obligatoire pour la première connexion",
+  "en": "project_name is required for initial bootstrap"
+ },
+ {
+  "fr": "L'adresse de retour (redirect_uri) est obligatoire",
+  "en": "redirect_uri is required"
+ },
+ {
+  "fr": "Fournisseur inconnu : google ou github",
+  "en": "unknown social provider — accepted: google, github"
+ }
+]

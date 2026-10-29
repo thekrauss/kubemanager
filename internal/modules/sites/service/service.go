@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/thekrauss/kubemanager/internal/core/i18n"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
@@ -218,7 +220,17 @@ func (s *SiteService) ListDeployments(ctx context.Context, projectID, siteID uui
 	if err != nil {
 		return nil, err
 	}
-	return s.repo.ListDeployments(ctx, site.ID, 50)
+	deployments, err := s.repo.ListDeployments(ctx, site.ID, 50)
+	if err != nil {
+		return nil, err
+	}
+	// Le message d'échec est enregistré une fois : traduit à la lecture,
+	// dans la langue de l'écran.
+	l := i18n.From(ctx)
+	for i := range deployments {
+		deployments[i].Error = i18n.Translate(l, deployments[i].Error)
+	}
+	return deployments, nil
 }
 
 func (s *SiteService) ActivateDeployment(ctx context.Context, projectID, siteID, deploymentID uuid.UUID) (*domain.SiteResponse, error) {

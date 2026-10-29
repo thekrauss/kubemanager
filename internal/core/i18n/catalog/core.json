@@ -1,0 +1,150 @@
+[
+ {
+  "fr": "%s : %s",
+  "en": "%w: %s"
+ },
+ {
+  "fr": "Clé API révoquée",
+  "en": "API key has been revoked"
+ },
+ {
+  "fr": "Clé API expirée",
+  "en": "API key has expired"
+ },
+ {
+  "fr": "Cette clé API n'a pas la permission requise : %s",
+  "en": "API key missing required scope: %s"
+ },
+ {
+  "fr": "Les restrictions de cette clé API n'autorisent pas cet appel",
+  "en": "API key restrictions do not allow this call"
+ },
+ {
+  "fr": "Cette Idempotency-Key a déjà servi pour une requête différente",
+  "en": "Idempotency-Key already used with a different request payload"
+ },
+ {
+  "fr": "Une requête identique est déjà en cours de traitement — réessayez dans quelques secondes",
+  "en": "Identical request already being processed — retry in a few seconds"
+ },
+ {
+  "fr": "Authentification par clé API requise",
+  "en": "api key authentication required"
+ },
+ {
+  "fr": "Ce type de clé API n'est pas autorisé sur cette route",
+  "en": "api key kind not allowed for this route"
+ },
+ {
+  "fr": "Contexte utilisateur absent : reconnectez-vous",
+  "en": "authenticated user context missing"
+ },
+ {
+  "fr": "La vérification de l'authentification a échoué",
+  "en": "authentication check failed"
+ },
+ {
+  "fr": "Authentification requise",
+  "en": "authentication required"
+ },
+ {
+  "fr": "Authentification momentanément indisponible",
+  "en": "authentication unavailable"
+ },
+ {
+  "fr": "Contrôle des autorisations momentanément indisponible",
+  "en": "authorization unavailable"
+ },
+ {
+  "fr": "Corps de requête requis",
+  "en": "body required"
+ },
+ {
+  "fr": "Absent du cache",
+  "en": "cache miss"
+ },
+ {
+  "fr": "Contenu de la requête différent de la requête d'origine",
+  "en": "idempotency payload mismatch"
+ },
+ {
+  "fr": "Requête déjà en cours de traitement",
+  "en": "idempotency request in progress"
+ },
+ {
+  "fr": "Opération déjà en cours, réessayez",
+  "en": "idempotent activity already in progress — retry"
+ },
+ {
+  "fr": "Données requises",
+  "en": "input is required"
+ },
+ {
+  "fr": "Clé API invalide",
+  "en": "invalid API key"
+ },
+ {
+  "fr": "Format de clé API invalide",
+  "en": "invalid API key format"
+ },
+ {
+  "fr": "Identifiant invalide",
+  "en": "invalid id"
+ },
+ {
+  "fr": "Jeton invalide ou expiré",
+  "en": "invalid or expired token"
+ },
+ {
+  "fr": "Référence de ressource invalide",
+  "en": "invalid resource reference"
+ },
+ {
+  "fr": "Format de permission invalide",
+  "en": "invalid scope format"
+ },
+ {
+  "fr": "En-tête d'autorisation manquant (Bearer ou X-API-Key)",
+  "en": "missing authorization header (Bearer or X-API-Key)"
+ },
+ {
+  "fr": "Introuvable",
+  "en": "not found"
+ },
+ {
+  "fr": "Objet introuvable",
+  "en": "object not found"
+ },
+ {
+  "fr": "La vérification des permissions a échoué",
+  "en": "permission check failed"
+ },
+ {
+  "fr": "Permission refusée",
+  "en": "permission denied"
+ },
+ {
+  "fr": "Limitation de débit momentanément indisponible, réessayez dans un instant",
+  "en": "rate limiter backend unavailable, retry shortly"
+ },
+ {
+  "fr": "Référence de ressource manquante ou invalide",
+  "en": "resource reference is missing or invalid"
+ },
+ {
+  "fr": "Jeton révoqué",
+  "en": "token has been revoked"
+ },
+ {
+  "fr": "Trop de requêtes, ralentissez",
+  "en": "too many requests, please slow down"
+ },
+ {
+  "fr": "Champ « %[1]s » invalide : %[3]s",
+  "en": "binding error on field '%s' of type '%s': %s"
+ },
+ {
+  "fr": "Requête invalide : %s",
+  "en": "binding error: %s"
+ }
+]

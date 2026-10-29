@@ -1,0 +1,118 @@
+[
+ {
+  "fr": "%s : %s (les groupes arrivent avec la phase B)",
+  "en": "%w: %s (groups arrive in phase B)"
+ },
+ {
+  "fr": "%s : le titre de la condition est obligatoire",
+  "en": "%w: condition title is required"
+ },
+ {
+  "fr": "%s : l'environnement doit être live ou test",
+  "en": "%w: env must be live or test"
+ },
+ {
+  "fr": "%s : plage IP invalide %s",
+  "en": "%w: invalid CIDR %q"
+ },
+ {
+  "fr": "%s : ressource invalide %s",
+  "en": "%w: invalid resource %q"
+ },
+ {
+  "fr": "%s : le rôle %s ne peut pas être accordé sur %s",
+  "en": "%w: role %q cannot be granted on %s"
+ },
+ {
+  "fr": "%s : permission inconnue %s",
+  "en": "%w: unknown permission %q"
+ },
+ {
+  "fr": "%s : rôle inconnu %s",
+  "en": "%w: unknown role %q"
+ },
+ {
+  "fr": "Un compte de service avec cet identifiant existe déjà dans le projet",
+  "en": "a service account with this account_id already exists in the project"
+ },
+ {
+  "fr": "L'identifiant doit faire 6 à 30 caractères : minuscules, chiffres et tirets, en commençant par une lettre",
+  "en": "account_id must be 6-30 chars: lowercase letters, digits and hyphens, starting with a letter"
+ },
+ {
+  "fr": "Clé API introuvable",
+  "en": "api key not found"
+ },
+ {
+  "fr": "Au moins un utilisateur doit rester propriétaire de cette ressource",
+  "en": "at least one user must keep roles/owner on this resource"
+ },
+ {
+  "fr": "%d permissions au maximum par appel",
+  "en": "at most %d permissions per call"
+ },
+ {
+  "fr": "L'etag est obligatoire : relisez d'abord la policy",
+  "en": "etag is required: read the policy first"
+ },
+ {
+  "fr": "La durée de validité doit être comprise entre 1 et 90 jours",
+  "en": "expires_in_days must be between 1 and 90"
+ },
+ {
+  "fr": "Policies IAM non configurées",
+  "en": "iam policies not configured"
+ },
+ {
+  "fr": "Attribution de rôle invalide",
+  "en": "invalid binding"
+ },
+ {
+  "fr": "Restrictions de clé invalides",
+  "en": "invalid key restrictions"
+ },
+ {
+  "fr": "Membre invalide",
+  "en": "invalid principal"
+ },
+ {
+  "fr": "Nom de ressource invalide",
+  "en": "invalid resource name"
+ },
+ {
+  "fr": "Il faut la permission iam.serviceAccounts.actAs sur ce compte de service pour créer ses clés",
+  "en": "permission iam.serviceAccounts.actAs on the service account is required to create its keys"
+ },
+ {
+  "fr": "Les accès de cette ressource ne se gèrent pas par l'API",
+  "en": "policies cannot be managed on this resource through the API"
+ },
+ {
+  "fr": "Ressource introuvable",
+  "en": "resource not found"
+ },
+ {
+  "fr": "Compte de service introuvable",
+  "en": "service account not found"
+ },
+ {
+  "fr": "Les accès ont été modifiés entre-temps : rechargez-les puis réessayez",
+  "en": "the policy was modified concurrently: reload it and retry"
+ },
+ {
+  "fr": "Membre inconnu",
+  "en": "unknown member"
+ },
+ {
+  "fr": "Permission inconnue %s",
+  "en": "unknown permission %q"
+ },
+ {
+  "fr": "Condition non prise en charge : seule « request.time < timestamp('<RFC3339>') » l'est",
+  "en": "unsupported condition: only \"request.time < timestamp('<RFC3339>')\" is supported"
+ },
+ {
+  "fr": "Vous ne pouvez pas accorder un rôle dont vous n'avez pas toutes les permissions",
+  "en": "you cannot grant a role with permissions you do not have"
+ }
+]
