@@ -100,6 +100,10 @@ func ValidateBinding(b Binding) error {
 	if err := b.Principal.Validate(); err != nil {
 		return err
 	}
+	if IsCustomRoleName(b.Role) {
+		// Existence et portée vérifiées par PolicyService (base, ancêtres).
+		return ValidateCondition(b.Condition)
+	}
 	role, ok := LookupRole(b.Role)
 	if !ok {
 		return fmt.Errorf("%w: unknown role %q", ErrInvalidBinding, b.Role)

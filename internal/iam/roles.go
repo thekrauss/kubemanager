@@ -32,7 +32,7 @@ var (
 		WorkloadsList, WorkloadsGet, WorkloadLogsRead, WorkloadMetrics,
 		SitesList, SitesGet, SiteDeploymentsList, SiteDomainsList,
 		ServiceAccountsList, ServiceAccountsGet, ServiceAccountKeysList, APIKeysList,
-		RolesList,
+		RolesList, GroupsList, GroupsGet,
 	}
 
 	// developerPerms : parité exacte avec l'ancien rôle DEVELOPER (création et
@@ -57,6 +57,7 @@ var (
 		OrganizationsUpdate, OrganizationsSetIamPolicy,
 		ProjectsCreate, ProjectsDelete, ProjectsSetIamPolicy,
 		RolesCreate, RolesUpdate, RolesDelete,
+		GroupsCreate, GroupsUpdate, GroupsDelete,
 		BillingAccountsGet, BillingAccountsUpdate, BillingPaymentsCreate,
 		AuditLogsRead,
 	})
@@ -110,8 +111,12 @@ var predefinedRoles = []Role{
 		Permissions: []Permission{OrganizationsGet, OrganizationsGetIamPolicy, OrganizationsSetIamPolicy,
 			ProjectsGet, ProjectsList, ProjectsGetIamPolicy, ProjectsSetIamPolicy,
 			RolesList, RolesCreate, RolesUpdate, RolesDelete,
+			GroupsList, GroupsGet, GroupsCreate, GroupsUpdate, GroupsDelete,
 			ServiceAccountsList, ServiceAccountsGet, ServiceAccountKeysList, APIKeysList, APIKeysDelete,
 			AuditLogsRead}},
+	{Name: "roles/iam.groupAdmin", Title: "Administrateur des groupes",
+		Description: "Crée les groupes de l'organisation et gère leurs membres (dans la limite de ses propres droits).",
+		Permissions: []Permission{OrganizationsGet, GroupsList, GroupsGet, GroupsCreate, GroupsUpdate, GroupsDelete}},
 	{Name: "roles/billing.admin", Title: "Administrateur facturation",
 		Description: "Gère la facturation et les paiements.",
 		Permissions: []Permission{OrganizationsGet, BillingAccountsGet, BillingAccountsUpdate, BillingPaymentsCreate}},

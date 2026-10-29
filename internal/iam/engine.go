@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,16 @@ type Store interface {
 	BindingsFor(ctx context.Context, principals []Principal) ([]Binding, error)
 	// ProjectOrganization : organisation parente d'un projet.
 	ProjectOrganization(ctx context.Context, projectID uuid.UUID) (uuid.UUID, error)
+}
+
+// GroupResolver : groupes dont un principal est membre (optionnel pour un Store).
+type GroupResolver interface {
+	GroupsOf(ctx context.Context, p Principal) ([]Principal, error)
+}
+
+// CustomRoleResolver : rôles personnalisés existants parmi names (optionnel).
+type CustomRoleResolver interface {
+	CustomRoles(ctx context.Context, names []string) (map[string]Role, error)
 }
 
 // Decision : résultat d'un Check, avec sa justification (audit, débogage).
@@ -56,7 +67,9 @@ type Engine struct {
 
 type cachedBindings struct {
 	byResource map[ResourceName][]Binding
-	expires    time.Time
+	// custom : rôles personnalisés référencés par ces bindings.
+	custom  map[string]Role
+	expires time.Time
 }
 
 type cachedOrg struct {
@@ -143,7 +156,7 @@ func (e *Engine) check(ctx context.Context, p Principal, perms []Permission, r R
 	if err != nil {
 		return nil, err
 	}
-	byResource, fromCache, err := e.principalBindings(ctx, p, false)
+	cached, fromCache, err := e.principalBindings(ctx, p, false)
 	if err != nil {
 		return nil, err
 	}
@@ -152,23 +165,24 @@ func (e *Engine) check(ctx context.Context, p Principal, perms []Permission, r R
 	out := make([]Decision, len(perms))
 	denied := false
 	for i, perm := range perms {
-		out[i] = decide(byResource, ancestry, perm, now)
+		out[i] = decide(cached, ancestry, perm, now)
 		denied = denied || !out[i].Allowed
 	}
 	if denied && fromCache {
-		if byResource, _, err = e.principalBindings(ctx, p, true); err != nil {
+		if cached, _, err = e.principalBindings(ctx, p, true); err != nil {
 			return nil, err
 		}
 		for i, perm := range perms {
 			if !out[i].Allowed {
-				out[i] = decide(byResource, ancestry, perm, now)
+				out[i] = decide(cached, ancestry, perm, now)
 			}
 		}
 	}
 	return out, nil
 }
 
-func decide(byResource map[ResourceName][]Binding, ancestry []ResourceName, perm Permission, now time.Time) Decision {
+func decide(c cachedBindings, ancestry []ResourceName, perm Permission, now time.Time) Decision {
+	byResource := c.byResource
 	info, _ := Info(perm)
 	for _, res := range ancestry {
 		if info.PlatformOnly && res != Platform {
@@ -176,6 +190,9 @@ func decide(byResource map[ResourceName][]Binding, ancestry []ResourceName, perm
 		}
 		for _, b := range byResource[res] {
 			role, ok := LookupRole(b.Role)
+			if !ok {
+				role, ok = c.custom[b.Role] // rôle personnalisé supprimé : absent, n'accorde rien
+			}
 			if !ok || !role.has(perm) {
 				continue
 			}
@@ -192,43 +209,64 @@ func decide(byResource map[ResourceName][]Binding, ancestry []ResourceName, perm
 	return Decision{Reason: fmt.Sprintf("no binding grants %s", perm)}
 }
 
-// expand : le principal et les principals spéciaux qui l'englobent. Les
-// groupes s'ajouteront ici (phase B).
-func expand(p Principal) []Principal {
+// expand : le principal, ses groupes et les principals spéciaux qui l'englobent.
+func (e *Engine) expand(ctx context.Context, p Principal) ([]Principal, error) {
 	out := []Principal{p, AllUsers}
-	if kind, _, err := p.Parse(); err == nil && (kind == KindUser || kind == KindServiceAccount) {
-		out = append(out, AllAuthenticatedUsers)
+	kind, _, err := p.Parse()
+	if err != nil || (kind != KindUser && kind != KindServiceAccount) {
+		return out, nil
 	}
-	return out
+	out = append(out, AllAuthenticatedUsers)
+	if gr, ok := e.store.(GroupResolver); ok {
+		groups, err := gr.GroupsOf(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, groups...)
+	}
+	return out, nil
 }
 
 // principalBindings : bindings de p indexés par ressource ; fromCache indique
 // s'ils viennent du cache.
-func (e *Engine) principalBindings(ctx context.Context, p Principal, force bool) (map[ResourceName][]Binding, bool, error) {
+func (e *Engine) principalBindings(ctx context.Context, p Principal, force bool) (cachedBindings, bool, error) {
 	now := e.now()
 	if !force {
 		e.mu.Lock()
 		c, ok := e.bindings[p]
 		e.mu.Unlock()
 		if ok && now.Before(c.expires) {
-			return c.byResource, true, nil
+			return c, true, nil
 		}
 	}
 
-	list, err := e.store.BindingsFor(ctx, expand(p))
+	principals, err := e.expand(ctx, p)
 	if err != nil {
-		return nil, false, fmt.Errorf("iam: load bindings: %w", err)
+		return cachedBindings{}, false, fmt.Errorf("iam: load groups: %w", err)
 	}
-	byResource := make(map[ResourceName][]Binding, len(list))
+	list, err := e.store.BindingsFor(ctx, principals)
+	if err != nil {
+		return cachedBindings{}, false, fmt.Errorf("iam: load bindings: %w", err)
+	}
+	c := cachedBindings{byResource: make(map[ResourceName][]Binding, len(list)), expires: now.Add(e.cacheTTL)}
+	var customNames []string
 	for _, b := range list {
-		byResource[b.Resource] = append(byResource[b.Resource], b)
+		c.byResource[b.Resource] = append(c.byResource[b.Resource], b)
+		if IsCustomRoleName(b.Role) {
+			customNames = append(customNames, b.Role)
+		}
+	}
+	if cr, ok := e.store.(CustomRoleResolver); ok && len(customNames) > 0 {
+		if c.custom, err = cr.CustomRoles(ctx, customNames); err != nil {
+			return cachedBindings{}, false, fmt.Errorf("iam: load custom roles: %w", err)
+		}
 	}
 	if e.cacheTTL > 0 {
 		e.mu.Lock()
-		e.bindings[p] = cachedBindings{byResource: byResource, expires: now.Add(e.cacheTTL)}
+		e.bindings[p] = c
 		e.mu.Unlock()
 	}
-	return byResource, false, nil
+	return c, false, nil
 }
 
 func (e *Engine) projectOrganization(ctx context.Context, projectID uuid.UUID) (uuid.UUID, error) {
@@ -253,10 +291,12 @@ func (e *Engine) projectOrganization(ctx context.Context, projectID uuid.UUID) (
 }
 
 // Invalidate : à appeler après toute écriture touchant les bindings de p.
+// Un groupe (ses bindings sont dans le cache de chacun de ses membres) ou un
+// principal spécial (rôle personnalisé modifié) vide tout le cache.
 func (e *Engine) Invalidate(p Principal) {
 	e.mu.Lock()
 	delete(e.bindings, p)
-	if p == AllUsers || p == AllAuthenticatedUsers {
+	if p == AllUsers || p == AllAuthenticatedUsers || strings.HasPrefix(string(p), KindGroup+":") {
 		e.bindings = map[Principal]cachedBindings{}
 	}
 	e.mu.Unlock()

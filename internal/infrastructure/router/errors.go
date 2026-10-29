@@ -85,6 +85,23 @@ var sentinelErrors = []sentinelMapping{
 	{iam.ErrInvalidSAKeyExpiry, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
 	{iam.ErrTooManySAKeys, http.StatusConflict, "FAILED_PRECONDITION", false},
 	{iam.ErrSAKeyNotFound, http.StatusNotFound, betoerrors.CodeNotFound, false},
+	{iam.ErrInvalidRoleID, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{iam.ErrRoleNotFound, http.StatusNotFound, betoerrors.CodeNotFound, true},
+	{iam.ErrRoleIDTaken, http.StatusConflict, betoerrors.CodeConflict, false},
+	{iam.ErrInvalidRolePermissions, http.StatusBadRequest, betoerrors.CodeInvalidInput, true},
+	{iam.ErrCustomRoleParent, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{iam.ErrCustomRoleOutOfScope, http.StatusBadRequest, betoerrors.CodeInvalidInput, true},
+	{iam.ErrRoleEtagMismatch, http.StatusConflict, "ABORTED", false},
+	{iam.ErrCustomRoleTitleRequired, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{iam.ErrCustomRoleEscalation, http.StatusForbidden, "PERMISSION_DENIED", false},
+	{iam.ErrCustomRolePermissionCount, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{iam.ErrInvalidGroupID, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{iam.ErrGroupIDTaken, http.StatusConflict, betoerrors.CodeConflict, false},
+	{iam.ErrGroupNotFound, http.StatusNotFound, betoerrors.CodeNotFound, false},
+	{iam.ErrNestedGroup, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{iam.ErrGroupMemberNotFound, http.StatusNotFound, betoerrors.CodeNotFound, false},
+	{iam.ErrGroupEscalation, http.StatusForbidden, "PERMISSION_DENIED", true},
+	{iam.ErrGroupOutOfScope, http.StatusBadRequest, betoerrors.CodeInvalidInput, true},
 }
 
 // classifyError : statut, code et message sûr à exposer.

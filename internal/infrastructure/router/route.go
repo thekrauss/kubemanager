@@ -2,6 +2,7 @@ package router
 
 import (
 	"errors"
+	"github.com/thekrauss/kubemanager/internal/modules/iamapi"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -234,6 +235,21 @@ func addIAMRoutes(app *App) {
 	grp.AddRoute("/.well-known/openid-configuration", http.MethodGet, "STS : métadonnées de l'émetteur",
 		Public(), r.Discovery)
 
+	grp.AddRoute("/ancestry", http.MethodGet, "Ascendance d'une ressource (projet → organisation → platform)",
+		g.PermFor(iamapi.AncestryPermission, security.ResourceQuery("resource")), tonic.Handler(r.Ancestry, http.StatusOK))
+
+	// Rôles personnalisés (iam.md §6.1) : sur une organisation ou un projet.
+	grp.AddRoute("/customRoles", http.MethodGet, "Rôles personnalisés définis sur une organisation ou un projet",
+		g.Perm(iam.RolesList, security.ResourceQuery("parent")), tonic.Handler(r.ListCustomRoles, http.StatusOK))
+	grp.AddRoute("/customRoles", http.MethodPost, "Créer un rôle personnalisé (permissions détenues par l'appelant uniquement)",
+		g.Perm(iam.RolesCreate, security.ResourceJSONBody("parent")), tonic.Handler(r.CreateCustomRole, http.StatusCreated))
+	grp.AddRoute("/customRole", http.MethodGet, "Détails d'un rôle personnalisé (?name=…)",
+		g.Perm(iam.RolesList, security.CustomRoleQuery("name")), tonic.Handler(r.GetCustomRole, http.StatusOK))
+	grp.AddRoute("/customRole", http.MethodPatch, "Modifier un rôle personnalisé (etag ; effet immédiat pour tous ses détenteurs)",
+		g.Perm(iam.RolesUpdate, security.CustomRoleJSONBody("name")), tonic.Handler(r.UpdateCustomRole, http.StatusOK))
+	grp.AddRoute("/customRole", http.MethodDelete, "Supprimer un rôle personnalisé et tous ses bindings (?name=…)",
+		g.Perm(iam.RolesDelete, security.CustomRoleQuery("name")), tonic.Handler(r.DeleteCustomRole, http.StatusNoContent))
+
 	grp.AddRoute("/auditLogs", http.MethodGet, "Journal d'audit d'une ressource (et de ses descendantes)",
 		g.Perm(iam.AuditLogsRead, security.ResourceQuery("resource")), tonic.Handler(r.ListAuditLogs, http.StatusOK))
 
@@ -247,6 +263,19 @@ func addIAMRoutes(app *App) {
 		g.Perm(iam.PlatformClusterKeysRotate, security.PlatformResource), tonic.Handler(r.RotateClusterKey, http.StatusCreated))
 	ck.AddRoute("/:keyID", http.MethodDelete, "Révoquer une clé de watcher (effet immédiat)",
 		g.Perm(iam.PlatformClusterKeysRevoke, security.PlatformResource), tonic.Handler(r.RevokeClusterKey, http.StatusNoContent))
+
+	// Groupes d'une organisation (iam.md §4).
+	groups := RootGroup.NewGroup("/organizations/:id/groups", "Groupes : personnes et comptes de service, membres de policies")
+	org := security.OrganizationParam("id")
+	group := security.OrganizationChild("id", "groups", "groupID")
+	groups.AddRoute("", http.MethodGet, "Lister les groupes de l'organisation", g.Perm(iam.GroupsList, org), tonic.Handler(r.ListGroups, http.StatusOK))
+	groups.AddRoute("", http.MethodPost, "Créer un groupe", g.Perm(iam.GroupsCreate, org), tonic.Handler(r.CreateGroup, http.StatusCreated))
+	groups.AddRoute("/:groupID", http.MethodGet, "Détails d'un groupe", g.Perm(iam.GroupsGet, group), tonic.Handler(r.GetGroup, http.StatusOK))
+	groups.AddRoute("/:groupID", http.MethodPatch, "Modifier un groupe", g.Perm(iam.GroupsUpdate, group), tonic.Handler(r.UpdateGroup, http.StatusOK))
+	groups.AddRoute("/:groupID", http.MethodDelete, "Supprimer un groupe (ses rôles partout compris)", g.Perm(iam.GroupsDelete, group), tonic.Handler(r.DeleteGroup, http.StatusNoContent))
+	groups.AddRoute("/:groupID/members", http.MethodGet, "Membres du groupe", g.Perm(iam.GroupsGet, group), tonic.Handler(r.ListGroupMembers, http.StatusOK))
+	groups.AddRoute("/:groupID/members", http.MethodPost, "Ajouter un membre (l'appelant doit détenir les droits du groupe)", g.Perm(iam.GroupsUpdate, group), tonic.Handler(r.AddGroupMember, http.StatusCreated))
+	groups.AddRoute("/:groupID/members", http.MethodDelete, "Retirer un membre (?member=…)", g.Perm(iam.GroupsUpdate, group), tonic.Handler(r.RemoveGroupMember, http.StatusNoContent))
 
 	// Comptes de service et clés API v2, sous le projet.
 	sas := RootGroup.NewGroup("/projects/:id/serviceAccounts", "Comptes de service et clés API")

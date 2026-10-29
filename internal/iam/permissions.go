@@ -74,6 +74,11 @@ const (
 	RolesCreate              Permission = "iam.roles.create"
 	RolesUpdate              Permission = "iam.roles.update"
 	RolesDelete              Permission = "iam.roles.delete"
+	GroupsList               Permission = "iam.groups.list"
+	GroupsGet                Permission = "iam.groups.get"
+	GroupsCreate             Permission = "iam.groups.create"
+	GroupsUpdate             Permission = "iam.groups.update" // métadonnées et membres
+	GroupsDelete             Permission = "iam.groups.delete"
 
 	// billing / logging
 	BillingAccountsGet    Permission = "billing.accounts.get"
@@ -155,6 +160,11 @@ var catalog = map[Permission]PermissionInfo{
 	RolesCreate:              {Title: "Créer un rôle personnalisé", CustomRoles: true},
 	RolesUpdate:              {Title: "Modifier un rôle personnalisé", CustomRoles: true},
 	RolesDelete:              {Title: "Supprimer un rôle personnalisé", CustomRoles: true},
+	GroupsList:               {Title: "Lister les groupes", CustomRoles: true},
+	GroupsGet:                {Title: "Voir un groupe et ses membres", CustomRoles: true},
+	GroupsCreate:             {Title: "Créer un groupe", CustomRoles: true},
+	GroupsUpdate:             {Title: "Modifier un groupe et ses membres", CustomRoles: true},
+	GroupsDelete:             {Title: "Supprimer un groupe", CustomRoles: true},
 
 	BillingAccountsGet:    {Title: "Voir la facturation", CustomRoles: true},
 	BillingAccountsUpdate: {Title: "Modifier la facturation", CustomRoles: true},

@@ -26,10 +26,14 @@ type Controller struct {
 	ServiceAccounts *iam.ServiceAccountService
 	ClusterAgents   *iam.ClusterAgents
 	STS             *sts.Service
+	CustomRoles     *iam.CustomRoleService
+	Groups          *iam.GroupService
 }
 
 func NewController(policies *iam.PolicyService, engine *iam.Engine, sa *iam.ServiceAccountService, agents *iam.ClusterAgents, tokens *sts.Service) *Controller {
-	return &Controller{DB: policies.DB, Policies: policies, Engine: engine, ServiceAccounts: sa, ClusterAgents: agents, STS: tokens}
+	return &Controller{DB: policies.DB, Policies: policies, Engine: engine, ServiceAccounts: sa, ClusterAgents: agents, STS: tokens,
+		CustomRoles: &iam.CustomRoleService{DB: policies.DB, Engine: engine},
+		Groups:      &iam.GroupService{DB: policies.DB, Engine: engine}}
 }
 
 type GetPolicyRequest struct {

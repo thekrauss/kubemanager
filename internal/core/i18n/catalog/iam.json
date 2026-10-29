@@ -170,5 +170,77 @@
  {
   "fr": "type doit valoir api_key ou key_file",
   "en": "type must be api_key or key_file"
+ },
+ {
+  "fr": "un rôle personnalisé a entre 1 et 300 permissions",
+  "en": "a custom role has between 1 and 300 permissions"
+ },
+ {
+  "fr": "un rôle personnalisé avec ce role_id existe déjà ici",
+  "en": "a custom role with this role_id already exists here"
+ },
+ {
+  "fr": "un groupe ne peut recevoir de rôles que dans son organisation",
+  "en": "a group can only be granted roles within its organization"
+ },
+ {
+  "fr": "un groupe ne peut pas contenir un autre groupe",
+  "en": "a group cannot contain another group"
+ },
+ {
+  "fr": "un groupe avec ce group_id existe déjà dans l'organisation",
+  "en": "a group with this group_id already exists in the organization"
+ },
+ {
+  "fr": "rôle personnalisé introuvable",
+  "en": "custom role not found"
+ },
+ {
+  "fr": "un rôle personnalisé se définit sur une organisation ou un projet",
+  "en": "custom roles live on an organization or a project"
+ },
+ {
+  "fr": "groupe introuvable",
+  "en": "group not found"
+ },
+ {
+  "fr": "group_id doit faire 3 à 63 caractères : minuscules, chiffres et tirets, en commençant par une lettre",
+  "en": "group_id must be 3-63 chars: lowercase letters, digits and hyphens, starting with a letter"
+ },
+ {
+  "fr": "permissions invalides pour un rôle personnalisé",
+  "en": "invalid permissions for a custom role"
+ },
+ {
+  "fr": "le membre est obligatoire",
+  "en": "member is required"
+ },
+ {
+  "fr": "ce membre n'appartient pas au groupe",
+  "en": "member not found in this group"
+ },
+ {
+  "fr": "role_id doit faire 3 à 64 caractères : lettres, chiffres, « _ » ou « . »",
+  "en": "role_id must be 3-64 chars: letters, digits, '_' or '.'"
+ },
+ {
+  "fr": "le rôle a été modifié entre-temps : rechargez-le et réessayez",
+  "en": "the role was modified concurrently: reload it and retry"
+ },
+ {
+  "fr": "ce rôle personnalisé ne s'accorde que sur son organisation ou son projet et leurs ressources",
+  "en": "this custom role can only be granted on its organization or project and their resources"
+ },
+ {
+  "fr": "ce groupe a des rôles avec des permissions que vous n'avez pas : vous ne pouvez pas y ajouter de membres",
+  "en": "this group has roles with permissions you do not have: you cannot add members to it"
+ },
+ {
+  "fr": "le titre est obligatoire (100 caractères au plus)",
+  "en": "title is required (at most 100 characters)"
+ },
+ {
+  "fr": "vous ne pouvez pas mettre dans un rôle des permissions que vous n'avez pas",
+  "en": "you cannot put in a role permissions you do not have"
  }
 ]

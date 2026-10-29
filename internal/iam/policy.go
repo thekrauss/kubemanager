@@ -166,16 +166,46 @@ func (s *PolicyService) Set(ctx context.Context, caller Principal, r ResourceNam
 // normalize : valide la policy entrante et la convertit en bindings (membres
 // résolus, doublons retirés).
 func (s *PolicyService) normalize(ctx context.Context, r ResourceName, in Policy) ([]Binding, error) {
+	ancestry, err := s.Engine.Ancestry(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	inScope := map[ResourceName]bool{}
+	for _, a := range ancestry {
+		inScope[a] = true
+	}
 	seen := map[string]bool{}
+	checkedRoles := map[string]bool{}
 	var out []Binding
 	for _, pb := range in.Bindings {
 		if err := ValidateCondition(pb.Condition); err != nil {
 			return nil, fmt.Errorf("role %s: %w", pb.Role, err)
 		}
+		if IsCustomRoleName(pb.Role) && !checkedRoles[pb.Role] {
+			// Rôle personnalisé : existant, et défini sur r ou un de ses parents.
+			if _, ok, err := resolveRole(ctx, s.DB, pb.Role); err != nil {
+				return nil, err
+			} else if !ok {
+				return nil, fmt.Errorf("%w: %s", ErrRoleNotFound, pb.Role)
+			}
+			if parent, _ := CustomRoleParent(pb.Role); !inScope[parent] {
+				return nil, fmt.Errorf("%w: %s", ErrCustomRoleOutOfScope, pb.Role)
+			}
+			checkedRoles[pb.Role] = true
+		}
 		for _, m := range pb.Members {
 			p, err := s.resolveMember(ctx, m)
 			if err != nil {
 				return nil, err
+			}
+			if kind, id, _ := p.Parse(); kind == KindGroup {
+				org, err := groupOrganization(ctx, s.DB, id)
+				if err != nil {
+					return nil, err
+				}
+				if !inScope[OrganizationName(org)] {
+					return nil, fmt.Errorf("%w: %s", ErrGroupOutOfScope, p)
+				}
 			}
 			b := Binding{Resource: r, Role: pb.Role, Principal: p, Condition: pb.Condition}
 			if err := ValidateBinding(b); err != nil {
@@ -193,6 +223,10 @@ func (s *PolicyService) normalize(ctx context.Context, r ResourceName, in Policy
 
 // resolveMember : "user:<email>" → "user:<uuid>" ; vérifie que le membre existe.
 func (s *PolicyService) resolveMember(ctx context.Context, m Principal) (Principal, error) {
+	return resolveMember(ctx, s.DB, m)
+}
+
+func resolveMember(ctx context.Context, db *gorm.DB, m Principal) (Principal, error) {
 	if m == AllUsers || m == AllAuthenticatedUsers {
 		return m, nil
 	}
@@ -203,9 +237,9 @@ func (s *PolicyService) resolveMember(ctx context.Context, m Principal) (Princip
 	switch kind {
 	case KindUser:
 		var id uuid.UUID
-		q := s.DB.WithContext(ctx).Raw(`SELECT id FROM users WHERE id::text = ? AND deleted_at IS NULL`, raw)
+		q := db.WithContext(ctx).Raw(`SELECT id FROM users WHERE id::text = ? AND deleted_at IS NULL`, raw)
 		if strings.Contains(raw, "@") {
-			q = s.DB.WithContext(ctx).Raw(`SELECT id FROM users WHERE lower(email) = lower(?) AND deleted_at IS NULL`, raw)
+			q = db.WithContext(ctx).Raw(`SELECT id FROM users WHERE lower(email) = lower(?) AND deleted_at IS NULL`, raw)
 		}
 		if err := q.Row().Scan(&id); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -214,21 +248,26 @@ func (s *PolicyService) resolveMember(ctx context.Context, m Principal) (Princip
 			return "", err
 		}
 		return UserPrincipal(id), nil
-	case KindServiceAccount:
+	case KindServiceAccount, KindGroup:
 		id, err := uuid.Parse(raw)
 		if err != nil {
 			return "", fmt.Errorf("%w: %s", ErrInvalidPrincipal, m)
 		}
+		table := "service_accounts"
+		if kind == KindGroup {
+			table = "iam_groups"
+		}
 		var n int64
-		if err := s.DB.WithContext(ctx).Raw(`SELECT count(*) FROM service_accounts WHERE id = ? AND deleted_at IS NULL`, id).Row().Scan(&n); err != nil {
+		if err := db.WithContext(ctx).Raw(`SELECT count(*) FROM `+table+` WHERE id = ? AND deleted_at IS NULL`, id).
+			Row().Scan(&n); err != nil {
 			return "", err
 		}
 		if n == 0 {
 			return "", fmt.Errorf("%w: %s", ErrUnknownMember, m)
 		}
-		return ServiceAccountPrincipal(id), nil
+		return Principal(kind + ":" + id.String()), nil
 	default:
-		return "", fmt.Errorf("%w: %s (groups arrive in phase B)", ErrInvalidPrincipal, m)
+		return "", fmt.Errorf("%w: %s", ErrInvalidPrincipal, m)
 	}
 }
 
@@ -248,7 +287,10 @@ func (s *PolicyService) checkNoEscalation(ctx context.Context, caller Principal,
 			continue
 		}
 		checked[b.Role] = true
-		role, _ := LookupRole(b.Role)
+		role, _, err := resolveRole(ctx, s.DB, b.Role)
+		if err != nil {
+			return err
+		}
 		granted, err := s.Engine.TestPermissions(ctx, caller, r, role.Permissions)
 		if err != nil {
 			return err
@@ -383,33 +425,41 @@ func loadPolicy(ctx context.Context, db *gorm.DB, r ResourceName, forUpdate bool
 }
 
 func (s *PolicyService) describeMembers(ctx context.Context, p *Policy) ([]MemberInfo, error) {
-	ids := map[uuid.UUID]Principal{}
-	var users []uuid.UUID
+	byKind := map[string][]uuid.UUID{}
+	seen := map[Principal]bool{}
 	for _, b := range p.Bindings {
 		for _, m := range b.Members {
-			if kind, id, err := m.Parse(); err == nil && kind == KindUser {
-				if _, ok := ids[id]; !ok {
-					ids[id] = m
-					users = append(users, id)
-				}
+			if kind, id, err := m.Parse(); err == nil && id != uuid.Nil && !seen[m] {
+				seen[m] = true
+				byKind[kind] = append(byKind[kind], id)
 			}
 		}
 	}
+	queries := map[string]string{
+		KindUser:           `SELECT id, email, full_name FROM users WHERE id IN ?`,
+		KindServiceAccount: `SELECT id, '' AS email, COALESCE(NULLIF(display_name, ''), account_id) FROM service_accounts WHERE id IN ?`,
+		KindGroup:          `SELECT id, group_id AS email, COALESCE(NULLIF(display_name, ''), group_id) FROM iam_groups WHERE id IN ?`,
+	}
 	out := []MemberInfo{}
-	if len(users) > 0 {
-		rows, err := s.DB.WithContext(ctx).Raw(`SELECT id, email, full_name FROM users WHERE id IN ?`, users).Rows()
+	for kind, ids := range byKind {
+		q, ok := queries[kind]
+		if !ok {
+			continue
+		}
+		rows, err := s.DB.WithContext(ctx).Raw(q, ids).Rows()
 		if err != nil {
 			return nil, err
 		}
-		defer rows.Close()
 		for rows.Next() {
 			var id uuid.UUID
 			var email, name string
 			if err := rows.Scan(&id, &email, &name); err != nil {
+				rows.Close()
 				return nil, err
 			}
-			out = append(out, MemberInfo{Principal: ids[id], Email: email, DisplayName: name})
+			out = append(out, MemberInfo{Principal: Principal(kind + ":" + id.String()), Email: email, DisplayName: name})
 		}
+		rows.Close()
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Principal < out[j].Principal })
 	return out, nil

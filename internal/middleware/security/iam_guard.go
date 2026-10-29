@@ -134,6 +134,58 @@ func ResourceJSONBody(field string) ResourceResolver {
 	}
 }
 
+// CustomRoleQuery : ressource parente du rôle personnalisé nommé dans ?name=.
+func CustomRoleQuery(name string) ResourceResolver {
+	return func(c *gin.Context) (iam.ResourceName, error) {
+		return customRoleParent(c.Query(name))
+	}
+}
+
+// CustomRoleJSONBody : ressource parente du rôle nommé dans le champ field du corps JSON.
+func CustomRoleJSONBody(field string) ResourceResolver {
+	return func(c *gin.Context) (iam.ResourceName, error) {
+		raw, err := peekJSONString(c, field)
+		if err != nil {
+			return "", err
+		}
+		return customRoleParent(raw)
+	}
+}
+
+func customRoleParent(raw string) (iam.ResourceName, error) {
+	parent, ok := iam.CustomRoleParent(strings.TrimSpace(raw))
+	if !ok {
+		return "", ErrResourceRefInvalid
+	}
+	return parent, nil
+}
+
+// OrganizationParam : organisation dans le paramètre d'URL name.
+func OrganizationParam(name string) ResourceResolver {
+	return func(c *gin.Context) (iam.ResourceName, error) {
+		id, err := uuid.Parse(strings.TrimSpace(c.Param(name)))
+		if err != nil {
+			return "", ErrResourceRefInvalid
+		}
+		return iam.OrganizationName(id), nil
+	}
+}
+
+// OrganizationChild : "organizations/{param org}/{collection}/{param id}".
+func OrganizationChild(orgParam, collection, idParam string) ResourceResolver {
+	return func(c *gin.Context) (iam.ResourceName, error) {
+		org, err := OrganizationParam(orgParam)(c)
+		if err != nil {
+			return "", err
+		}
+		id, err := uuid.Parse(strings.TrimSpace(c.Param(idParam)))
+		if err != nil {
+			return "", ErrResourceRefInvalid
+		}
+		return org.Child(collection, id), nil
+	}
+}
+
 func resourceRef(raw string) (iam.ResourceName, error) {
 	r := iam.ResourceName(strings.TrimSpace(raw))
 	if r.Validate() != nil {
