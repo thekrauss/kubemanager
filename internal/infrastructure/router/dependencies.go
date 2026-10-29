@@ -3,20 +3,32 @@ package router
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/thekrauss/kubemanager/internal/iam"
+	"github.com/thekrauss/kubemanager/internal/infrastructure/objectstore"
+	sitesRepo "github.com/thekrauss/kubemanager/internal/modules/sites/repository"
+
+	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 	"github.com/thekrauss/beto-shared/pkg/tracing"
 	k8sprovider "github.com/thekrauss/kubemanager/internal/infrastructure/kubernetes"
 	"go.temporal.io/sdk/client"
 
 	"github.com/thekrauss/kubemanager/internal/core/cache"
+	"github.com/thekrauss/kubemanager/internal/core/workerpool"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/database"
+	idempotency "github.com/thekrauss/kubemanager/internal/infrastructure/idempotence"
+	"github.com/thekrauss/kubemanager/internal/infrastructure/observability"
+	"github.com/thekrauss/kubemanager/internal/infrastructure/realtime"
+	"github.com/thekrauss/kubemanager/internal/infrastructure/temporal"
+	"github.com/thekrauss/kubemanager/internal/middleware"
 	"github.com/thekrauss/kubemanager/internal/middleware/security"
-	authdomain "github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/auth/repository"
+	authSvc "github.com/thekrauss/kubemanager/internal/modules/auth/service"
+	identityKC "github.com/thekrauss/kubemanager/internal/modules/identity/keycloak"
 	projectRepos "github.com/thekrauss/kubemanager/internal/modules/projects/repository"
-	wkldomain "github.com/thekrauss/kubemanager/internal/modules/workloads/domain"
 	workloadsRepo "github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
 )
 
@@ -36,6 +48,26 @@ func (a *App) initDependencies() error {
 		return err
 	}
 
+	if err := a.initAuthCache(); err != nil {
+		return err
+	}
+
+	if err := a.initAsyncPool(); err != nil {
+		return err
+	}
+
+	if err := a.initRealtime(); err != nil {
+		return err
+	}
+
+	if err := a.initIdempotency(); err != nil {
+		return err
+	}
+
+	if err := a.initKeycloak(); err != nil {
+		return err
+	}
+
 	if err := a.initTemporalClient(); err != nil {
 		return err
 	}
@@ -45,13 +77,109 @@ func (a *App) initDependencies() error {
 
 	}
 
+	if err := a.initObjectStore(ctx); err != nil {
+		return err
+	}
+
 	a.initRepositories()
-	a.initSecurity()
+
+	if err := a.initUsageAccumulator(ctx); err != nil {
+		return err
+	}
+
+	if err := a.initSecurity(); err != nil {
+		return err
+	}
 
 	if err := a.initDomain(ctx); err != nil {
 		return err
 	}
 
+	return nil
+}
+
+func (a *App) initAuthCache() error {
+	authCache, err := cache.NewRistrettoAuthCache()
+	if err != nil {
+		return fmt.Errorf("ristretto auth cache init: %w", err)
+	}
+	a.AuthCache = authCache
+	return nil
+}
+
+func (a *App) initAsyncPool() error {
+	a.AsyncPool = workerpool.New(workerpool.Config{
+		Workers:     16,
+		QueueSize:   1024,
+		TaskTimeout: 5 * time.Second,
+		Logger:      a.Logger,
+	})
+	return nil
+}
+
+func (a *App) initUsageAccumulator(ctx context.Context) error {
+	a.UsageAccumulator = authSvc.NewUsageAccumulator(authSvc.AccumulatorConfig{
+		Repo:          a.Repos.Auth,
+		Logger:        a.Logger,
+		FlushInterval: 5 * time.Second,
+		MaxPending:    500,
+	})
+	a.UsageAccumulator.Start(ctx)
+	return nil
+}
+
+func (a *App) initRealtime() error {
+	pub, err := realtime.NewPublisher(a.Config.Centrifugo)
+	if err != nil {
+		return fmt.Errorf("realtime publisher init: %w", err)
+	}
+	a.Publisher = pub
+
+	signer, err := realtime.NewTokenSigner(a.Config.Centrifugo)
+	if err != nil {
+		return fmt.Errorf("realtime token signer init: %w", err)
+	}
+	a.RealtimeSigner = signer
+
+	if a.Config.Centrifugo.Enabled {
+		a.Logger.Infow("realtime ready", "api_url", a.Config.Centrifugo.APIURL, "ws_url", a.Config.Centrifugo.URL)
+	} else {
+		a.Logger.Infow("realtime disabled (noop publisher + signer)")
+	}
+	return nil
+}
+
+func (a *App) initIdempotency() error {
+	opt := &redis.Options{
+		Addr:     fmt.Sprintf("%s:%d", a.Config.Redis.Host, a.Config.Redis.Port),
+		Password: a.Config.Redis.Password,
+		DB:       a.Config.Redis.DB,
+	}
+	mgr := idempotency.NewRedisManager(opt, 12*time.Hour)
+	a.Idempotency = mgr
+	middleware.SetIdempotencyManager(mgr, a.Logger)
+	return nil
+}
+
+func (a *App) initKeycloak() error {
+	cfg := a.Config.Keycloak
+	if !cfg.Enabled {
+		a.Logger.Warnw("keycloak disabled — identity module will be nil")
+		return nil
+	}
+	client, err := identityKC.New(identityKC.AdminConfig{
+		BaseURL:      cfg.AdminBaseURL,
+		Realm:        cfg.AdminRealm,
+		ClientID:     cfg.AdminClientID,
+		ClientSecret: cfg.AdminClientSecret,
+		WebClientID:  cfg.WebClientID,
+		Timeout:      cfg.HTTPTimeout,
+	}, cfg.IssuerURL)
+	if err != nil {
+		return fmt.Errorf("keycloak client init: %w", err)
+	}
+	a.Keycloak = client
+	a.Logger.Infow("keycloak client ready", "issuer", cfg.IssuerURL, "realm", cfg.Realm)
 	return nil
 }
 
@@ -61,11 +189,18 @@ func (a *App) initTracing(ctx context.Context) error {
 		return nil
 	}
 
+	sampleRatio := a.Config.Tracing.SampleRatio
+	if sampleRatio <= 0 {
+		sampleRatio = 0.01
+	}
+	if sampleRatio > 1 {
+		sampleRatio = 1
+	}
 	_, shutdown, err := tracing.InitTracerProvider(
 		ctx,
 		a.Config.ServiceName,
 		a.Config.Tracing.JaegerEndpoint,
-		1.0,
+		sampleRatio,
 	)
 	if err != nil {
 		a.Logger.Warnw("Tracing initialization failed", "error", err)
@@ -84,21 +219,7 @@ func (a *App) initDatabase() error {
 		return err
 	}
 	a.DB = provider.DB
-
-	a.Logger.Info("Running Auto-Migration...")
-	err = provider.Migrate(
-		&authdomain.User{},
-		&authdomain.Project{},
-		&authdomain.UserSession{},
-		&authdomain.ProjectMember{},
-		&authdomain.Role{},
-		&authdomain.Permission{},
-		&authdomain.APIKey{},
-		&wkldomain.Workload{},
-	)
-	if err != nil {
-		return fmt.Errorf("auto-migration failed: %w", err)
-	}
+	a.Logger.Info("SQL migrations applied")
 	return nil
 }
 
@@ -110,21 +231,100 @@ func (a *App) initCache(ctx context.Context) error {
 	})
 
 	if err := rdb.Ping(ctx).Err(); err != nil {
-		return fmt.Errorf("redis connection failed: %	w", err)
+		return fmt.Errorf("redis connection failed: %w", err)
 	}
+
+	if err := redisotel.InstrumentTracing(rdb); err != nil {
+		a.Logger.Warnw("redisotel tracing init failed — continuing without", "error", err)
+	}
+	if err := redisotel.InstrumentMetrics(rdb); err != nil {
+		a.Logger.Warnw("redisotel metrics init failed — continuing without", "error", err)
+	}
+
+	a.Redis = rdb
 	a.Cache = cache.NewcacheRedis(rdb, a.Logger)
 	return nil
 }
 
-func (a *App) initSecurity() {
-	a.Security.JWTManager = security.NewJWTManager(&a.Config.JWT, a.Config.ServiceName)
+func (a *App) initSecurity() error {
+	jwksURL := strings.TrimSpace(a.Config.Keycloak.JWKSURL)
+	if jwksURL == "" {
+		jwksURL = strings.TrimSpace(a.Config.Keycloak.IssuerURL + "/protocol/openid-connect/certs")
+	}
+	audience := a.Config.Keycloak.Audience
+	if audience == "" {
+		audience = a.Config.Keycloak.ClientID
+	}
+	verifier, err := middleware.NewVerifier(middleware.Config{
+		JWKSURL:  jwksURL,
+		Issuer:   a.Config.Keycloak.IssuerURL,
+		Audience: audience,
+	}, a.Logger)
+	if err != nil {
+		return fmt.Errorf("failed to init JWKS verifier: %w", err)
+	}
+	a.Security.Verifier = verifier
+
+	audit := middleware.NewAuditLoggerWithSampling(a.Logger.Desugar(), a.Config.Audit.SampleRate)
+	a.Security.Audit = audit
+
+	tenantResolver := middleware.NewTenantResolver(a.Config)
+	a.Security.TenantResolver = tenantResolver
+
 	a.Security.Middleware = security.NewMiddlewareManager(
 		a.Config,
-		a.Security.JWTManager,
-		a.Cache,
+		verifier,
 		a.Logger,
 		a.Repos.Auth,
+		audit,
+		a.AuthCache,
+		tenantResolver,
+		a.AsyncPool,
+		a.UsageAccumulator,
 	)
+
+	// IAM : point de décision unique des autorisations (docs/architecture/iam.md).
+	a.IAM = iam.NewEngine(&iam.GormStore{DB: a.DB}, iam.DefaultCacheTTL)
+	a.Security.Middleware.SetAuthorizer(a.IAM)
+	a.startIAMSync(context.Background())
+
+	sa, err := iam.NewServiceAccountService(a.DB, a.IAM, []byte(a.Config.IAM.APIKeyPepper))
+	if err != nil {
+		return fmt.Errorf("iam: %w (set iam.api_key_pepper / KUBEMANAGER_IAM_API_KEY_PEPPER)", err)
+	}
+	a.ServiceAccounts = sa
+	a.Security.Middleware.SetKeyAuthenticator(sa)
+	a.startPlatformRolesReconciler(context.Background())
+	return nil
+}
+
+// initObjectStore : stockage des sites statiques. Le bucket est créé s'il
+// manque ; un échec de création n'empêche pas le démarrage (bucket peut-être
+// déjà provisionné par l'ops, ou object store momentanément indisponible).
+func (a *App) initObjectStore(ctx context.Context) error {
+	if !a.Config.Sites.Enabled {
+		a.Logger.Infow("static sites disabled — object store skipped")
+		return nil
+	}
+	oc := a.Config.ObjectStore
+	store, err := objectstore.New(objectstore.Config{
+		Endpoint:  oc.Endpoint,
+		AccessKey: oc.AccessKey,
+		SecretKey: oc.SecretKey,
+		Bucket:    oc.Bucket,
+		Region:    oc.Region,
+		UseSSL:    oc.UseSSL,
+	})
+	if err != nil {
+		return fmt.Errorf("object store init: %w", err)
+	}
+	bctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := objectstore.EnsureBucket(bctx, store, oc.Region); err != nil {
+		a.Logger.Warnw("object store bucket check failed", "bucket", oc.Bucket, "error", err)
+	}
+	a.ObjectStore = store
+	return nil
 }
 
 func (a *App) initRepositories() {
@@ -137,28 +337,26 @@ func (a *App) initRepositories() {
 		Auth:     authRepo,
 		Project:  projectRepo,
 		Workload: workloadRepo,
+		Site:     sitesRepo.NewSiteRepository(a.DB),
 	}
 }
 
+// initDomain : plus de seed de rôles, ils sont définis dans le code
+// (internal/iam/roles.go, migration 000007).
 func (a *App) initDomain(ctx context.Context) error {
-
-	authRepo := repository.NewAuthRepository(a.DB)
-
-	seedCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	if err := authRepo.SeedDefaultRoles(seedCtx); err != nil {
-		a.Logger.Errorw("Seeding roles failed", "error", err)
-	}
-
 	return nil
 }
 
 func (a *App) initTemporalClient() error {
 	a.Logger.Info("Connecting to Temporal Server...")
 
+	metricsHandler, metricsCloser := observability.NewTemporalMetricsHandler("temporal")
+	a.Observability.TemporalMetricsCloser = metricsCloser
+
 	opts := client.Options{
-		HostPort:  a.Config.Temporal.Host,
-		Namespace: a.Config.Temporal.Namespace,
+		HostPort:       a.Config.Temporal.Host,
+		Namespace:      a.Config.Temporal.Namespace,
+		MetricsHandler: metricsHandler,
 	}
 
 	c, err := client.Dial(opts)
@@ -167,6 +365,7 @@ func (a *App) initTemporalClient() error {
 	}
 
 	a.Temporal.Client = c
+	a.TemporalDistributor = temporal.NewDistributor(c, a.Config.Temporal.TaskQueue)
 	a.Logger.Info("Connected to Temporal successfully")
 	return nil
 }

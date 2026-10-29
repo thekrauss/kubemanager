@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
-	"log"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -80,26 +80,6 @@ func (r *pgAuthRepo) RevokeAllUserSessions(ctx context.Context, userID uuid.UUID
 		Update("is_blocked", true).Error
 }
 
-func (r *pgAuthRepo) CheckProjectPermission(ctx context.Context, userID uuid.UUID, projectID uuid.UUID, permSlug string) (bool, error) {
-	var count int64
-
-	err := r.db.WithContext(ctx).
-		Table("project_members").
-		Joins("JOIN roles ON roles.id = project_members.role_id").
-		Joins("JOIN role_permissions ON role_permissions.role_id = roles.id").
-		Joins("JOIN permissions ON permissions.id = role_permissions.permission_id").
-		Where("project_members.user_id = ?", userID).
-		Where("project_members.project_id = ?", projectID).
-		Where("permissions.slug = ?", permSlug).
-		Count(&count).Error
-
-	if err != nil {
-		return false, err
-	}
-
-	return count > 0, nil
-}
-
 func (r *pgAuthRepo) CreateAPIKey(ctx context.Context, key *domain.APIKey) error {
 	return r.db.WithContext(ctx).Create(key).Error
 }
@@ -129,114 +109,74 @@ func (r *pgAuthRepo) RevokeAPIKey(ctx context.Context, keyID uuid.UUID, userID u
 		Delete(&domain.APIKey{}).Error
 }
 
+func (r *pgAuthRepo) ListAPIKeysByKind(ctx context.Context, kind string) ([]domain.APIKey, error) {
+	var keys []domain.APIKey
+	err := r.db.WithContext(ctx).
+		Where("kind = ?", kind).
+		Order("created_at DESC").
+		Find(&keys).Error
+	return keys, err
+}
+
+func (r *pgAuthRepo) UpdateAPIKeyExpiration(ctx context.Context, keyID uuid.UUID, expiresAt *time.Time) error {
+	return r.db.WithContext(ctx).
+		Model(&domain.APIKey{}).
+		Where("id = ?", keyID).
+		Update("expires_at", expiresAt).Error
+}
+
+// GetAPIKeyByID retourne une clé unique (pour introspection). Le user_id est
+// vérifié côté service pour garantir qu'un user ne peut pas lire la clé d'un autre.
+func (r *pgAuthRepo) GetAPIKeyByID(ctx context.Context, keyID uuid.UUID) (*domain.APIKey, error) {
+	var key domain.APIKey
+	err := r.db.WithContext(ctx).Where("id = ?", keyID).First(&key).Error
+	if err != nil {
+		return nil, err
+	}
+	return &key, nil
+}
+
 func (r *pgAuthRepo) UpdateAPIKeyUsage(ctx context.Context, keyID uuid.UUID) error {
 	now := time.Now()
 	return r.db.WithContext(ctx).
 		Model(&domain.APIKey{}).
 		Where("id = ?", keyID).
-		Update("last_used_at", &now).Error
+		Updates(map[string]interface{}{
+			"last_used_at": &now,
+			"usage_count":  gorm.Expr("usage_count + 1"),
+		}).Error
 }
 
-func (r *pgAuthRepo) SeedDefaultRoles(ctx context.Context) error {
-	roleSpecs := map[domain.RoleType][]domain.PermissionType{
-		domain.RoleTypes.Viewer: {
-			domain.PermissionTypes.ProjectView,
-			domain.PermissionTypes.LogsView,
-		},
-		domain.RoleTypes.Developer: {
-			domain.PermissionTypes.ProjectView,
-			domain.PermissionTypes.ProjectEdit,
-			domain.PermissionTypes.WorkloadCreate,
-			domain.PermissionTypes.LogsView,
-		},
-		domain.RoleTypes.Owner: {
-			domain.PermissionTypes.ProjectView,
-			domain.PermissionTypes.ProjectEdit,
-			domain.PermissionTypes.ProjectDelete,
-			domain.PermissionTypes.WorkloadCreate,
-			domain.PermissionTypes.WorkloadDelete,
-			domain.PermissionTypes.LogsView,
-			domain.PermissionTypes.ShellExec,
-		},
-	}
-
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		for roleEnum, permEnums := range roleSpecs {
-			var permissions []domain.Permission
-
-			for _, permEnum := range permEnums {
-				var perm domain.Permission
-
-				if err := tx.Where(domain.Permission{Slug: permEnum.String()}).
-					Attrs(domain.Permission{ID: uuid.New()}).
-					FirstOrCreate(&perm).Error; err != nil {
-					return err
-				}
-				permissions = append(permissions, perm)
-			}
-
-			var role domain.Role
-			if err := tx.Where(domain.Role{Name: roleEnum.String()}).
-				Attrs(domain.Role{ID: uuid.New()}).
-				FirstOrCreate(&role).Error; err != nil {
-				return err
-			}
-
-			if err := tx.Model(&role).Association("Permissions").Replace(permissions); err != nil {
-				return err
-			}
-
-			log.Printf("Seeded Role: %s with %d permissions", roleEnum.String(), len(permissions))
-		}
+// BatchIncrementAPIKeyUsage : update groupé via "UPDATE ... FROM (VALUES ...)".
+// Évite de faire 1 UPDATE par clé (hot row contention + N round-trips).
+// Fix P4.
+func (r *pgAuthRepo) BatchIncrementAPIKeyUsage(ctx context.Context, increments map[uuid.UUID]int) error {
+	if len(increments) == 0 {
 		return nil
-	})
-}
-
-func (r *pgAuthRepo) GetRoleByName(ctx context.Context, name string) (*domain.Role, error) {
-	var role domain.Role
-	err := r.db.WithContext(ctx).
-		Preload("Permissions").
-		Where("name = ?", name).
-		First(&role).Error
-
-	if err != nil {
-		return nil, err
 	}
-	return &role, nil
-}
 
-func (r *pgAuthRepo) AddProjectMember(ctx context.Context, member *domain.ProjectMember) error {
-	return r.db.WithContext(ctx).Save(member).Error
-}
-
-func (r *pgAuthRepo) RemoveProjectMember(ctx context.Context, projectID uuid.UUID, userID uuid.UUID) error {
-	return r.db.WithContext(ctx).
-		Where("project_id = ? AND user_id = ?", projectID, userID).
-		Delete(&domain.ProjectMember{}).Error
-}
-
-func (r *pgAuthRepo) GetProjectMember(ctx context.Context, projectID uuid.UUID, userID uuid.UUID) (*domain.ProjectMember, error) {
-	var member domain.ProjectMember
-
-	err := r.db.WithContext(ctx).
-		Preload("Role.Permissions").
-		Preload("User").
-		Where("project_id = ? AND user_id = ?", projectID, userID).
-		First(&member).Error
-
-	if err != nil {
-		return nil, err
+	// Construit les placeholders + args : (?::uuid, ?), (?::uuid, ?), ...
+	placeholders := make([]string, 0, len(increments))
+	args := make([]interface{}, 0, len(increments)*2)
+	for keyID, delta := range increments {
+		if delta <= 0 {
+			continue
+		}
+		placeholders = append(placeholders, "(?::uuid, ?::int)")
+		args = append(args, keyID.String(), delta)
 	}
-	return &member, nil
-}
+	if len(placeholders) == 0 {
+		return nil
+	}
 
-func (r *pgAuthRepo) GetUserProjectMemberships(ctx context.Context, userID uuid.UUID) ([]domain.ProjectMember, error) {
-	var memberships []domain.ProjectMember
-	err := r.db.WithContext(ctx).
-		Preload("Role").
-		Where("user_id = ?", userID).
-		Find(&memberships).Error
-	return memberships, err
+	sql := `
+		UPDATE api_keys AS k
+		SET    usage_count  = k.usage_count + v.delta,
+		       last_used_at = NOW()
+		FROM   (VALUES ` + strings.Join(placeholders, ",") + `) AS v(id, delta)
+		WHERE  k.id = v.id
+	`
+	return r.db.WithContext(ctx).Exec(sql, args...).Error
 }
 
 func (r *pgAuthRepo) FindRefreshTokenByJTI(ctx context.Context, jti uuid.UUID) (*domain.UserSession, error) {
@@ -263,39 +203,36 @@ func (r *pgAuthRepo) DeleteRefreshTokenByJTI(ctx context.Context, jti uuid.UUID)
 		Update("is_blocked", true).Error
 }
 
-func (r *pgAuthRepo) UpdatePassword(ctx context.Context, userID uuid.UUID, hash string) error {
-
-	result := r.db.WithContext(ctx).
-		Model(&domain.User{}).
-		Where("id = ?", userID).
-		Updates(map[string]interface{}{
-			"password_hash": hash,
-			"updated_at":    time.Now(),
-		})
-
-	if result.Error != nil {
-		return result.Error
-	}
-
-	if result.RowsAffected == 0 {
-		return errors.New("user not found")
-	}
-
-	return nil
-}
-
-func (r *pgAuthRepo) ListRoles(ctx context.Context) ([]domain.Role, error) {
-	var roles []domain.Role
-	err := r.db.WithContext(ctx).Preload("Permissions").Find(&roles).Error
-	return roles, err
-}
-
-func (r *pgAuthRepo) ListProjectMembers(ctx context.Context, projectID uuid.UUID) ([]domain.ProjectMember, error) {
-	var members []domain.ProjectMember
+func (r *pgAuthRepo) IsTokenRevoked(ctx context.Context, tokenHash string) (bool, error) {
+	var count int64
 	err := r.db.WithContext(ctx).
-		Preload("User").
-		Preload("Role").
-		Where("project_id = ?", projectID).
-		Find(&members).Error
-	return members, err
+		Model(&domain.RevokedToken{}).
+		Where("token_hash = ? AND expires_at > NOW()", tokenHash).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (r *pgAuthRepo) RevokeToken(ctx context.Context, tokenHash string, expiresAt time.Time) error {
+	token := domain.RevokedToken{
+		ID:        uuid.New(),
+		TokenHash: tokenHash,
+		ExpiresAt: expiresAt,
+		CreatedAt: time.Now(),
+	}
+	return r.db.WithContext(ctx).Create(&token).Error
+}
+
+func (r *pgAuthRepo) FindByKeycloakUserID(ctx context.Context, kcUserID string) (*domain.User, error) {
+	var user domain.User
+	err := r.db.WithContext(ctx).Where("keycloak_user_id = ?", strings.TrimSpace(kcUserID)).First(&user).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &user, nil
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	dauth "github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/utils"
 
@@ -13,6 +12,13 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
+// ProjectActivities : stub local utilisé UNIQUEMENT pour dériver les noms
+// d'activities via reflection (pattern Temporal). Les vraies implémentations
+// sont dans activities/{db,k8s}.go et enregistrées via processor.go.
+//
+// Chaque méthode ici DOIT avoir le même nom ET la même signature qu'une
+// méthode sur une activity struct enregistrée, sinon Temporal rejette
+// l'activity au runtime.
 type ProjectActivities struct{}
 
 func (a *ProjectActivities) CreateProjectInDB(ctx context.Context, name string, description string, ownerID string) (*dauth.Project, error) {
@@ -30,7 +36,10 @@ func (a *ProjectActivities) ReconcileProjectResources(ctx context.Context, nsNam
 	return nil
 }
 
-func (a *ProjectActivities) AssignProjectRole(ctx context.Context, userID, projectID, roleName string) error {
+// AssignDefaultOwner : signature MATCHÉE sur ProjectK8sActivities.AssignDefaultOwner
+// (fix #4 : avant on avait `AssignProjectRole(userID, projectID, roleName)` qui
+// n'était enregistrée nulle part → "activity not registered" au runtime).
+func (a *ProjectActivities) AssignDefaultOwner(ctx context.Context, projectID, userID string) error {
 	return nil
 }
 
@@ -74,6 +83,9 @@ func CreateProjectWorkflow(ctx workflow.Context, input CreateProjectInput) (Proj
 		return result, err
 	}
 	result.ProjectID = dbRes.ID.String()
+	// Fix #3 : calcule nsName UNE fois, utilise-le pour ReconcileProjectResources
+	// (avant : result.Namespace lu ligne 87 avant d'être setté → "" passé en paramètre).
+	result.Namespace = fmt.Sprintf("km-%s", input.Name)
 
 	err = workflow.ExecuteActivity(ctx, a.CreateNamespace, result.ProjectID, input.Name).Get(ctx, nil)
 	if err != nil {
@@ -88,20 +100,13 @@ func CreateProjectWorkflow(ctx workflow.Context, input CreateProjectInput) (Proj
 		return result, err
 	}
 
-	result.Status = utils.ProjectStatusReady
-	result.Namespace = fmt.Sprintf("km-%s", input.Name)
-
-	rbacInput := &domain.AssignRoleRequest{
-		UserID:    input.OwnerID,
-		ProjectID: result.ProjectID,
-		RoleName:  domain.RoleTypes.Owner.String(),
-	}
-
-	err = workflow.ExecuteActivity(ctx, a.AssignProjectRole, rbacInput).Get(ctx, nil)
+	// Fix #4 : appelle la VRAIE activity enregistrée (ProjectK8sActivities.AssignDefaultOwner).
+	// Signature : (ctx, projectID, userID).
+	err = workflow.ExecuteActivity(ctx, a.AssignDefaultOwner, result.ProjectID, input.OwnerID).Get(ctx, nil)
 	if err != nil {
 		return result, err
 	}
+
+	result.Status = utils.ProjectStatusReady
 	return result, nil
 }
-
-

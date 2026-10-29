@@ -93,6 +93,7 @@ var PermissionTypes = permissionTypes{
 	ProjectDelete:  PermissionType{value: "project:delete"},
 	ProjectEdit:    PermissionType{value: "project:edit"},
 	ProjectView:    PermissionType{value: "project:view"},
+	MembersManage:  PermissionType{value: "project:members:manage"},
 }
 
 // permissionTypes is the struct containing the static values.
@@ -104,6 +105,7 @@ type permissionTypes struct {
 	ProjectDelete  PermissionType
 	ProjectEdit    PermissionType
 	ProjectView    PermissionType
+	MembersManage  PermissionType
 }
 
 // NewFromString validates and returns the enum corresponding to the string.
@@ -123,6 +125,8 @@ func (f permissionTypes) NewFromString(ctx context.Context, str string) (Permiss
 		return f.ProjectEdit, nil
 	case "project:view":
 		return f.ProjectView, nil
+	case "project:members:manage":
+		return f.MembersManage, nil
 	default:
 		return PermissionType{}, fmt.Errorf("%w: %s", ErrInvalidPermissionType, str)
 	}
@@ -137,5 +141,6 @@ func (f permissionTypes) All() []PermissionType {
 		f.ProjectDelete,
 		f.ProjectEdit,
 		f.ProjectView,
+		f.MembersManage,
 	}
 }

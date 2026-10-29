@@ -1,0 +1,82 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "KubeManager API up",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "up{job=\"kubemanager-api\"}" }],
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "1": { "text": "UP", "color": "green" }, "0": { "text": "DOWN", "color": "red" } } }] } },
+      "options": { "colorMode": "background" }
+    },
+    {
+      "type": "stat",
+      "title": "Go goroutines",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "go_goroutines{job=\"kubemanager-api\"}" }]
+    },
+    {
+      "type": "stat",
+      "title": "Heap in use (MB)",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "go_memstats_heap_inuse_bytes{job=\"kubemanager-api\"} / 1024 / 1024" }],
+      "fieldConfig": { "defaults": { "unit": "decmbytes" } }
+    },
+    {
+      "type": "stat",
+      "title": "GC pause P99",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "go_gc_duration_seconds{quantile=\"1\", job=\"kubemanager-api\"}" }],
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 4 } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Goroutines over time",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "go_goroutines{job=\"kubemanager-api\"}", "legendFormat": "goroutines" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Heap alloc / inuse",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "go_memstats_heap_alloc_bytes{job=\"kubemanager-api\"}", "legendFormat": "alloc" },
+        { "expr": "go_memstats_heap_inuse_bytes{job=\"kubemanager-api\"}", "legendFormat": "inuse" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Process CPU",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "rate(process_cpu_seconds_total{job=\"kubemanager-api\"}[1m])" }],
+      "fieldConfig": { "defaults": { "unit": "percentunit" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Open file descriptors",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "process_open_fds{job=\"kubemanager-api\"}" }]
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 38,
+  "tags": ["kubemanager", "infra"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "KubeManager — Infra / runtime Go",
+  "uid": "km-infra",
+  "version": 1
+}

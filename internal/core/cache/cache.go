@@ -2,17 +2,154 @@ package cache
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/dgraph-io/ristretto"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
-
-	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
 )
 
-var ErrCacheMiss = betoerrors.New(betoerrors.CodeCacheMiss, "cache miss")
+type AccessTokenClaims struct {
+	UserID    string
+	Email     string
+	TenantID  string
+	Roles     []string
+	Scopes    []string
+	ExpiresAt int64
+	JTI       string
+}
+
+type APIKeyValidation struct {
+	// ServiceAccountID : si renseigné, la clé agit comme ce compte de service
+	// (clé legacy rattachée, iam.md §8.4) et non comme UserID.
+	ServiceAccountID string
+	UserID           string
+	TenantID         string
+	Kind             string
+	Scopes           []string
+}
+
+type AuthCache interface {
+	SetAccessTokenClaims(ctx context.Context, token string, claims AccessTokenClaims, ttl time.Duration) error
+	GetAccessTokenClaims(ctx context.Context, token string) (AccessTokenClaims, bool, error)
+	BlacklistAccessTokenJTI(ctx context.Context, jti string, ttl time.Duration) error
+	IsAccessTokenJTIBlacklisted(ctx context.Context, jti string) (bool, error)
+
+	SetAPIKeyValidation(ctx context.Context, rawKey string, validation APIKeyValidation, ttl time.Duration) error
+	GetAPIKeyValidation(ctx context.Context, rawKey string) (APIKeyValidation, bool, error)
+	RevokeAPIKeyPrefix(ctx context.Context, prefix string, ttl time.Duration) error
+	IsAPIKeyPrefixRevoked(ctx context.Context, prefix string) (bool, error)
+
+	Get(ctx context.Context, key string) (string, error)
+	Set(ctx context.Context, key string, value string, ttl time.Duration) error
+	Delete(ctx context.Context, key string) error
+}
+
+type RistrettoAuthCache struct {
+	cache *ristretto.Cache
+}
+
+func NewRistrettoAuthCache() (*RistrettoAuthCache, error) {
+	cache, err := ristretto.NewCache(&ristretto.Config{
+		NumCounters: 1e7,
+		MaxCost:     1 << 30,
+		BufferItems: 64,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &RistrettoAuthCache{cache: cache}, nil
+}
+
+func (c *RistrettoAuthCache) SetAccessTokenClaims(ctx context.Context, token string, claims AccessTokenClaims, ttl time.Duration) error {
+	key := "claims:" + secureKey(token)
+	c.cache.SetWithTTL(key, claims, 1, ttl)
+	return nil
+}
+
+func (c *RistrettoAuthCache) GetAccessTokenClaims(ctx context.Context, token string) (AccessTokenClaims, bool, error) {
+	key := "claims:" + secureKey(token)
+	val, ok := c.cache.Get(key)
+	if !ok {
+		return AccessTokenClaims{}, false, nil
+	}
+	claims, ok := val.(AccessTokenClaims)
+	return claims, ok, nil
+}
+
+func (c *RistrettoAuthCache) BlacklistAccessTokenJTI(ctx context.Context, jti string, ttl time.Duration) error {
+	key := "bl:jti:" + secureKey(jti)
+	c.cache.SetWithTTL(key, struct{}{}, 1, ttl)
+	return nil
+}
+
+func (c *RistrettoAuthCache) IsAccessTokenJTIBlacklisted(ctx context.Context, jti string) (bool, error) {
+	key := "bl:jti:" + secureKey(jti)
+	_, ok := c.cache.Get(key)
+	return ok, nil
+}
+
+func (c *RistrettoAuthCache) SetAPIKeyValidation(ctx context.Context, rawKey string, validation APIKeyValidation, ttl time.Duration) error {
+	key := "ak:" + secureKey(rawKey)
+	c.cache.SetWithTTL(key, validation, 1, ttl)
+	return nil
+}
+
+func (c *RistrettoAuthCache) GetAPIKeyValidation(ctx context.Context, rawKey string) (APIKeyValidation, bool, error) {
+	key := "ak:" + secureKey(rawKey)
+	val, ok := c.cache.Get(key)
+	if !ok {
+		return APIKeyValidation{}, false, nil
+	}
+	v, ok := val.(APIKeyValidation)
+	return v, ok, nil
+}
+
+func (c *RistrettoAuthCache) RevokeAPIKeyPrefix(ctx context.Context, prefix string, ttl time.Duration) error {
+	key := "rev:" + secureKey(prefix)
+	c.cache.SetWithTTL(key, struct{}{}, 1, ttl)
+	return nil
+}
+
+func (c *RistrettoAuthCache) IsAPIKeyPrefixRevoked(ctx context.Context, prefix string) (bool, error) {
+	key := "rev:" + secureKey(prefix)
+	_, ok := c.cache.Get(key)
+	return ok, nil
+}
+
+func (c *RistrettoAuthCache) Get(ctx context.Context, key string) (string, error) {
+	val, ok := c.cache.Get("gen:" + key)
+	if !ok {
+		return "", nil
+	}
+	s, ok := val.(string)
+	if !ok {
+		return "", fmt.Errorf("value is not a string")
+	}
+	return s, nil
+}
+
+func (c *RistrettoAuthCache) Set(ctx context.Context, key string, value string, ttl time.Duration) error {
+	c.cache.SetWithTTL("gen:"+key, value, 1, ttl)
+	return nil
+}
+
+func (c *RistrettoAuthCache) Delete(ctx context.Context, key string) error {
+	c.cache.Del("gen:" + key)
+	return nil
+}
+
+func secureKey(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+var ErrCacheMiss = errors.New("cache miss")
 
 const (
 	ServiceKeyPrefix = "kubemanager:"
@@ -43,6 +180,18 @@ type CacheRedis interface {
 	StoreResetToken(ctx context.Context, token, userID string, ttl time.Duration) error
 	GetResetToken(ctx context.Context, token string) (string, error)
 	DeleteResetToken(ctx context.Context, token string) error
+
+	// Increment : compteur atomique distribué.
+	// INCR le compteur à `key`, et sur la première valeur pose un TTL = `window`.
+	// Usage : rate limiting (ex : max N créations d'API key / 24h par user).
+	// Retourne la nouvelle valeur après incrémentation.
+	Increment(ctx context.Context, key string, window time.Duration) (int64, error)
+
+	// SetValue / GetValue / DeleteValue : KV string générique avec TTL.
+	// Usage : state CSRF OAuth (one-time, cross-instance).
+	SetValue(ctx context.Context, key, value string, ttl time.Duration) error
+	GetValue(ctx context.Context, key string) (string, error)
+	DeleteValue(ctx context.Context, key string) error
 
 	Ping(ctx context.Context) error
 }
@@ -80,7 +229,6 @@ func (r *cacheRedis) GetUser(ctx context.Context, key string, dest interface{}) 
 	return r.getJSON(ctx, key, dest)
 }
 
-// Implémentation de Delete (utilise ton helper privé delete)
 func (r *cacheRedis) DeleteUser(ctx context.Context, key string) error {
 	return r.delete(ctx, key)
 }
@@ -95,7 +243,7 @@ func (r *cacheRedis) IncrementLoginAttempts(ctx context.Context, userID string, 
 	count, err := r.Client.Incr(ctx, key).Result()
 	if err != nil {
 		r.Logger.Errorw("Failed to increment attempt counter", "key", key, "error", err)
-		return 0, betoerrors.Wrap(err, betoerrors.CodeCacheError, "failed to increment login attempts")
+		return 0, fmt.Errorf("failed to increment login attempts: %w", err)
 	}
 
 	if count == 1 {
@@ -111,7 +259,7 @@ func (r *cacheRedis) BlockUser(ctx context.Context, userID string, duration time
 
 	if err := r.Client.Set(ctx, key, "1", duration).Err(); err != nil {
 		r.Logger.Errorw("Failed to block user", "userID", userID, "error", err)
-		return betoerrors.Wrap(err, betoerrors.CodeCacheError, "failed to set user block key")
+		return fmt.Errorf("failed to set user block key: %w", err)
 	}
 
 	r.Client.Del(ctx, r.getKey(KeyLoginFail, userID))
@@ -124,7 +272,7 @@ func (r *cacheRedis) IsUserBlocked(ctx context.Context, userID string) (bool, er
 	key := r.getKey(KeyLoginLock, userID)
 	exists, err := r.Client.Exists(ctx, key).Result()
 	if err != nil {
-		return false, betoerrors.Wrap(err, betoerrors.CodeCacheError, "failed to check block status")
+		return false, fmt.Errorf("failed to check block status: %w", err)
 	}
 	return exists > 0, nil
 }
@@ -181,7 +329,7 @@ func (r *cacheRedis) DeleteResetToken(ctx context.Context, token string) error {
 func (r *cacheRedis) setJSON(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
 	data, err := json.Marshal(value)
 	if err != nil {
-		return betoerrors.Wrap(err, betoerrors.CodeCacheError, "failed to marshal value")
+		return fmt.Errorf("failed to marshal value: %w", err)
 	}
 	return r.Client.Set(ctx, key, data, ttl).Err()
 }
@@ -192,7 +340,7 @@ func (r *cacheRedis) getJSON(ctx context.Context, key string, v interface{}) err
 		if err == redis.Nil {
 			return ErrCacheMiss
 		}
-		return betoerrors.Wrap(err, betoerrors.CodeCacheError, "failed to get value")
+		return fmt.Errorf("failed to get value: %w", err)
 	}
 	return json.Unmarshal(data, v)
 }
@@ -203,4 +351,40 @@ func (r *cacheRedis) delete(ctx context.Context, key string) error {
 
 func (r *cacheRedis) Ping(ctx context.Context) error {
 	return r.Client.Ping(ctx).Err()
+}
+
+// Increment atomic INCR + EXPIRE (sur première incrémentation uniquement).
+// Évite les resets de TTL qui permettraient à un attaquant de maintenir le
+// compteur sous la limite en jouant avec la fenêtre.
+func (r *cacheRedis) Increment(ctx context.Context, key string, window time.Duration) (int64, error) {
+	fullKey := fmt.Sprintf("%s%s", ServiceKeyPrefix, key)
+	count, err := r.Client.Incr(ctx, fullKey).Result()
+	if err != nil {
+		return 0, fmt.Errorf("redis incr: %w", err)
+	}
+	if count == 1 && window > 0 {
+		if _, expErr := r.Client.Expire(ctx, fullKey, window).Result(); expErr != nil {
+			r.Logger.Warnw("failed to set TTL on counter", "key", fullKey, "error", expErr)
+		}
+	}
+	return count, nil
+}
+
+func (r *cacheRedis) SetValue(ctx context.Context, key, value string, ttl time.Duration) error {
+	fullKey := fmt.Sprintf("%s%s", ServiceKeyPrefix, key)
+	return r.Client.Set(ctx, fullKey, value, ttl).Err()
+}
+
+func (r *cacheRedis) GetValue(ctx context.Context, key string) (string, error) {
+	fullKey := fmt.Sprintf("%s%s", ServiceKeyPrefix, key)
+	val, err := r.Client.Get(ctx, fullKey).Result()
+	if err == redis.Nil {
+		return "", ErrCacheMiss
+	}
+	return val, err
+}
+
+func (r *cacheRedis) DeleteValue(ctx context.Context, key string) error {
+	fullKey := fmt.Sprintf("%s%s", ServiceKeyPrefix, key)
+	return r.Client.Del(ctx, fullKey).Err()
 }

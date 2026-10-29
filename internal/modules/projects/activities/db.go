@@ -4,15 +4,18 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	dauth "github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/projects/repository"
+	workloadRepo "github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
 )
 
 type ProjectDBActivities struct {
-	Repo   repository.ProjectRepository
-	Logger *zap.SugaredLogger
+	Repo         repository.ProjectRepository
+	WorkloadRepo workloadRepo.WorkloadRepository
+	Logger       *zap.SugaredLogger
 }
 
 func (a *ProjectDBActivities) CreateProjectInDB(ctx context.Context, name string, description string, ownerID string) (*dauth.Project, error) {
@@ -35,4 +38,26 @@ func (a *ProjectDBActivities) DeleteProjectDBActivity(ctx context.Context, proje
 		return fmt.Errorf("failed to rollback project in DB: %w", err)
 	}
 	return nil
+}
+
+// DeleteProjectWorkloadsActivity : hard-deletes every workload row tied to
+// the project. Called by DeleteProjectWorkflow after the K8s namespace has
+// been torn down (namespace cascade already drops the actual Helm resources,
+// but DB rows would otherwise linger and show up as "orphan" workloads in
+// the dashboard).
+func (a *ProjectDBActivities) DeleteProjectWorkloadsActivity(ctx context.Context, projectID string) (int64, error) {
+	if a.WorkloadRepo == nil {
+		a.Logger.Warnw("WorkloadRepo not wired on ProjectDBActivities — skipping workload cleanup")
+		return 0, nil
+	}
+	pID, err := uuid.Parse(projectID)
+	if err != nil {
+		return 0, fmt.Errorf("invalid project id: %w", err)
+	}
+	n, err := a.WorkloadRepo.DeleteByProject(ctx, pID)
+	if err != nil {
+		return 0, fmt.Errorf("delete workloads for project %s: %w", projectID, err)
+	}
+	a.Logger.Infow("project workloads hard-deleted", "projectID", projectID, "count", n)
+	return n, nil
 }

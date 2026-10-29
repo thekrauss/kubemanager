@@ -15,6 +15,9 @@ type WorkloadRepository interface {
 	ListByProject(ctx context.Context, projectID uuid.UUID) ([]domain.Workload, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string, phase string) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	// DeleteByProject hard-deletes every workload row belonging to a project.
+	// Used by the delete-project saga after the K8s namespace is torn down.
+	DeleteByProject(ctx context.Context, projectID uuid.UUID) (int64, error)
 	GetTotalUsageByProject(ctx context.Context, projectID uuid.UUID) (totalCPU int64, totalMem int64, totalStorage int64, err error)
 }
 
@@ -53,6 +56,11 @@ func (r *workloadRepository) UpdateStatus(ctx context.Context, id uuid.UUID, sta
 
 func (r *workloadRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return r.db.WithContext(ctx).Delete(&domain.Workload{}, "id = ?", id).Error
+}
+
+func (r *workloadRepository) DeleteByProject(ctx context.Context, projectID uuid.UUID) (int64, error) {
+	res := r.db.WithContext(ctx).Where("project_id = ?", projectID).Delete(&domain.Workload{})
+	return res.RowsAffected, res.Error
 }
 
 func (r *workloadRepository) GetTotalUsageByProject(ctx context.Context, projectID uuid.UUID) (totalCPU int64, totalMem int64, totalStorage int64, err error) {

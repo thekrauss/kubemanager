@@ -1,0 +1,9 @@
+apiVersion: v2
+name: kubemanager-backend
+description: KubeManager API server + Temporal worker (PSA restricted).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.27.0-0"
+maintainers:
+  - name: KubeManager team

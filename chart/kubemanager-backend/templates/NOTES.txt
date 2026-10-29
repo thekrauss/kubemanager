@@ -1,0 +1,23 @@
+✓ KubeManager backend {{ .Chart.AppVersion }} deployed in namespace {{ .Release.Namespace }}.
+
+Server  : {{ .Values.server.replicaCount }} replica(s){{ if .Values.server.autoscaling.enabled }} (HPA {{ .Values.server.autoscaling.minReplicas }}→{{ .Values.server.autoscaling.maxReplicas }}){{ end }}
+Worker  : {{ if .Values.worker.enabled }}{{ .Values.worker.replicaCount }} replica(s){{ else }}disabled{{ end }}
+Secrets : {{ .Values.existingSecret }}
+
+Vérifications :
+
+1. Pods :
+   kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+
+2. Logs server :
+   kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=server -f
+
+3. Health :
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "kubemanager.fullname" . }}-server {{ .Values.server.service.port }}:{{ .Values.server.service.port }}
+   curl localhost:{{ .Values.server.service.port }}/api/v1/health
+
+⚠  Le Secret `{{ .Values.existingSecret }}` doit exister (non géré par ce chart).
+   Clés attendues :
+     DB_PASSWORD, REDIS_PASSWORD, JWT_SECRET, JWT_REFRESH_SECRET,
+     KEYCLOAK_ADMIN_CLIENT_SECRET, CENTRIFUGO_API_KEY,
+     CENTRIFUGO_TOKEN_HMAC_SECRET.

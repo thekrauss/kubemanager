@@ -3,17 +3,19 @@ package router
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
+
+	"github.com/thekrauss/kubemanager/internal/audit"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/loopfz/gadgeto/tonic"
 	"github.com/sirupsen/logrus"
 	"github.com/thekrauss/beto-shared/pkg/redis"
+	"github.com/thekrauss/kubemanager/internal/middleware"
 	"github.com/thekrauss/kubemanager/internal/middleware/security"
 	"github.com/wI2L/fizz"
 	"github.com/wI2L/fizz/openapi"
@@ -32,8 +34,10 @@ type TemporalComponents struct {
 }
 
 type Security struct {
-	JWTManager security.JWTManager
-	Middleware *security.MiddlewareManager
+	Verifier       *middleware.Verifier
+	Middleware     *security.MiddlewareManager
+	Audit          *middleware.AuditLogger
+	TenantResolver *middleware.TenantResolver
 }
 
 type Servers struct {
@@ -42,8 +46,9 @@ type Servers struct {
 }
 
 type Observability struct {
-	Tracer         trace.Tracer
-	TracerShutdown func()
+	Tracer                trace.Tracer
+	TracerShutdown        func()
+	TemporalMetricsCloser io.Closer
 }
 
 func (a *App) startHTTPServer() {
@@ -52,6 +57,15 @@ func (a *App) startHTTPServer() {
 
 	p := ginprometheus.NewPrometheus("gin")
 	p.MetricsPath = "/metrics"
+	p.ReqCntURLLabelMappingFn = func(c *gin.Context) string {
+		if fp := c.FullPath(); fp != "" {
+			return fp
+		}
+		return "UNKNOWN"
+	}
+	if addr := a.Config.Metrics.ListenAddr; addr != "" {
+		p.SetListenAddress(addr)
+	}
 	p.Use(engine)
 
 	origins := a.Config.Server.AllowedOrigins
@@ -61,32 +75,50 @@ func (a *App) startHTTPServer() {
 	engine.Use(cors.New(cors.Config{
 		AllowOrigins:     origins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-API-Key", "Idempotency-Key", "X-Request-ID"},
+		ExposeHeaders:    []string{"Idempotency-Status", "Retry-After", "X-Request-ID"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
 
 	engine.Use(gin.Recovery())
+	engine.Use(middleware.SecureHeaders())
 
 	engine.Use(otelgin.Middleware(a.Config.ServiceName))
 	engine.Use(func(c *gin.Context) {
 		span := trace.SpanFromContext(c.Request.Context())
+		scoped := a.Logger
 		if span.SpanContext().IsValid() {
 			traceID := span.SpanContext().TraceID().String()
 			c.Set("trace_id", traceID)
-			a.Logger = a.Logger.With("trace_id", traceID)
+			scoped = scoped.With("trace_id", traceID)
 		}
+		c.Set(middleware.LoggerContextKey, scoped)
 		c.Next()
 	})
 
+	engine.Use(middleware.RateLimitMiddleware(middleware.RateLimitConfig{
+		Enabled: a.Config.RateLimit.Enabled,
+		Limit:   a.Config.RateLimit.Limit,
+		Window:  a.Config.RateLimit.Window,
+	}, a.Redis))
+
 	engine.Use(a.Security.Middleware.AuthMiddleware())
+	// Journal d'audit immuable : écritures et refus (docs/architecture/iam.md §11).
+	engine.Use(a.Security.Middleware.AuditMiddleware(&audit.GormWriter{DB: a.DB}))
+	engine.Use(middleware.Idempotency())
 
 	engine.GET("/api/v1/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "UP",
 			"service": a.Config.ServiceName,
+			"role":    "server",
 		})
 	})
+
+	// Erreurs des handlers tonic : statut selon le type d'erreur (voir errors.go)
+	// au lieu du 400 + message brut par défaut.
+	tonic.SetErrorHook(newErrorHook(a.Logger))
 
 	f := fizz.NewFromEngine(engine)
 
@@ -99,7 +131,9 @@ func (a *App) startHTTPServer() {
 
 	AddAllRoutes(a)
 
-	RegisterRoutes(f, a.Security.Middleware)
+	RegisterRoutes(f)
+	// Routes déclarées Public() : seules exemptées d'authentification.
+	a.Security.Middleware.SetPublicRoutes(PublicRoutes())
 
 	addr := fmt.Sprintf(":%d", a.Config.Server.HTTPPort)
 	a.Servers.HTTP = &http.Server{Addr: addr, Handler: engine}
@@ -112,19 +146,7 @@ func (a *App) startHTTPServer() {
 	}()
 }
 
-func (a *App) gracefulShutdown(grpcServer *grpc.Server, httpServer *http.Server, shutdownTimeout time.Duration) {
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-
-	<-stop
-	log.Println("shutting down servers...")
-
-	if a.Temporal.Client != nil {
-		a.Temporal.Worker.Stop()
-		log.Println("Temporal worker stopped")
-	}
-
+func (a *App) gracefulShutdownServers(grpcServer *grpc.Server, httpServer *http.Server, shutdownTimeout time.Duration) {
 	if grpcServer != nil {
 		stopped := make(chan struct{})
 		go func() {
@@ -139,8 +161,6 @@ func (a *App) gracefulShutdown(grpcServer *grpc.Server, httpServer *http.Server,
 			log.Println("gRPC server forced stop")
 			grpcServer.Stop()
 		}
-	} else {
-		log.Println("No gRPC server running to stop (skipping)")
 	}
 
 	if httpServer != nil {
@@ -153,7 +173,6 @@ func (a *App) gracefulShutdown(grpcServer *grpc.Server, httpServer *http.Server,
 		}
 	}
 
-	// Redis
 	if err := redis.Close(); err != nil {
 		log.Printf("redis close error: %v", err)
 	}
