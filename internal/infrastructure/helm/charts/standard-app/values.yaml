@@ -1,31 +1,212 @@
+## values.yaml  chart standard-app KubeManager (CaaS hardened)
+##
+## Conçu pour tier SaaS multi-tenant. Toutes les valeurs par défaut sont
+## restrictives ; la plateforme override depuis l'API (activities/heml.go).
+
 replicaCount: 1
+
 image:
   repository: nginx
   tag: latest
   pullPolicy: IfNotPresent
+  # pullSecrets: image pull secrets pour registries privées (optionnel).
+  # Liste de strings (nom de Secret K8s dans le namespace).
+  pullSecrets: []
+
+# Labels injectés sur TOUTES les ressources. L'API backend doit remplir
+# projectID + workloadID pour permettre le tracking via kubectl/selectors.
+commonLabels:
+  projectID: ""
+  workloadID: ""
+
+# Secret externe contenant les envs applicatifs (construit par EnsureSecret).
+# Monté via envFrom → toutes les clés deviennent des variables d'env.
+envSecretName: ""
+
+# EnvVars plain-text (non-secrets, type PORT, NODE_ENV). Injectés via `env`.
+envVars: {}
 
 service:
   type: ClusterIP
-  port: 80         
-  targetPort: 8080 
+  port: 80
+  targetPort: 8080
   protocol: TCP
 
-resources:
-  limits:
-    cpu: 100m
-    memory: 128Mi
-
+# Ingress + TLS. En prod, activer cert-manager pour auto-provisionner les certs
+# via Let's Encrypt (ClusterIssuer typique : "letsencrypt-prod").
 ingress:
   enabled: true
+  className: nginx
   host: ""
+  tls:
+    enabled: false
+    clusterIssuer: "letsencrypt-prod"
+    # secretName : si fourni, utilise un Secret TLS existant (pas de cert-manager).
+    secretName: ""
 
+# Resources  defaults "starter" type Heroku eco. L'API override selon le plan user.
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Persistance : PVC monté si enabled. Pour workloads stateful uniquement.
 persistence:
-  enabled: true
+  enabled: false
   size: 1Gi
-  storageClass: "local-path" 
+  storageClass: "local-path"
   accessMode: ReadWriteOnce
+  mountPath: /data
 
+#  Security 
+
+# ServiceAccount dédié par release (best-practice multi-tenant).
+# automountServiceAccountToken: false → pas de token K8s exposé dans le pod,
+# évite les leaks via SSRF / compromission container.
+serviceAccount:
+  create: true
+  automountServiceAccountToken: false
+  # name : si vide, généré depuis le release name.
+  name: ""
+  annotations: {}
+
+# podSecurityContext (niveau pod).
+# fsGroup : GID des volumes montés. runAsUser/runAsGroup : au niveau pod,
+# hérité si pas override en container. Les images ayant un USER != 1000
+# (ex: nginx=101, postgres=999) doivent override ces valeurs via l'API.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 2000
+  seccompProfile:
+    type: RuntimeDefault
+
+# containerSecurityContext (niveau container)  PSA "restricted" compliant.
+# Drop toutes les capabilities Linux par défaut. readOnlyRootFilesystem n'est
+# pas exigé par PSA restricted : désactivé par défaut car beaucoup d'images
+# courantes écrivent hors /tmp ; l'API l'active à la demande (read_only_root_fs).
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+  capabilities:
+    drop:
+      - ALL
+    # add: []  explicitement pas de capabilities ajoutées.
+
+# Volumes tmpfs montés sur /tmp et /var/run. Utile seulement avec
+# readOnlyRootFilesystem: true (l'API les active dans ce cas).
+tmpfs:
+  enabled: false
+  mounts:
+    - name: tmp
+      path: /tmp
+      sizeLimit: 64Mi
+    - name: run
+      path: /var/run
+      sizeLimit: 16Mi
+
+#  Scheduling 
+
+# Anti-affinity : soft (preferred) pour éviter que tous les replicas tombent
+# sur le même node. En prod strict, passer à requiredDuringScheduling.
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [] # rempli dynamiquement avec le release name
+          topologyKey: kubernetes.io/hostname
+
+# nodeSelector / tolerations : laissés vides par défaut, la plateforme
+# override pour des tenants sur des node pools dédiés (GPU, spot, etc.).
+nodeSelector: {}
+tolerations: []
+
+#  Probes 
+
+# startupProbe : pour apps lentes au démarrage (JVM, Rails, etc.).
+# Tant que startupProbe échoue, liveness et readiness sont désactivées.
+probes:
+  startup:
+    enabled: true
+    httpGet:
+      path: /
+      port: http
+    initialDelaySeconds: 0
+    periodSeconds: 5
+    failureThreshold: 30 # 30 × 5s = 150s max startup
+
+  readiness:
+    enabled: true
+    httpGet:
+      path: /
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  liveness:
+    enabled: true
+    httpGet:
+      path: /
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+#  Autoscaling 
+
+# HPA : scale-out automatique sur CPU/RAM. Metrics-server requis dans le
+# cluster. Désactivé par défaut  la plateforme active selon le plan user.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 75
+  targetMemoryUtilizationPercentage: 80
+
+# PodDisruptionBudget : garantit que N-1 pods restent up pendant les updates
+# K8s (node drain, upgrades). Activé quand replicaCount >= 2.
+pdb:
+  enabled: false
+  minAvailable: "50%"
+
+#  Network Policy 
+
+# NetworkPolicy zero-trust : deny ALL par défaut, allowlist explicite.
+# Ingress : uniquement depuis le namespace ingress-controller + intra-pod.
+# Egress : DNS (kube-dns) + CIDRs allowlistés (typiquement registry + API externes).
 networkPolicy:
   enabled: true
+
+  # Ingress : sources autorisées à appeler le workload.
   ingressNSLabelKey: "kubernetes.io/metadata.name"
-  ingressNSLabelValue: "kube-system" 
+  ingressNSLabelValue: "ingress-nginx" # hook réel de prod, pas kube-system
+
+  # Egress : destinations autorisées depuis le workload.
+  # Par défaut : DNS (port 53 tcp/udp vers kube-system) + ports TCP publics
+  # vers tout sauf les subnets privés.
+  egress:
+    enabled: true
+    # Allow DNS vers kube-system.
+    allowDNS: true
+    # Ports TCP sortants vers Internet : HTTP(S), SMTP submission (465/587),
+    # bases managées (MySQL, Postgres, Redis, MongoDB). Port 25 volontairement
+    # absent (anti-spam). Liste vide = aucun sortant public.
+    publicPorts: [80, 443, 465, 587, 3306, 5432, 6379, 27017]
+    # CIDRs supplémentaires allowlistés (ex: "10.0.0.0/8" pour services internes).
+    extraAllowedCIDRs: []
+    # Ports supplémentaires (ex: [{port: 5432, protocol: TCP}] pour DB externe).
+    extraAllowedPorts: []

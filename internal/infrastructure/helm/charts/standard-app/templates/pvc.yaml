@@ -3,6 +3,12 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ .Release.Name }}-pvc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "standard-app.labels" . | nindent 4 }}
+  # helm.sh/resource-policy: keep → survit à un helm uninstall
+  # (protection des données — recréation manuelle si recréation release).
+  # Désactivé par défaut pour ne pas bloquer les deletes intentionnels.
 spec:
   accessModes:
     - {{ .Values.persistence.accessMode }}

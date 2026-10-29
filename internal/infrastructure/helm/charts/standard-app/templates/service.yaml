@@ -4,13 +4,13 @@ metadata:
   name: {{ .Release.Name }}
   namespace: {{ .Release.Namespace }}
   labels:
-    app: {{ .Release.Name }}
+    {{- include "standard-app.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.service.type }}
   ports:
-    - port: {{ .Values.service.port }}
-      targetPort: {{ .Values.service.targetPort }}
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
       protocol: {{ .Values.service.protocol | default "TCP" }}
-      name: http
   selector:
-    app: {{ .Release.Name }}
+    {{- include "standard-app.selectorLabels" . | nindent 4 }}

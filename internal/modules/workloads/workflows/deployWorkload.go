@@ -11,19 +11,48 @@ import (
 )
 
 type DeployWorkloadInput struct {
-	WorkloadID         string
-	ProjectID          string
-	Namespace          string
-	ReleaseName        string
-	Image              string
-	EnvVars            map[string]string
-	Secrets            map[string]string
+	WorkloadID  string
+	ProjectID   string
+	Namespace   string
+	ReleaseName string
+	Image       string
+
+	EnvVars map[string]string
+	Secrets map[string]string
+
 	PersistenceEnabled bool
 	StorageSize        string
 	StorageClass       string
-	Replicas           int
-	ServiceType        string //"ClusterIP" ou "LoadBalancer"
-	TargetPort         int
+	MountPath          string
+
+	Replicas    int
+	ServiceType string // "ClusterIP" ou "LoadBalancer"
+	TargetPort  int
+
+	// Resources
+	CPURequest    string
+	MemoryRequest string
+	CPULimit      string
+	MemoryLimit   string
+
+	// Security overrides
+	RunAsUser      int64
+	RunAsGroup     int64
+	ReadOnlyRootFS bool
+
+	// Autoscaling
+	AutoscalingEnabled   bool
+	AutoscalingMin       int32
+	AutoscalingMax       int32
+	AutoscalingTargetCPU int32
+
+	// PDB + TLS
+	PDBEnabled bool
+	TLSEnabled bool
+
+	// Probes
+	HealthPath    string
+	ReadinessPath string
 }
 
 func DeployWorkloadWorkflow(ctx workflow.Context, input DeployWorkloadInput) error {
@@ -44,53 +73,90 @@ func DeployWorkloadWorkflow(ctx workflow.Context, input DeployWorkloadInput) err
 	var dbActs *activities.WorkloadDBActivities
 	var helmActs *activities.WorkloadActivities
 
-	//STATUT -> STARTING
-	err := workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus, input.WorkloadID, "STARTING", "HELM_PREPARING").Get(ctx, nil)
+	err := workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
+		input.WorkloadID, input.ProjectID, "STARTING", "HELM_PREPARING").Get(ctx, nil)
 	if err != nil {
 		return err
 	}
 
 	var imgInfo activities.ImageInfo
-	err = workflow.ExecuteLocalActivity(ctx, helmActs.ParseImage, input.Image).Get(ctx, &imgInfo)
-	if err != nil {
-		workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus, input.WorkloadID, "FAILED", "SECRET_CREATION_ERROR")
+	if err := workflow.SideEffect(ctx, func(workflow.Context) interface{} {
+		info, _ := activities.ParseImage(input.Image)
+		return info
+	}).Get(&imgInfo); err != nil {
+		workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
+			input.WorkloadID, input.ProjectID, "FAILED", "IMAGE_PARSE_ERROR")
 		return err
 	}
 
-	err = workflow.ExecuteActivity(ctx, helmActs.EnsureSecret, input.Namespace, input.ReleaseName, input.EnvVars).Get(ctx, nil)
+	secretData := mergeMaps(input.EnvVars, input.Secrets)
+	err = workflow.ExecuteActivity(ctx, helmActs.EnsureSecret,
+		input.Namespace, input.ReleaseName, input.ProjectID, secretData).Get(ctx, nil)
 	if err != nil {
-		workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus, input.WorkloadID, "FAILED", "SECRET_CREATION_ERROR")
+		workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
+			input.WorkloadID, input.ProjectID, "FAILED", "SECRET_CREATION_ERROR")
 		return err
 	}
 
 	vpsIP := configs.AppConfig.Vps.AdressIp
 	shortID := input.ProjectID[:6]
 	externalURL := fmt.Sprintf("%s-%s.%s.sslip.io", input.ReleaseName, shortID, vpsIP)
-	workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus, input.WorkloadID, "STARTING", "HELM_INSTALLING").Get(ctx, nil)
+	workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
+		input.WorkloadID, input.ProjectID, "STARTING", "HELM_INSTALLING").Get(ctx, nil)
 
 	helmInput := activities.InstallWorkloadInput{
-		ReleaseName:        input.ReleaseName,
-		Namespace:          input.Namespace,
-		ImageRepo:          imgInfo.Repository,
-		ImageTag:           imgInfo.Tag,
-		ExternalURL:        externalURL,
-		Env:                input.EnvVars,
-		PersistenceEnabled: input.PersistenceEnabled,
-		StorageSize:        input.StorageSize,
-		StorageClass:       input.StorageClass,
-		Replicas:           input.Replicas,
-		ServiceType:        input.ServiceType,
-		Secrets:            input.Secrets,
-		TargetPort:         input.TargetPort,
+		ProjectID:            input.ProjectID,
+		WorkloadID:           input.WorkloadID,
+		ReleaseName:          input.ReleaseName,
+		Namespace:            input.Namespace,
+		ImageRepo:            imgInfo.Repository,
+		ImageTag:             imgInfo.Tag,
+		ExternalURL:          externalURL,
+		Env:                  input.EnvVars,
+		Secrets:              input.Secrets,
+		PersistenceEnabled:   input.PersistenceEnabled,
+		StorageSize:          input.StorageSize,
+		StorageClass:         input.StorageClass,
+		MountPath:            input.MountPath,
+		Replicas:             input.Replicas,
+		ServiceType:          input.ServiceType,
+		TargetPort:           input.TargetPort,
+		CPURequest:           input.CPURequest,
+		MemoryRequest:        input.MemoryRequest,
+		CPULimit:             input.CPULimit,
+		MemoryLimit:          input.MemoryLimit,
+		RunAsUser:            input.RunAsUser,
+		RunAsGroup:           input.RunAsGroup,
+		ReadOnlyRootFS:       input.ReadOnlyRootFS,
+		AutoscalingEnabled:   input.AutoscalingEnabled,
+		AutoscalingMin:       input.AutoscalingMin,
+		AutoscalingMax:       input.AutoscalingMax,
+		AutoscalingTargetCPU: input.AutoscalingTargetCPU,
+		PDBEnabled:           input.PDBEnabled,
+		TLSEnabled:           input.TLSEnabled,
+		HealthPath:           input.HealthPath,
+		ReadinessPath:        input.ReadinessPath,
 	}
 	err = workflow.ExecuteActivity(ctx, helmActs.InstallChart, helmInput).Get(ctx, nil)
 	if err != nil {
-		workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus, input.WorkloadID, "FAILED", "HELM_ERROR")
+		workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
+			input.WorkloadID, input.ProjectID, "FAILED", "HELM_ERROR")
 		return err
 	}
 
-	//FINITION -> RUNNING
-	workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus, input.WorkloadID, "RUNNING", "DEPLOYED").Get(ctx, nil)
+	workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
+		input.WorkloadID, input.ProjectID, "RUNNING", "DEPLOYED").Get(ctx, nil)
 
 	return nil
+}
+
+func mergeMaps(a, b map[string]string) map[string]string {
+	out := make(map[string]string, len(a)+len(b))
+	for k, v := range a {
+		out[k] = v
+	}
+	for k, v := range b {
+		out[k] = v
+	}
+	return out
 }

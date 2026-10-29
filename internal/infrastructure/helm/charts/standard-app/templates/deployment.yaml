@@ -2,42 +2,89 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
   labels:
-    app: {{ .Release.Name }}
-
+    {{- include "standard-app.labels" . | nindent 4 }}
 spec:
+  # Si autoscaling.enabled, HPA gère les replicas — on ne fixe pas ce champ
+  # pour éviter les conflits entre HPA et Deployment spec.
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
-
+  {{- end }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
   selector:
     matchLabels:
-      app: {{ .Release.Name }}
-
+      {{- include "standard-app.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app: {{ .Release.Name }}
-
+        {{- include "standard-app.labels" . | nindent 8 }}
+      annotations:
+        # Force le rollout restart quand le Secret envSecretName change.
+        # Requiert que l'API mette à jour le Secret AVANT helm upgrade.
+        checksum/env: {{ .Values.envSecretName | default "no-secret" | sha256sum }}
     spec:
+      serviceAccountName: {{ include "standard-app.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken | default false }}
+
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      # Pod anti-affinity : préfère spread sur plusieurs nodes.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - {{ .Release.Name }}
+                topologyKey: kubernetes.io/hostname
+
       containers:
-        - name: {{ .Release.Name }}
+        - name: app
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
 
           ports:
-            - containerPort: {{ .Values.service.targetPort | default 8080 }}
-          
-          #security container
-          securityContext:
-            allowPrivilegeEscalation: false
-            runAsNonRoot: true
-            runAsUser: 1000
+            - name: http
+              containerPort: {{ .Values.service.targetPort | default 8080 }}
+              protocol: {{ .Values.service.protocol | default "TCP" }}
 
-          # environment variables from a Secret
+          # Env depuis le Secret (buildé par EnsureSecret côté Go).
+          {{- if .Values.envSecretName }}
           envFrom:
             - secretRef:
                 name: {{ .Values.envSecretName }}
+          {{- end }}
 
-          # environnement directes 
           {{- if .Values.envVars }}
           env:
             {{- range $key, $val := .Values.envVars }}
@@ -46,41 +93,49 @@ spec:
             {{- end }}
           {{- end }}
 
-          # volumes persistants 
-          {{- if .Values.persistence.enabled }}
-          volumeMounts:
-            - name: storage
-              mountPath: /data
+          # Probes : startup → readiness → liveness, chacune conditionnelle.
+          {{- if .Values.probes.startup.enabled }}
+          startupProbe:
+            {{- omit .Values.probes.startup "enabled" | toYaml | nindent 12 }}
+          {{- end }}
+          {{- if .Values.probes.readiness.enabled }}
+          readinessProbe:
+            {{- omit .Values.probes.readiness "enabled" | toYaml | nindent 12 }}
+          {{- end }}
+          {{- if .Values.probes.liveness.enabled }}
+          livenessProbe:
+            {{- omit .Values.probes.liveness "enabled" | toYaml | nindent 12 }}
           {{- end }}
 
-          # Ressources CPU / Mémoire
           resources:
-            requests:
-              cpu: {{ .Values.resources.requests.cpu | default "100m" }}
-              memory: {{ .Values.resources.requests.memory | default "128Mi" }}
-            limits:
-              cpu: {{ .Values.resources.limits.cpu | default "200m" }}
-              memory: {{ .Values.resources.limits.memory | default "256Mi" }}
+            {{- toYaml .Values.resources | nindent 12 }}
 
-          # Liveness Probe
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: {{ .Values.service.targetPort | default 8080 }}
-            initialDelaySeconds: 5
-            periodSeconds: 10
-
-          # Readiness Probe
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: {{ .Values.service.targetPort | default 8080 }}
-            initialDelaySeconds: 2
-            periodSeconds: 5
-
-      # Statement des volumes persistants
-          {{- if .Values.persistence.enabled }}
           volumeMounts:
+            # tmpfs : /tmp et /var/run en writable malgré readOnlyRootFilesystem.
+            {{- if .Values.tmpfs.enabled }}
+            {{- range .Values.tmpfs.mounts }}
+            - name: {{ .name }}
+              mountPath: {{ .path }}
+            {{- end }}
+            {{- end }}
+
+            {{- if .Values.persistence.enabled }}
             - name: storage
               mountPath: {{ .Values.persistence.mountPath | default "/data" }}
-          {{- end }}
+            {{- end }}
+
+      volumes:
+        {{- if .Values.tmpfs.enabled }}
+        {{- range .Values.tmpfs.mounts }}
+        - name: {{ .name }}
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .sizeLimit | default "16Mi" }}
+        {{- end }}
+        {{- end }}
+
+        {{- if .Values.persistence.enabled }}
+        - name: storage
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-pvc
+        {{- end }}
