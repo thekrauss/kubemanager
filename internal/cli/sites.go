@@ -23,7 +23,7 @@ var (
 
 func newSites() *cobra.Command {
 	c := &cobra.Command{Use: "sites", Short: i18n.T("sites.short")}
-	c.AddCommand(newSitesList(), newSitesDeploy())
+	c.AddCommand(newSitesList(), newSitesDeploy(), newDomains())
 	return c
 }
 

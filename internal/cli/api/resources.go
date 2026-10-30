@@ -84,3 +84,30 @@ func (c *Client) FindDeployment(ctx context.Context, project, siteID, id string)
 	}
 	return nil, fmt.Errorf("deployment %s not found", id)
 }
+
+// Domain : domaine personnalisé d'un site, avec la cible DNS à configurer.
+type Domain = sitesdomain.DomainResponse
+
+func (c *Client) ListDomains(ctx context.Context, project, siteID string) ([]Domain, error) {
+	var out []Domain
+	return out, c.Do(ctx, http.MethodGet, sitesPath(project)+"/"+url.PathEscape(siteID)+"/domains", nil, &out)
+}
+
+func (c *Client) AddDomain(ctx context.Context, project, siteID, hostname string) (*Domain, error) {
+	var out Domain
+	body := struct {
+		Hostname string `json:"hostname"`
+	}{hostname}
+	return &out, c.Do(ctx, http.MethodPost, sitesPath(project)+"/"+url.PathEscape(siteID)+"/domains", body, &out)
+}
+
+func (c *Client) VerifyDomain(ctx context.Context, project, siteID, domainID string) (*Domain, error) {
+	var out Domain
+	return &out, c.Do(ctx, http.MethodPost,
+		sitesPath(project)+"/"+url.PathEscape(siteID)+"/domains/"+url.PathEscape(domainID)+"/verify", nil, &out)
+}
+
+func (c *Client) DeleteDomain(ctx context.Context, project, siteID, domainID string) error {
+	return c.Do(ctx, http.MethodDelete,
+		sitesPath(project)+"/"+url.PathEscape(siteID)+"/domains/"+url.PathEscape(domainID), nil, nil)
+}

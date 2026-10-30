@@ -194,3 +194,36 @@ func decodeError(status int, raw []byte) error {
 	}
 	return &Error{Status: status, Code: code, Message: msg}
 }
+
+// Stream : GET authentifié dont le corps est copié vers w au fil de l'eau,
+// sans délai maximal (un suivi de logs peut durer ; Ctrl-C l'interrompt).
+func (c *Client) Stream(ctx context.Context, path string, w io.Writer) error {
+	tok, err := c.token(ctx)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept-Language", i18n.Lang())
+	req.Header.Set("User-Agent", "betorun-cli")
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := (&http.Client{Transport: c.HTTP.Transport}).Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return fmt.Errorf("%s", i18n.T("err.network", c.BaseURL, err))
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		return decodeError(resp.StatusCode, raw)
+	}
+	_, err = io.Copy(w, resp.Body)
+	if ctx.Err() != nil {
+		return nil // interrompu par l'utilisateur
+	}
+	return err
+}

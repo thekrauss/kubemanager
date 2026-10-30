@@ -1,0 +1,59 @@
+name: CLI release
+
+# Publie la CLI betorun : poussez une étiquette cli-vX.Y.Z
+#   git tag cli-v0.1.0 && git push origin cli-v0.1.0
+# Binaires Linux/macOS/Windows (amd64, arm64) + SHA256SUMS dans une GitHub
+# Release, que scripts/install.sh sait trouver.
+#
+# Variable de dépôt (Settings → Variables) : BETORUN_API_URL, l'API utilisée
+# par défaut (ex. https://api.example.com/kmanager/v1).
+
+on:
+  push:
+    tags: ["cli-v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests de la CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.1"
+          cache: true
+      - name: Tests
+        run: go test ./internal/cli/...
+      - name: Aucune dépendance serveur dans le binaire
+        run: go test ./internal/cli/ -run TestCLI_NoServerDependencies
+
+  release:
+    name: Publication
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.1"
+          cache: true
+      - name: Binaires
+        env:
+          API_URL: ${{ vars.BETORUN_API_URL }}
+        run: VERSION="${GITHUB_REF_NAME#cli-}" bash scripts/build_cli.sh
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#cli-}"
+          gh release create "$GITHUB_REF_NAME" dist/cli/* \
+            --title "betorun CLI ${VERSION}" \
+            --notes "Installation : \`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/scripts/install.sh | sh\`" \
+            --generate-notes

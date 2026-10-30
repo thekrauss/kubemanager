@@ -44,7 +44,7 @@ func newRoot(name string) *cobra.Command {
 	}
 	root.PersistentFlags().StringVar(&flagAPI, "api", "", i18n.T("flag.api"))
 	root.PersistentFlags().StringVarP(&flagProject, "project", "p", "", i18n.T("flag.project"))
-	root.AddCommand(newLogin(), newLogout(), newWhoami(), newSites(), newVersion())
+	root.AddCommand(newLogin(), newLogout(), newWhoami(), newSites(), newWorkloads(), newAccess(), newVersion())
 	return root
 }
 
