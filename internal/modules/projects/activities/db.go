@@ -18,10 +18,15 @@ type ProjectDBActivities struct {
 	Logger       *zap.SugaredLogger
 }
 
-func (a *ProjectDBActivities) CreateProjectInDB(ctx context.Context, name string, description string, ownerID string) (*dauth.Project, error) {
+// CreateProjectInDB : projectID est choisi par l'appelant (CreateProject le
+// renvoie avant la fin du workflow) ; vide : généré ici.
+func (a *ProjectDBActivities) CreateProjectInDB(ctx context.Context, projectID, name, description, ownerID string) (*dauth.Project, error) {
 	project := &dauth.Project{
 		Name:        name,
 		Description: description,
+	}
+	if id, err := uuid.Parse(projectID); err == nil {
+		project.ID = id
 	}
 
 	err := a.Repo.CreateProject(ctx, project, ownerID)
@@ -29,6 +34,12 @@ func (a *ProjectDBActivities) CreateProjectInDB(ctx context.Context, name string
 		return nil, err
 	}
 	return project, nil
+}
+
+// UpdateProjectStatusActivity : statut visible par la console (READY en fin
+// de provisionnement, ERROR si une étape échoue).
+func (a *ProjectDBActivities) UpdateProjectStatusActivity(ctx context.Context, projectID, status string) error {
+	return a.Repo.UpdateProjectStatus(ctx, projectID, status)
 }
 
 func (a *ProjectDBActivities) DeleteProjectDBActivity(ctx context.Context, projectID string) error {

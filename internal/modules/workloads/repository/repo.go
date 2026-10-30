@@ -14,6 +14,8 @@ type WorkloadRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Workload, error)
 	ListByProject(ctx context.Context, projectID uuid.UUID) ([]domain.Workload, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string, phase string) error
+	// UpdateSpec : image, taille du disque et URL publique d'une nouvelle version.
+	UpdateSpec(ctx context.Context, id uuid.UUID, image, storageSize, externalURL string) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	// DeleteByProject hard-deletes every workload row belonging to a project.
 	// Used by the delete-project saga after the K8s namespace is torn down.
@@ -51,6 +53,18 @@ func (r *workloadRepository) UpdateStatus(ctx context.Context, id uuid.UUID, sta
 		Updates(map[string]interface{}{
 			"status":        status,
 			"current_phase": phase,
+		}).Error
+}
+
+func (r *workloadRepository) UpdateSpec(ctx context.Context, id uuid.UUID, image, storageSize, externalURL string) error {
+	return r.db.WithContext(ctx).Model(&domain.Workload{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"image":         image,
+			"storage_size":  storageSize,
+			"external_url":  externalURL,
+			"status":        "STARTING",
+			"current_phase": "HELM_CHART_LOADING",
 		}).Error
 }
 

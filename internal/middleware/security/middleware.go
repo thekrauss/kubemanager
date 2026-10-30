@@ -267,6 +267,7 @@ func (m *MiddlewareManager) handleBearer(c *gin.Context, tokenString string) {
 
 	// 6. Injection dans le contexte Gin.
 	m.applyBearerClaims(c, claims)
+	m.applyInternalUser(c, claims.UserID)
 	if fullClaims != nil && len(fullClaims.Permissions) > 0 {
 		c.Set("permissions", fullClaims.Permissions)
 	}

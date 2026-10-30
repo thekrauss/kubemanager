@@ -2,6 +2,7 @@ package idempotency
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -20,6 +21,7 @@ type WorkerExecutionOptions struct {
 
 func ExecuteWorker[T any](ctx context.Context, mgr Manager, key string, payloadHash string, opts WorkerExecutionOptions, work func() (T, error)) (T, WorkerExecutionStatus, error) {
 	var zero T
+	work = recoverAsError(work)
 	if mgr == nil || key == "" {
 		result, err := work()
 		if err != nil {
@@ -74,4 +76,19 @@ func ExecuteWorker[T any](ctx context.Context, mgr Manager, key string, payloadH
 		opts.OnFinalizeError("store", storeErr)
 	}
 	return result, WorkerExecuted, nil
+}
+
+// recoverAsError : un panic dans work devient une erreur ordinaire, pour que
+// le verrou d'idempotence soit libéré (Fail) ; sinon la clé resterait « en
+// cours » jusqu'à son expiration et toutes les tentatives suivantes
+// échoueraient.
+func recoverAsError[T any](work func() (T, error)) func() (T, error) {
+	return func() (result T, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic in idempotent work: %v", r)
+			}
+		}()
+		return work()
+	}
 }

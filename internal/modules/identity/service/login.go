@@ -13,8 +13,10 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"strings"
 	"time"
 
@@ -134,26 +136,50 @@ const hostedLoginProvider = "keycloak"
 type oauthState struct {
 	Provider     string `json:"p"`
 	CodeVerifier string `json:"v"`
+	// ClientID : client OAuth de la demande (vide : client web) ; le code ne
+	// s'échange qu'avec le client qui l'a obtenu.
+	ClientID string `json:"c,omitempty"`
 }
+
+// LoginOptions : variantes de la connexion hébergée.
+type LoginOptions struct {
+	// StepUp : ré-authentification avec double authentification (RFC 9470).
+	StepUp bool
+	// CLI : connexion de la CLI, redirigée vers son serveur local
+	// http://127.0.0.1:<port>/callback (RFC 8252), avec son client public.
+	CLI bool
+}
+
+// cliRedirectRe : seule redirection acceptée pour la CLI (boucle locale).
+var cliRedirectRe = regexp.MustCompile(`^http://127\.0\.0\.1:[0-9]{1,5}/callback$`)
 
 // LoginURL construit l'URL de la page de login Keycloak (Authorization Code +
 // PKCE). Le callback est le même que pour le social : HandleSocialCallback.
 //
 // stepUp : ré-authentification obligatoire (max_age=0) au niveau MFA
 // (acr_values), demandée par l'API sur une action sensible (RFC 9470).
-func (s *service) LoginURL(ctx context.Context, redirectURI string, stepUp bool) (string, error) {
+func (s *service) LoginURL(ctx context.Context, redirectURI string, o LoginOptions) (string, error) {
 	if s == nil || s.keycloak == nil {
 		return "", ErrIdentityServiceUnavailable
 	}
-	var opts []keycloakadmin.AuthRequestOptions
-	if stepUp {
+	var opt keycloakadmin.AuthRequestOptions
+	if o.CLI {
+		if s.cliClientID == "" {
+			return "", ErrDeviceLoginDisabled
+		}
+		if !cliRedirectRe.MatchString(strings.TrimSpace(redirectURI)) {
+			return "", ErrCLIRedirectURI
+		}
+		opt.ClientID = s.cliClientID
+	}
+	if o.StepUp {
 		if s.stepUpACR == "" {
 			return "", ErrMFANotConfigured
 		}
 		zero := 0
-		opts = append(opts, keycloakadmin.AuthRequestOptions{ACRValues: s.stepUpACR, MaxAge: &zero})
+		opt.ACRValues, opt.MaxAge = s.stepUpACR, &zero
 	}
-	return s.authorizationURL(ctx, hostedLoginProvider, "", redirectURI, opts...)
+	return s.authorizationURL(ctx, hostedLoginProvider, "", redirectURI, opt)
 }
 
 // SocialLoginURL construit l'URL d'autorisation Keycloak + kc_idp_hint.
@@ -195,7 +221,13 @@ func (s *service) authorizationURL(ctx context.Context, provider, idpAlias, redi
 	if err != nil {
 		return "", err
 	}
-	payload, err := json.Marshal(oauthState{Provider: provider, CodeVerifier: verifier})
+	clientID := ""
+	for _, o := range opts {
+		if o.ClientID != "" {
+			clientID = o.ClientID
+		}
+	}
+	payload, err := json.Marshal(oauthState{Provider: provider, CodeVerifier: verifier, ClientID: clientID})
 	if err != nil {
 		return "", err
 	}
@@ -241,7 +273,7 @@ func (s *service) HandleSocialCallback(ctx context.Context, code, state, redirec
 		return nil, ErrInvalidState
 	}
 
-	tokens, err := s.keycloak.ExchangeCodeForToken(ctx, code, redirectURI, st.CodeVerifier)
+	tokens, err := s.keycloak.ExchangeCodeForToken(ctx, code, redirectURI, st.CodeVerifier, st.ClientID)
 	if err != nil {
 		return nil, err
 	}
@@ -469,21 +501,41 @@ func ExtractJTI(tokenString string) string {
 
 // ── CLI : flux device (RFC 8628) ─────────────────────────────────────────
 
-// StartDeviceLogin : code à afficher par la CLI et URL de validation.
+// deviceKey : clé du verifier PKCE d'une connexion device (hash du
+// device_code : le code lui-même n'est jamais stocké).
+func deviceKey(deviceCode string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(deviceCode)))
+	return "oauth:device:" + hex.EncodeToString(sum[:])
+}
+
+// StartDeviceLogin : code à afficher par la CLI et URL de validation. Le
+// verifier PKCE reste côté serveur jusqu'à l'expiration du code.
 func (s *service) StartDeviceLogin(ctx context.Context) (*keycloakadmin.DeviceAuthorization, error) {
-	if s == nil || s.keycloak == nil {
+	if s == nil || s.keycloak == nil || s.stateStore == nil {
 		return nil, ErrIdentityServiceUnavailable
 	}
 	if s.cliClientID == "" {
 		return nil, ErrDeviceLoginDisabled
 	}
-	return s.keycloak.StartDeviceAuthorization(ctx, s.cliClientID)
+	verifier, challenge, err := newPKCEPair()
+	if err != nil {
+		return nil, err
+	}
+	auth, err := s.keycloak.StartDeviceAuthorization(ctx, s.cliClientID, challenge)
+	if err != nil {
+		return nil, err
+	}
+	ttl := time.Duration(auth.ExpiresIn)*time.Second + time.Minute
+	if err := s.stateStore.SetValue(ctx, deviceKey(auth.DeviceCode), verifier, ttl); err != nil {
+		return nil, err
+	}
+	return auth, nil
 }
 
 // PollDeviceLogin : jetons une fois la connexion validée dans le navigateur ;
 // sinon *keycloakadmin.DeviceTokenError (authorization_pending, slow_down…).
 func (s *service) PollDeviceLogin(ctx context.Context, deviceCode string) (*keycloakadmin.TokenPair, error) {
-	if s == nil || s.keycloak == nil {
+	if s == nil || s.keycloak == nil || s.stateStore == nil {
 		return nil, ErrIdentityServiceUnavailable
 	}
 	if s.cliClientID == "" {
@@ -492,5 +544,13 @@ func (s *service) PollDeviceLogin(ctx context.Context, deviceCode string) (*keyc
 	if strings.TrimSpace(deviceCode) == "" {
 		return nil, betoerrors.New(betoerrors.CodeInvalidInput, "device_code is required")
 	}
-	return s.keycloak.PollDeviceToken(ctx, s.cliClientID, deviceCode)
+	verifier, err := s.stateStore.GetValue(ctx, deviceKey(deviceCode))
+	if err != nil || verifier == "" {
+		return nil, &keycloakadmin.DeviceTokenError{Code: "expired_token", Description: "unknown or expired device_code"}
+	}
+	tokens, err := s.keycloak.PollDeviceToken(ctx, s.cliClientID, deviceCode, verifier)
+	if err == nil {
+		_ = s.stateStore.DeleteValue(ctx, deviceKey(deviceCode))
+	}
+	return tokens, err
 }

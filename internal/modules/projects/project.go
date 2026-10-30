@@ -3,6 +3,7 @@ package projects
 import (
 	"github.com/gin-gonic/gin"
 	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
+	"github.com/thekrauss/kubemanager/internal/middleware/security"
 
 	typeiam "github.com/thekrauss/kubemanager/internal/modules/projects/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/projects/service"
@@ -26,11 +27,13 @@ func NewProjectHandlers(ps service.IProjectService) *ProjectHandler {
 func (h *ProjectHandler) CreateProject(c *gin.Context, in *typeiam.CreateProjectRequest) (*typeiam.ProjectResponse, error) {
 	// Fix #5 : clé "userID" (set par middleware/security) — avant on lisait
 	// "user_id" qui renvoyait nil, puis .(string) panic type assertion.
-	userID := c.GetString("userID")
-	if userID == "" {
-		return nil, betoerrors.New(betoerrors.CodeUnauthorized, "authenticated user context missing")
+	// Propriétaire : identifiant interne (celui des droits IAM), pas
+	// l'identifiant Keycloak du jeton.
+	owner, ok := security.InternalUserID(c)
+	if !ok {
+		return nil, betoerrors.New(betoerrors.CodeUnauthorized, "complete your profile before creating a project")
 	}
-	return h.ProjectService.CreateProject(c.Request.Context(), *in, userID)
+	return h.ProjectService.CreateProject(c.Request.Context(), *in, owner.String())
 }
 
 type GetProjectStatusRequest struct {

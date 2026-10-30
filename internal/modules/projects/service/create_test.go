@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/thekrauss/kubemanager/internal/modules/projects/workflows"
 	"testing"
 
 	"github.com/google/uuid"
@@ -53,6 +54,8 @@ func (f *fakeDistributor) CancelWorkflow(_ context.Context, _ string, _ string) 
 func (f *fakeDistributor) TerminateWorkflow(_ context.Context, _ string, _ string, _ string) error {
 	return nil
 }
+
+func (f *fakeProjectRepo) UpdateProjectStatus(context.Context, string, string) error { return nil }
 
 type fakeProjectRepo struct {
 	project *authdomain.Project
@@ -150,4 +153,24 @@ func TestDeleteProject_HappyPath_StartsDeleteWorkflow(t *testing.T) {
 	require.Len(t, dist.gotArgs, 2)
 	assert.Equal(t, projectID, dist.gotArgs[0])
 	assert.Equal(t, "alpha", dist.gotArgs[1])
+}
+
+// L'identifiant du projet est connu tout de suite (le bootstrap en a besoin)
+// et c'est celui que le workflow écrira en base ; limites par défaut.
+func TestCreateProject_ReturnsIDAndDefaults(t *testing.T) {
+	dist := &fakeDistributor{handle: temporal.WorkflowHandle{WorkflowID: "wf"}}
+	svc := newProjectServiceForTest(dist, &fakeProjectRepo{})
+
+	resp, err := svc.CreateProject(context.Background(), typesproject.CreateProjectRequest{Name: "alpha"}, "owner-42")
+	require.NoError(t, err)
+	_, err = uuid.Parse(resp.ProjectID)
+	require.NoError(t, err, "identifiant renvoyé immédiatement")
+	input := dist.gotArgs[0].(workflows.CreateProjectInput)
+	assert.Equal(t, resp.ProjectID, input.ProjectID)
+	assert.Equal(t, "project-create-"+resp.ProjectID, dist.gotOpts.WorkflowID)
+	assert.Equal(t, DefaultProjectCPU, input.CpuLimit)
+	assert.Equal(t, DefaultProjectMemory, input.MemoryLimit)
+
+	_, err = svc.CreateProject(context.Background(), typesproject.CreateProjectRequest{Name: "beta", CpuLimit: "beaucoup"}, "owner-42")
+	assert.ErrorIs(t, err, ErrInvalidProjectLimits)
 }

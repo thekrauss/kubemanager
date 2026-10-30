@@ -246,6 +246,12 @@ func (s *GroupService) RemoveMember(ctx context.Context, orgID, id uuid.UUID, me
 	if err != nil {
 		return err
 	}
+	// Même désignation qu'à l'ajout (user:<email> → user:<uuid>) : avant, un
+	// membre ajouté par son email ne pouvait pas être retiré par son email
+	// (404) et gardait ses accès. Membre introuvable (compte supprimé) : tel quel.
+	if resolved, err := resolveMember(ctx, s.DB, member); err == nil {
+		member = resolved
+	}
 	res := s.DB.WithContext(ctx).Exec(`DELETE FROM iam_group_members WHERE group_id = ? AND principal = ?`, g.ID, string(member))
 	if res.Error != nil {
 		return res.Error

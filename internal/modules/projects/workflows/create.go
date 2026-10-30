@@ -21,7 +21,7 @@ import (
 // l'activity au runtime.
 type ProjectActivities struct{}
 
-func (a *ProjectActivities) CreateProjectInDB(ctx context.Context, name string, description string, ownerID string) (*dauth.Project, error) {
+func (a *ProjectActivities) CreateProjectInDB(ctx context.Context, projectID, name, description, ownerID string) (*dauth.Project, error) {
 	return nil, nil
 }
 func (a *ProjectActivities) CreateNamespace(ctx context.Context, projectID string, projectName string) error {
@@ -29,6 +29,10 @@ func (a *ProjectActivities) CreateNamespace(ctx context.Context, projectID strin
 }
 
 func (a *ProjectActivities) DeleteProjectDBActivity(ctx context.Context, projectID string) error {
+	return nil
+}
+
+func (a *ProjectActivities) UpdateProjectStatusActivity(ctx context.Context, projectID, status string) error {
 	return nil
 }
 
@@ -44,6 +48,9 @@ func (a *ProjectActivities) AssignDefaultOwner(ctx context.Context, projectID, u
 }
 
 type CreateProjectInput struct {
+	// ProjectID : identifiant choisi par CreateProject (renvoyé à l'appelant
+	// avant la fin du workflow).
+	ProjectID   string `json:"project_id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 
@@ -78,7 +85,7 @@ func CreateProjectWorkflow(ctx workflow.Context, input CreateProjectInput) (Proj
 	var dbRes dauth.Project
 	var result ProjectResult
 
-	err := workflow.ExecuteLocalActivity(ctx, a.CreateProjectInDB, input.Name, input.Description, input.OwnerID).Get(ctx, &dbRes)
+	err := workflow.ExecuteLocalActivity(ctx, a.CreateProjectInDB, input.ProjectID, input.Name, input.Description, input.OwnerID).Get(ctx, &dbRes)
 	if err != nil {
 		return result, err
 	}
@@ -95,18 +102,28 @@ func CreateProjectWorkflow(ctx workflow.Context, input CreateProjectInput) (Proj
 		_ = workflow.ExecuteLocalActivity(ctxComp, a.DeleteProjectDBActivity, result.ProjectID).Get(ctx, nil)
 		return result, fmt.Errorf("failed to provision k8s namespace, rolled back: %w", err)
 	}
+	// Après le namespace, un échec laisse le projet visible en ERROR (au lieu
+	// d'un PENDING éternel) ; le statut est enregistré au mieux.
+	markError := func(err error) (ProjectResult, error) {
+		_ = workflow.ExecuteLocalActivity(ctx, a.UpdateProjectStatusActivity, result.ProjectID, utils.ProjectStatusError).Get(ctx, nil)
+		result.Status = utils.ProjectStatusError
+		return result, err
+	}
 	err = workflow.ExecuteActivity(ctx, a.ReconcileProjectResources, result.Namespace, input.CpuLimit, input.MemoryLimit).Get(ctx, nil)
 	if err != nil {
-		return result, err
+		return markError(err)
 	}
 
 	// Fix #4 : appelle la VRAIE activity enregistrée (ProjectK8sActivities.AssignDefaultOwner).
 	// Signature : (ctx, projectID, userID).
 	err = workflow.ExecuteActivity(ctx, a.AssignDefaultOwner, result.ProjectID, input.OwnerID).Get(ctx, nil)
 	if err != nil {
-		return result, err
+		return markError(err)
 	}
 
+	if err := workflow.ExecuteLocalActivity(ctx, a.UpdateProjectStatusActivity, result.ProjectID, utils.ProjectStatusReady).Get(ctx, nil); err != nil {
+		return result, err
+	}
 	result.Status = utils.ProjectStatusReady
 	return result, nil
 }

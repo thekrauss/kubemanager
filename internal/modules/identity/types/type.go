@@ -127,6 +127,7 @@ type ChangePasswordRequest struct {
 type LoginURLQuery struct {
 	RedirectURI string `query:"redirect_uri" description:"Redirect URI absolue (optionnelle si fournie via config)"`
 	StepUp      bool   `query:"step_up" description:"Ré-authentification avec double authentification (réponse à STEP_UP_REQUIRED)"`
+	Client      string `query:"client" description:"cli : connexion de la CLI (redirect_uri http://127.0.0.1:<port>/callback)"`
 }
 
 type LoginURLResponse struct {

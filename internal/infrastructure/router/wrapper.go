@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 	"github.com/robertbakker/swaggerui"
 	"github.com/sirupsen/logrus"
 	"github.com/wI2L/fizz"
@@ -293,8 +294,10 @@ func (r *Route) AddPath(path string) *Route {
 // wrapRawHandler adapte un handler qui écrit directement sur gin.ResponseWriter
 // (pour streaming : logs, SSE, download) en gin.HandlerFunc.
 //
-// Le handler prend `(*gin.Context, *InputStruct)` — on parse les query/path
-// params à la main via tonic pour homogénéité avec les autres routes.
+// Le handler prend `(*gin.Context, *InputStruct)` — paramètres lus avec les
+// mêmes étiquettes path:/query: que les routes tonic (ShouldBindUri et
+// ShouldBindQuery attendaient uri:/form: : l'ID n'était jamais lu, d'où
+// « ID: required field » sur les logs), puis validés.
 func wrapRawHandler(fn interface{}) gin.HandlerFunc {
 	v := reflect.ValueOf(fn)
 	t := v.Type()
@@ -305,11 +308,11 @@ func wrapRawHandler(fn interface{}) gin.HandlerFunc {
 
 	return func(c *gin.Context) {
 		input := reflect.New(inputType).Interface()
-		if err := c.ShouldBindUri(input); err != nil {
+		if err := fillParams(c, reflect.ValueOf(input)); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		if err := c.ShouldBindQuery(input); err != nil {
+		if err := binding.Validator.ValidateStruct(input); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}

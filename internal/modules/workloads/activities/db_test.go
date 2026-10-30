@@ -25,7 +25,7 @@ type fakeRepo struct {
 	deleteErr error
 }
 
-func (f *fakeRepo) Create(_ context.Context, _ *domain.Workload) error     { return nil }
+func (f *fakeRepo) Create(_ context.Context, _ *domain.Workload) error { return nil }
 func (f *fakeRepo) GetByID(_ context.Context, _ uuid.UUID) (*domain.Workload, error) {
 	return nil, nil
 }
@@ -50,6 +50,7 @@ func (f *fakeRepo) Delete(_ context.Context, id uuid.UUID) error {
 	f.mu.Unlock()
 	return nil
 }
+func (f *fakeRepo) UpdateSpec(_ context.Context, _ uuid.UUID, _, _, _ string) error { return nil }
 func (f *fakeRepo) GetTotalUsageByProject(_ context.Context, _ uuid.UUID) (int64, int64, int64, error) {
 	return 0, 0, 0, nil
 }
@@ -58,10 +59,10 @@ func (f *fakeRepo) DeleteByProject(_ context.Context, _ uuid.UUID) (int64, error
 }
 
 type capturePublisher struct {
-	mu      sync.Mutex
-	events  []pubCall
-	err     error
-	failOn  string // channel pattern substring that should fail
+	mu     sync.Mutex
+	events []pubCall
+	err    error
+	failOn string // channel pattern substring that should fail
 }
 
 type pubCall struct {

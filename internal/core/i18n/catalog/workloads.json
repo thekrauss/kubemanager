@@ -42,5 +42,9 @@
  {
   "fr": "l'identité des workloads n'est pas activée sur cette plateforme",
   "en": "workload identity is not enabled on this platform"
+ },
+ {
+  "fr": "Un conteneur porte déjà ce nom dans le projet",
+  "en": "a container with this name already exists in the project"
  }
 ]

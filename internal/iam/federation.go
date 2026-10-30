@@ -241,11 +241,7 @@ func TrustsForIssuer(ctx context.Context, db *gorm.DB, issuer string) ([]Federat
 // ce compte de service ? Même règle qu'une clé : actAs sur le compte, qui
 // doit appartenir au projet. ref : "serviceAccount:<uuid>" ou uuid.
 func (s *ServiceAccountService) AuthorizeRunAs(ctx context.Context, caller Principal, projectID uuid.UUID, ref string) (uuid.UUID, error) {
-	id, err := uuid.Parse(strings.TrimPrefix(strings.TrimSpace(ref), KindServiceAccount+":"))
-	if err != nil {
-		return uuid.Nil, ErrServiceAccountNotFound
-	}
-	sa, err := s.Get(ctx, projectID, id)
+	sa, err := s.resolve(ctx, projectID, ref)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -258,4 +254,27 @@ func (s *ServiceAccountService) AuthorizeRunAs(ctx context.Context, caller Princ
 	}
 	audit.Annotate(ctx, "run_as", string(ServiceAccountPrincipal(sa.ID)))
 	return sa.ID, nil
+}
+
+// resolve : compte du projet désigné par son identifiant (UUID ou
+// serviceAccount:<UUID>) ou par l'identifiant choisi à sa création
+// (ex. « api-runner », ce que l'utilisateur tape naturellement).
+func (s *ServiceAccountService) resolve(ctx context.Context, projectID uuid.UUID, ref string) (*ServiceAccount, error) {
+	ref = strings.TrimSpace(ref)
+	if id, err := uuid.Parse(strings.TrimPrefix(ref, KindServiceAccount+":")); err == nil {
+		return s.Get(ctx, projectID, id)
+	}
+	if ref == "" || strings.Contains(ref, ":") {
+		return nil, ErrServiceAccountNotFound
+	}
+	var sa ServiceAccount
+	err := s.DB.WithContext(ctx).Where("project_id = ? AND account_id = ?", projectID, ref).First(&sa).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrServiceAccountNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	s.decorate(&sa)
+	return &sa, nil
 }

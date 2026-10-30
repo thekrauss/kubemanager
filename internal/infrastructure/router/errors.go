@@ -53,6 +53,8 @@ var sentinelErrors = []sentinelMapping{
 	{identitySvc.ErrSubjectInvalid, http.StatusUnauthorized, betoerrors.CodeUnauthorized, false},
 	{identitySvc.ErrIdentityServiceUnavailable, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", false},
 	{identitySvc.ErrMFANotConfigured, http.StatusConflict, "FAILED_PRECONDITION", false},
+	{identitySvc.ErrCLIRedirectURI, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{identitySvc.ErrDeviceLoginDisabled, http.StatusNotImplemented, "UNIMPLEMENTED", false},
 
 	{authSvc.ErrUserAPIKeysRetired, http.StatusGone, "GONE", false},
 	{idempotency.ErrPayloadMismatch, http.StatusUnprocessableEntity, "IDEMPOTENCY_MISMATCH", false},
@@ -113,6 +115,7 @@ var sentinelErrors = []sentinelMapping{
 	{iam.ErrTrustNotFound, http.StatusNotFound, betoerrors.CodeNotFound, false},
 	{iam.ErrInvalidClusterJWKS, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
 	{workloadsSvc.ErrWorkloadIdentityDisabled, http.StatusConflict, "FAILED_PRECONDITION", false},
+	{workloadsSvc.ErrWorkloadNameTaken, http.StatusConflict, betoerrors.CodeConflict, false},
 }
 
 // classifyError : statut, code et message sûr à exposer.

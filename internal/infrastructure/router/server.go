@@ -124,6 +124,8 @@ func (a *App) startHTTPServer() {
 	// Erreurs des handlers tonic : statut selon le type d'erreur (voir errors.go)
 	// au lieu du 400 + message brut par défaut.
 	tonic.SetErrorHook(newErrorHook(a.Logger))
+	// Paramètres de chemin remplis avant la validation du corps (voir bind.go).
+	tonic.SetBindHook(bindHook(tonic.DefaultMaxBodyBytes))
 
 	f := fizz.NewFromEngine(engine)
 

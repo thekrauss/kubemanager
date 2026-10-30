@@ -83,8 +83,11 @@ func TestE2E_WorkloadIdentity(t *testing.T) {
 	assert.ErrorIs(t, err, iam.ErrActAsRequired)
 	_, err = sas.AuthorizeRunAs(ctx, awa, uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"), string(sa.Principal))
 	assert.ErrorIs(t, err, iam.ErrServiceAccountNotFound, "compte d'un autre projet")
+	byAccountID, err := sas.AuthorizeRunAs(ctx, awa, projectID, sa.AccountID)
+	require.NoError(t, err, "désigné par son identifiant de compte")
 	saID, err := sas.AuthorizeRunAs(ctx, awa, projectID, string(sa.Principal))
 	require.NoError(t, err)
+	assert.Equal(t, saID, byAccountID)
 
 	// Workload qui tourne comme ce compte.
 	ns, name, workloadID := "km-sunupay", "api-"+uuid.NewString()[:6], uuid.New()

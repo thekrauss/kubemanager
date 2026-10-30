@@ -1,10 +1,8 @@
 package workflows
 
 import (
-	"fmt"
 	"time"
 
-	"github.com/thekrauss/kubemanager/internal/core/configs"
 	"github.com/thekrauss/kubemanager/internal/modules/workloads/activities"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -22,6 +20,12 @@ type DeployWorkloadInput struct {
 
 	EnvVars map[string]string
 	Secrets map[string]string
+
+	// Routage public, calculé par le service (enregistré avec le workload) :
+	// ExternalHost vide = pas d'ingress.
+	ExternalHost     string
+	IngressClass     string
+	IngressNamespace string
 
 	PersistenceEnabled bool
 	StorageSize        string
@@ -101,9 +105,6 @@ func DeployWorkloadWorkflow(ctx workflow.Context, input DeployWorkloadInput) err
 		return err
 	}
 
-	vpsIP := configs.AppConfig.Vps.AdressIp
-	shortID := input.ProjectID[:6]
-	externalURL := fmt.Sprintf("%s-%s.%s.sslip.io", input.ReleaseName, shortID, vpsIP)
 	workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
 		input.WorkloadID, input.ProjectID, "STARTING", "HELM_INSTALLING").Get(ctx, nil)
 
@@ -114,7 +115,9 @@ func DeployWorkloadWorkflow(ctx workflow.Context, input DeployWorkloadInput) err
 		Namespace:            input.Namespace,
 		ImageRepo:            imgInfo.Repository,
 		ImageTag:             imgInfo.Tag,
-		ExternalURL:          externalURL,
+		ExternalURL:          input.ExternalHost,
+		IngressClass:         input.IngressClass,
+		IngressNamespace:     input.IngressNamespace,
 		Env:                  input.EnvVars,
 		Secrets:              input.Secrets,
 		PersistenceEnabled:   input.PersistenceEnabled,

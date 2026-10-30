@@ -121,7 +121,10 @@ func (s *WorkloadService) Restart(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return fmt.Errorf("patch deployment: %w", err)
 	}
-	return s.Repo.UpdateStatus(ctx, id, "RESTARTING", "ROLLOUT_RESTART")
+	// Redémarrage progressif : les anciens pods servent jusqu'à ce que les
+	// nouveaux soient prêts, le conteneur reste RUNNING (avant : RESTARTING,
+	// que rien ne faisait jamais repasser à RUNNING).
+	return s.Repo.UpdateStatus(ctx, id, "RUNNING", "ROLLOUT_RESTART")
 }
 
 // Rollback : helm rollback à la révision cible (0 = revision précédente).

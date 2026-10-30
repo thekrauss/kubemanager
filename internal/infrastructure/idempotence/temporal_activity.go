@@ -68,7 +68,7 @@ func ExecuteActivity[T any](
 	}
 
 	info := activity.GetInfo(ctx)
-	key := fmt.Sprintf("tmp:%s:%s:%s", info.WorkflowExecution.ID, info.ActivityType.Name, info.ActivityID)
+	key := activityKey(info)
 
 	hash, err := mgr.Hash(payload, info.ActivityType.Name)
 	if err != nil {
@@ -94,4 +94,15 @@ func ExecuteActivity[T any](
 		return zero, status, ErrActivityInProgress
 	}
 	return result, status, nil
+}
+
+// activityKey : une clé par exécution d'activité, partagée par ses tentatives.
+// Le RunID en fait partie : un workflow relancé sous le même identifiant
+// (ex. workload-update-<id> à chaque nouvelle version) est une nouvelle
+// exécution ; sans lui, la clé de la version précédente était retrouvée avec
+// un autre contenu (« idempotency payload mismatch ») et la mise à jour
+// échouait.
+func activityKey(info activity.Info) string {
+	return fmt.Sprintf("tmp:%s:%s:%s:%s", info.WorkflowExecution.ID, info.WorkflowExecution.RunID,
+		info.ActivityType.Name, info.ActivityID)
 }

@@ -174,8 +174,8 @@ func TestE2E_Groups(t *testing.T) {
 		}
 	}
 
-	// Retrait.
-	require.NoError(t, groups.RemoveMember(ctx, orgID, g.ID, iam.UserPrincipal(alice)))
+	// Retrait, par l'email qui a servi à l'ajouter (avant : 404, accès conservé).
+	require.NoError(t, groups.RemoveMember(ctx, orgID, g.ID, iam.Principal("user:"+aliceEmail)))
 	assert.False(t, allowed(t, engine, alice, iam.SiteDeploymentsCreate, site))
 	assert.ErrorIs(t, groups.RemoveMember(ctx, orgID, g.ID, iam.UserPrincipal(alice)), iam.ErrGroupMemberNotFound)
 

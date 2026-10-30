@@ -90,20 +90,28 @@ func (a *ProjectK8sActivities) ReconcileProjectResources(ctx context.Context, ns
 				return struct{}{}, fmt.Errorf("namespace %s missing, reconciliation failed: %w", nsName, err)
 			}
 
+			cpuQ, err := resource.ParseQuantity(cpu)
+			if err != nil {
+				return struct{}{}, fmt.Errorf("invalid cpu limit %q: %w", cpu, err)
+			}
+			memQ, err := resource.ParseQuantity(mem)
+			if err != nil {
+				return struct{}{}, fmt.Errorf("invalid memory limit %q: %w", mem, err)
+			}
 			quotaName := "project-quota"
 			newQuotas := &corev1.ResourceQuota{
 				ObjectMeta: metav1.ObjectMeta{Name: quotaName, Namespace: nsName},
 				Spec: corev1.ResourceQuotaSpec{
 					Hard: corev1.ResourceList{
-						corev1.ResourceRequestsCPU:    resource.MustParse(cpu),
-						corev1.ResourceRequestsMemory: resource.MustParse(mem),
-						corev1.ResourceLimitsCPU:      resource.MustParse(cpu),
-						corev1.ResourceLimitsMemory:   resource.MustParse(mem),
+						corev1.ResourceRequestsCPU:    cpuQ,
+						corev1.ResourceRequestsMemory: memQ,
+						corev1.ResourceLimitsCPU:      cpuQ,
+						corev1.ResourceLimitsMemory:   memQ,
 					},
 				},
 			}
 
-			_, err := a.K8sClient.CoreV1().ResourceQuotas(nsName).Get(ctx, quotaName, metav1.GetOptions{})
+			_, err = a.K8sClient.CoreV1().ResourceQuotas(nsName).Get(ctx, quotaName, metav1.GetOptions{})
 			if kerrors.IsNotFound(err) {
 				if _, cErr := a.K8sClient.CoreV1().ResourceQuotas(nsName).Create(ctx, newQuotas, metav1.CreateOptions{}); cErr != nil {
 					return struct{}{}, fmt.Errorf("create quota: %w", cErr)

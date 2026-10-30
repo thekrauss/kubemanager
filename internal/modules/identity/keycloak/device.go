@@ -34,8 +34,15 @@ type DeviceTokenError struct {
 
 func (e *DeviceTokenError) Error() string { return "device flow: " + e.Code }
 
-func (c *Client) StartDeviceAuthorization(ctx context.Context, clientID string) (*DeviceAuthorization, error) {
+// StartDeviceAuthorization : PKCE (S256) en plus du flux device : le client
+// de la CLI l'exige pour tous ses flux (il sert aussi au retour sur
+// 127.0.0.1, RFC 8252).
+func (c *Client) StartDeviceAuthorization(ctx context.Context, clientID, codeChallenge string) (*DeviceAuthorization, error) {
 	form := url.Values{"client_id": {clientID}, "scope": {"openid profile email offline_access"}}
+	if codeChallenge != "" {
+		form.Set("code_challenge", codeChallenge)
+		form.Set("code_challenge_method", "S256")
+	}
 	var out DeviceAuthorization
 	status, body, err := c.postForm(ctx, "/protocol/openid-connect/auth/device", form)
 	if err != nil {
@@ -51,9 +58,12 @@ func (c *Client) StartDeviceAuthorization(ctx context.Context, clientID string) 
 }
 
 // PollDeviceToken : jetons une fois la connexion validée ; sinon *DeviceTokenError.
-func (c *Client) PollDeviceToken(ctx context.Context, clientID, deviceCode string) (*TokenPair, error) {
+func (c *Client) PollDeviceToken(ctx context.Context, clientID, deviceCode, codeVerifier string) (*TokenPair, error) {
 	form := url.Values{"grant_type": {"urn:ietf:params:oauth:grant-type:device_code"},
 		"client_id": {clientID}, "device_code": {strings.TrimSpace(deviceCode)}}
+	if codeVerifier != "" {
+		form.Set("code_verifier", codeVerifier)
+	}
 	status, body, err := c.postForm(ctx, "/protocol/openid-connect/token", form)
 	if err != nil {
 		return nil, err

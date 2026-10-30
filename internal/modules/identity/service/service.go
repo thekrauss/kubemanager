@@ -31,6 +31,7 @@ var (
 	ErrSubjectInvalid             = errors.New("keycloak user id (sub) is missing or invalid")
 	ErrMFANotConfigured           = errors.New("two-factor authentication is not configured on this platform")
 	ErrDeviceLoginDisabled        = errors.New("CLI login (device flow) is not enabled on this platform")
+	ErrCLIRedirectURI             = errors.New("CLI redirect_uri must be http://127.0.0.1:<port>/callback")
 )
 
 // validProviders : nom exposé → alias IDP configuré dans Keycloak (voir bootstrap_platform.sh).
@@ -75,8 +76,8 @@ type Service interface {
 	// StartDeviceLogin / PollDeviceLogin : connexion de la CLI (RFC 8628).
 	StartDeviceLogin(ctx context.Context) (*keycloakadmin.DeviceAuthorization, error)
 	PollDeviceLogin(ctx context.Context, deviceCode string) (*keycloakadmin.TokenPair, error)
-	// LoginURL : stepUp demande une ré-authentification avec MFA (step-up).
-	LoginURL(ctx context.Context, redirectURI string, stepUp bool) (string, error)
+	// LoginURL : URL de la page de connexion Keycloak (voir LoginOptions).
+	LoginURL(ctx context.Context, redirectURI string, opts LoginOptions) (string, error)
 	SocialLoginURL(ctx context.Context, provider, redirectURI string) (string, error)
 	HandleSocialCallback(ctx context.Context, code, state, redirectURI string) (*LoginResult, error)
 
@@ -243,11 +244,12 @@ func (s *service) BootstrapStatus(ctx context.Context, principal BootstrapPrinci
 		FullName: strings.TrimSpace(keycloakUser.FullName), PhoneNumber: strings.TrimSpace(keycloakUser.PhoneNumber),
 	}
 	user, err := s.users.FindByKeycloakUserID(ctx, keycloakUserID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return status, nil
-		}
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
+	}
+	// Pas encore de profil local (première visite) : le dépôt renvoie nil, nil.
+	if user == nil {
+		return status, nil
 	}
 	internalUserID := user.ID.String()
 	status.InternalUserID = &internalUserID

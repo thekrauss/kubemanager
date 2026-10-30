@@ -53,9 +53,11 @@ type ListWorkloadsRequest struct {
 	ProjectID string `query:"project_id" binding:"required" desc:"ID du projet parent"`
 }
 
+// UpdateWorkloadParams : corps embarqué (encoding/json ignore « inline » :
+// avec un champ Body nommé, le corps n'était jamais lu).
 type UpdateWorkloadParams struct {
-	ID   string                       `path:"id" binding:"required"`
-	Body domain.UpdateWorkloadRequest `json:",inline"`
+	ID string `path:"id" binding:"required"`
+	domain.UpdateWorkloadRequest
 }
 
 type RollbackRequest struct {
@@ -108,7 +110,7 @@ func (h *WorkloadController) ListWorkloads(c *gin.Context, in *ListWorkloadsRequ
 }
 
 func (h *WorkloadController) UpdateWorkload(c *gin.Context, in *UpdateWorkloadParams) error {
-	return h.WorkloadService.Update(c.Request.Context(), in.ID, in.Body)
+	return h.WorkloadService.Update(c.Request.Context(), in.ID, in.UpdateWorkloadRequest)
 }
 
 func (h *WorkloadController) DeleteWorkload(c *gin.Context, in *WorkloadIDRequest) error {

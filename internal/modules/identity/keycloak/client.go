@@ -37,9 +37,12 @@ type KeycloakClient interface {
 	// empty idpName means the hosted login page. Pure URL construction.
 	GetAuthorizationURL(idpName, redirectURI, state, codeChallenge string, opts ...AuthRequestOptions) string
 	// StartDeviceAuthorization / PollDeviceToken : flux device (RFC 8628) de la CLI.
-	StartDeviceAuthorization(ctx context.Context, clientID string) (*DeviceAuthorization, error)
-	PollDeviceToken(ctx context.Context, clientID, deviceCode string) (*TokenPair, error)
-	ExchangeCodeForToken(ctx context.Context, code, redirectURI, codeVerifier string) (*TokenPair, error)
+	// codeChallenge / codeVerifier : PKCE (S256), exigé par le client de la CLI.
+	StartDeviceAuthorization(ctx context.Context, clientID, codeChallenge string) (*DeviceAuthorization, error)
+	PollDeviceToken(ctx context.Context, clientID, deviceCode, codeVerifier string) (*TokenPair, error)
+	// ExchangeCodeForToken : clientID facultatif (client qui a demandé le code ;
+	// défaut : le client web).
+	ExchangeCodeForToken(ctx context.Context, code, redirectURI, codeVerifier string, clientID ...string) (*TokenPair, error)
 
 	// SendVerificationEmail triggers a VERIFY_EMAIL action email for the user.
 	SendVerificationEmail(ctx context.Context, userID string, opts *ActionEmailOptions) error
@@ -725,6 +728,8 @@ type AuthRequestOptions struct {
 	// MaxAge : âge maximal de l'authentification, en secondes ; 0 force une
 	// ré-authentification (step-up). nil : non envoyé.
 	MaxAge *int
+	// ClientID : client OAuth de la demande (défaut : le client web).
+	ClientID string
 }
 
 func (c *Client) GetAuthorizationURL(idpName, redirectURI, state, codeChallenge string, opts ...AuthRequestOptions) string {
@@ -740,6 +745,9 @@ func (c *Client) GetAuthorizationURL(idpName, redirectURI, state, codeChallenge 
 		params.Set("kc_idp_hint", idpName)
 	}
 	for _, o := range opts {
+		if o.ClientID != "" {
+			params.Set("client_id", o.ClientID)
+		}
 		if o.ACRValues != "" {
 			params.Set("acr_values", o.ACRValues)
 		}
@@ -753,14 +761,18 @@ func (c *Client) GetAuthorizationURL(idpName, redirectURI, state, codeChallenge 
 
 // ExchangeCodeForToken exchanges an authorization code (received from Keycloak
 // after a login redirect) and its PKCE verifier for a TokenPair.
-func (c *Client) ExchangeCodeForToken(ctx context.Context, code, redirectURI, codeVerifier string) (*TokenPair, error) {
+func (c *Client) ExchangeCodeForToken(ctx context.Context, code, redirectURI, codeVerifier string, clientID ...string) (*TokenPair, error) {
 	code = strings.TrimSpace(code)
 	if code == "" {
 		return nil, errors.New("authorization code is required")
 	}
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
-	c.setClientCredentials(form, c.authClientID())
+	client := c.authClientID()
+	if len(clientID) > 0 && clientID[0] != "" {
+		client = clientID[0]
+	}
+	c.setClientCredentials(form, client)
 	form.Set("code", code)
 	form.Set("redirect_uri", redirectURI)
 	form.Set("code_verifier", codeVerifier)

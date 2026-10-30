@@ -2,6 +2,7 @@ package sites
 
 import (
 	"errors"
+	"github.com/thekrauss/kubemanager/internal/middleware/security"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -125,8 +126,9 @@ func (h *SiteController) UploadDeployment(c *gin.Context, in *domain.UploadPath)
 	}
 	defer f.Close()
 
+	// Auteur : identifiant interne (nil pour un compte de service).
 	var userID *uuid.UUID
-	if uid, err := uuid.Parse(c.GetString("userID")); err == nil {
+	if uid, ok := security.InternalUserID(c); ok {
 		userID = &uid
 	}
 	dep, err := h.Service.Deploy(c.Request.Context(), ids[0], ids[1], userID, f, fh.Size)

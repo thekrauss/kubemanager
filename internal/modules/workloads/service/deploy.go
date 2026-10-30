@@ -6,15 +6,19 @@ import (
 	"fmt"
 	"github.com/thekrauss/kubemanager/internal/iam"
 	"github.com/thekrauss/kubemanager/internal/modules/workloads/activities"
+	"strings"
 
 	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	"github.com/thekrauss/kubemanager/internal/core/configs"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/temporal"
 	projectRepo "github.com/thekrauss/kubemanager/internal/modules/projects/repository"
 	"github.com/thekrauss/kubemanager/internal/modules/utils"
@@ -50,6 +54,10 @@ type IdentitySettings struct {
 
 // ErrWorkloadIdentityDisabled : pas de cluster ou de STS configuré.
 var ErrWorkloadIdentityDisabled = errors.New("workload identity is not enabled on this platform")
+
+// ErrWorkloadNameTaken : le nom sert de release Helm dans l'espace du projet ;
+// deux conteneurs du même nom se disputeraient la même release.
+var ErrWorkloadNameTaken = errors.New("a container with this name already exists in the project")
 
 type WorkloadService struct {
 	// Identity : nil si l'identité des workloads est désactivée.
@@ -135,6 +143,16 @@ func (s *WorkloadService) Deploy(ctx context.Context, in *WorkloadServiceRequest
 
 	_ = currentStorage
 
+	existing, err := s.Repo.ListByProject(ctx, pID)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range existing {
+		if w.Name == in.Name {
+			return nil, ErrWorkloadNameTaken
+		}
+	}
+
 	targetNamespace := fmt.Sprintf("km-%s", project.Name)
 
 	// Identité : vérifiée avant toute création (actAs sur le compte).
@@ -165,10 +183,13 @@ func (s *WorkloadService) Deploy(ctx context.Context, in *WorkloadServiceRequest
 		PersistenceEnabled: in.PersistenceEnabled,
 		StorageSize:        in.StorageSize,
 		StorageClass:       defaultIfEmpty(in.StorageClass, "local-path"),
+		TLSEnabled:         in.TLSEnabled,
 		Status:             "STARTING",
 		CurrentPhase:       "HELM_CHART_LOADING",
 		ServiceAccountID:   runAs,
 	}
+	route := publicRoute(in.Name, pID, in.TLSEnabled)
+	workload.ExternalURL = route.URL
 
 	if err := s.Repo.Create(ctx, workload); err != nil {
 		return nil, err
@@ -200,6 +221,9 @@ func (s *WorkloadService) Deploy(ctx context.Context, in *WorkloadServiceRequest
 		TLSEnabled:         in.TLSEnabled,
 		HealthPath:         in.HealthPath,
 		ReadinessPath:      in.ReadinessPath,
+		ExternalHost:       route.Host,
+		IngressClass:       route.IngressClass,
+		IngressNamespace:   route.IngressNamespace,
 	}
 	if runAs != nil {
 		wfInput.Identity = s.identity(*runAs)
@@ -218,8 +242,16 @@ func (s *WorkloadService) Deploy(ctx context.Context, in *WorkloadServiceRequest
 	return workload, err
 }
 
+// Update : nouvelle version (image, disque, variables). Le reste de la
+// configuration est repris du workload enregistré : avant, le workflow était
+// relancé avec la seule image, et perdait port, ressources, réplicas, TLS,
+// URL publique et variables d'environnement.
 func (s *WorkloadService) Update(ctx context.Context, id string, req domain.UpdateWorkloadRequest) error {
-	current, err := s.Repo.GetByID(ctx, uuid.MustParse(id))
+	wID, err := uuid.Parse(id)
+	if err != nil {
+		return betoerrors.New(betoerrors.CodeNotFound, "workload not found")
+	}
+	current, err := s.Repo.GetByID(ctx, wID)
 	if err != nil {
 		return err
 	}
@@ -229,6 +261,25 @@ func (s *WorkloadService) Update(ctx context.Context, id string, req domain.Upda
 			return betoerrors.New(betoerrors.CodeInvalidInput, "reduction of storage size is not supported")
 		}
 	}
+	if req.Image != "" {
+		current.Image = req.Image
+	}
+	if req.StorageSize != "" {
+		current.StorageSize = req.StorageSize
+	}
+
+	env := req.EnvVars
+	if env == nil {
+		// Variables non fournies : celles en place sont conservées.
+		if env, err = s.currentEnv(ctx, current); err != nil {
+			return err
+		}
+	}
+
+	route := publicRoute(current.Name, current.ProjectID, current.TLSEnabled)
+	if err := s.Repo.UpdateSpec(ctx, current.ID, current.Image, current.StorageSize, route.URL); err != nil {
+		return err
+	}
 
 	_, err = s.Distributor.ExecuteWorkflow(ctx,
 		temporal.ExecuteOptions{WorkflowID: "workload-update-" + id},
@@ -237,14 +288,74 @@ func (s *WorkloadService) Update(ctx context.Context, id string, req domain.Upda
 			ProjectID:          current.ProjectID.String(),
 			Namespace:          current.Namespace,
 			ReleaseName:        current.Name,
-			Image:              req.Image,
-			EnvVars:            req.EnvVars,
+			Image:              current.Image,
+			EnvVars:            env,
 			PersistenceEnabled: current.PersistenceEnabled,
-			StorageSize:        req.StorageSize,
+			StorageSize:        current.StorageSize,
+			StorageClass:       current.StorageClass,
+			Replicas:           current.Replicas,
+			TargetPort:         current.TargetPort,
+			CPURequest:         current.CPURequest,
+			MemoryRequest:      current.MemoryRequest,
+			CPULimit:           current.CPULimit,
+			MemoryLimit:        current.MemoryLimit,
+			TLSEnabled:         current.TLSEnabled,
+			ExternalHost:       route.Host,
+			IngressClass:       route.IngressClass,
+			IngressNamespace:   route.IngressNamespace,
 			Identity:           s.currentIdentity(current),
 		})
 
 	return err
+}
+
+// currentEnv : variables d'environnement en place (secret <nom>-env créé au
+// déploiement) ; aucune si le secret n'existe pas.
+func (s *WorkloadService) currentEnv(ctx context.Context, w *domain.Workload) (map[string]string, error) {
+	if s.K8sClient == nil {
+		return nil, nil
+	}
+	secret, err := s.K8sClient.CoreV1().Secrets(w.Namespace).Get(ctx, w.Name+"-env", metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read current environment: %w", err)
+	}
+	env := make(map[string]string, len(secret.Data))
+	for k, v := range secret.Data {
+		env[k] = string(v)
+	}
+	return env, nil
+}
+
+// route : exposition publique d'un workload.
+type route struct {
+	Host             string // vide : pas d'ingress
+	URL              string // enregistrée avec le workload, affichée à l'utilisateur
+	IngressClass     string
+	IngressNamespace string
+}
+
+// publicRoute : <nom>-<projet>.<ip>.sslip.io si l'IP du point d'entrée est
+// configurée (vps.vps_ip) ; sinon aucune URL publique (avant : hôte
+// « web-xxxxxx..sslip.io » invalide, refusé par Kubernetes).
+func publicRoute(name string, projectID uuid.UUID, tls bool) route {
+	r := route{
+		IngressClass:     configs.AppConfig.Kubernetes.IngressClass,
+		IngressNamespace: configs.AppConfig.Kubernetes.IngressNamespace,
+	}
+	ip := strings.TrimSpace(configs.AppConfig.Vps.AdressIp)
+	if ip == "" {
+		return r
+	}
+	r.Host = fmt.Sprintf("%s-%s.%s.sslip.io", name, projectID.String()[:6], ip)
+	scheme := "http"
+	if tls {
+		scheme = "https"
+	}
+	r.URL = scheme + "://" + r.Host
+	return r
 }
 
 func (s *WorkloadService) parseCPU(cpu string) int64 {

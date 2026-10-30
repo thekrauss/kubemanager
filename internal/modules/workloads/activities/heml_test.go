@@ -48,3 +48,23 @@ func TestBuildHelmValues_WorkloadIdentity(t *testing.T) {
 		t.Fatalf("serviceAccount : %v", vals["serviceAccount"])
 	}
 }
+
+// Sans URL publique (IP du point d'entrée non configurée) : pas d'ingress
+// (avant : hôte « web-xxxxxx..sslip.io » refusé, déploiement en échec).
+func TestBuildHelmValues_Ingress(t *testing.T) {
+	none := buildHelmValues(InstallWorkloadInput{ReleaseName: "api"})
+	assert.Equal(t, false, none["ingress"].(map[string]any)["enabled"])
+
+	vals := buildHelmValues(InstallWorkloadInput{ReleaseName: "api", ExternalURL: "api-123456.1.2.3.4.sslip.io"})
+	ing := vals["ingress"].(map[string]any)
+	assert.Equal(t, true, ing["enabled"])
+	assert.Equal(t, "api-123456.1.2.3.4.sslip.io", ing["host"])
+	assert.Equal(t, "nginx", ing["className"])
+
+	assert.Equal(t, "ingress-nginx", vals["networkPolicy"].(map[string]any)["ingressNSLabelValue"])
+
+	traefik := buildHelmValues(InstallWorkloadInput{ReleaseName: "api", ExternalURL: "h",
+		IngressClass: "traefik", IngressNamespace: "kube-system"})
+	assert.Equal(t, "traefik", traefik["ingress"].(map[string]any)["className"])
+	assert.Equal(t, "kube-system", traefik["networkPolicy"].(map[string]any)["ingressNSLabelValue"])
+}

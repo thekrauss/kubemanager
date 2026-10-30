@@ -30,11 +30,11 @@ type ClusterIDPath struct {
 	ClusterID string `path:"clusterID" binding:"required"`
 }
 
-// PodEventInput : path param + body JSON. Tonic sait binder les deux en
-// déclarant le body dans un field non-taggé (ou via struct embed).
+// PodEventInput : path param + body JSON. Corps embarqué : encoding/json
+// ignore « inline », un champ Event nommé restait vide (événements perdus).
 type PodEventInput struct {
-	ClusterID string   `path:"clusterID" binding:"required"`
-	Event     PodEvent `json:",inline"`
+	ClusterID string `path:"clusterID" binding:"required"`
+	PodEvent
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────
@@ -54,7 +54,7 @@ func (ctrl *Controller) OnPodEvent(c *gin.Context, in *PodEventInput) (*PodEvent
 	if in == nil {
 		return nil, betoerrors.New(betoerrors.CodeInvalidInput, "body required")
 	}
-	return ctrl.service.OnPodEvent(c.Request.Context(), in.ClusterID, in.Event)
+	return ctrl.service.OnPodEvent(c.Request.Context(), in.ClusterID, in.PodEvent)
 }
 
 func (ctrl *Controller) ListClusters(c *gin.Context) ([]Cluster, error) {

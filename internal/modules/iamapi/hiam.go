@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
 	"github.com/thekrauss/kubemanager/internal/audit"
+	"github.com/thekrauss/kubemanager/internal/core/i18n"
 	"gorm.io/gorm"
 
 	"github.com/thekrauss/kubemanager/internal/iam"
@@ -110,7 +111,9 @@ func (h *Controller) TestPermissions(c *gin.Context, in *TestPermissionsRequest)
 	return &TestPermissionsResponse{Permissions: out}, nil
 }
 
+// ListRoles : titres et descriptions dans la langue de la requête.
 func (h *Controller) ListRoles(c *gin.Context) ([]RoleView, error) {
+	locale := i18n.From(c.Request.Context())
 	roles := iam.PredefinedRoles()
 	out := make([]RoleView, 0, len(roles))
 	for _, r := range roles {
@@ -118,19 +121,21 @@ func (h *Controller) ListRoles(c *gin.Context) ([]RoleView, error) {
 		for i, p := range r.Permissions {
 			perms[i] = p.String()
 		}
-		out = append(out, RoleView{Name: r.Name, Title: r.Title, Description: r.Description, Permissions: perms})
+		out = append(out, RoleView{Name: r.Name, Title: i18n.Translate(locale, r.Title),
+			Description: i18n.Translate(locale, r.Description), Permissions: perms})
 	}
 	return out, nil
 }
 
 func (h *Controller) ListPermissions(c *gin.Context) ([]PermissionView, error) {
+	locale := i18n.From(c.Request.Context())
 	var out []PermissionView
 	for _, p := range iam.AllPermissions() {
 		info, _ := iam.Info(p)
 		if info.PlatformOnly {
 			continue
 		}
-		out = append(out, PermissionView{Name: p.String(), Title: info.Title, CustomRoles: info.CustomRoles})
+		out = append(out, PermissionView{Name: p.String(), Title: i18n.Translate(locale, info.Title), CustomRoles: info.CustomRoles})
 	}
 	return out, nil
 }

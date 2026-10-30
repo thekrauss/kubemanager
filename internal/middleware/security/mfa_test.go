@@ -22,7 +22,9 @@ func (allowAll) Check(context.Context, iam.Principal, iam.Permission, iam.Resour
 
 type orgRequires bool
 
-func (o orgRequires) RequiresMFA(context.Context, iam.ResourceName) (bool, error) { return bool(o), nil }
+func (o orgRequires) RequiresMFA(context.Context, iam.ResourceName) (bool, error) {
+	return bool(o), nil
+}
 
 func TestCheckMFA(t *testing.T) {
 	gin.SetMode(gin.TestMode)

@@ -54,5 +54,9 @@
  {
   "fr": "device_code est obligatoire",
   "en": "device_code is required"
+ },
+ {
+  "fr": "pour la CLI, redirect_uri doit être http://127.0.0.1:<port>/callback",
+  "en": "CLI redirect_uri must be http://127.0.0.1:<port>/callback"
  }
 ]

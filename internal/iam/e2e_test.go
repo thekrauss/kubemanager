@@ -1,8 +1,9 @@
 // Test d'intégration : vrai Postgres, ignoré sans IAM_E2E.
 //
-//	docker run -d --rm --name iam-e2e-pg -e POSTGRES_PASSWORD=pw -p 127.0.0.1:55433:5432 postgres:15-alpine
-//	for f in migrations/*.up.sql; do docker exec -i iam-e2e-pg psql -U postgres < $f; done
+//	bash scripts/iam_e2e_db.sh    # base neuve : migrations + données legacy
 //	IAM_E2E=1 go test -p 1 ./internal/iam/... -run TestE2E -v
+//
+// Les tests ajoutent des données : recréer la base avant chaque série.
 //
 // -p 1 : les paquets iam et iam/sts modifient la policy du même projet de
 // test ; en parallèle, l'etag refuse (à raison) l'une des écritures.

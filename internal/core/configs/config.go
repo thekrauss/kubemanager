@@ -228,7 +228,10 @@ type TracingConfig struct {
 }
 
 type Vps struct {
-	AdressIp string `mapstructure:"adress_ip"`
+	// AdressIp : IP publique du point d'entrée des conteneurs (URL
+	// <release>-<projet>.<ip>.sslip.io). Clé vps.vps_ip (env
+	// KUBEMANAGER_VPS_VPS_IP) ; vide : conteneurs sans URL publique.
+	AdressIp string `mapstructure:"vps_ip"`
 }
 
 type FrontendConfig struct {
@@ -244,6 +247,13 @@ type KubernetesConfig struct {
 	// ClusterID : identifiant (celui de son watcher) du cluster où tournent
 	// les workloads. Vide : identité des workloads désactivée.
 	ClusterID string `mapstructure:"cluster_id"`
+	// IngressClass : classe d'ingress des conteneurs exposés (défaut nginx ;
+	// traefik sur un k3s/k3d nu).
+	IngressClass string `mapstructure:"ingress_class"`
+	// IngressNamespace : espace de noms du contrôleur d'ingress, seul autorisé
+	// par la NetworkPolicy à joindre les conteneurs (défaut ingress-nginx ;
+	// kube-system pour le traefik de k3s).
+	IngressNamespace string `mapstructure:"ingress_namespace"`
 }
 
 // EnvPrefix est le préfixe utilisé pour les variables d'environnement (ex: KUBEMANAGER_DATABASE_HOST).

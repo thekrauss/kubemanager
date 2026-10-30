@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -16,6 +17,8 @@ type ProjectRepository interface {
 	CreateProject(ctx context.Context, project *dauth.Project, ownerID string) error
 	DeleteProject(ctx context.Context, projectID string) error
 	GetProjectByID(ctx context.Context, id string) (*dauth.Project, error)
+	// UpdateProjectStatus : statut de provisionnement (PENDING, READY, ERROR).
+	UpdateProjectStatus(ctx context.Context, id, status string) error
 }
 
 type pgProjectRepo struct {
@@ -55,8 +58,20 @@ func (r *pgProjectRepo) CreateProject(ctx context.Context, project *dauth.Projec
 	})
 }
 
+// DeleteProject : la ligne et tous les droits IAM portés par le projet et
+// ses ressources (sinon des bindings orphelins laissent croire à leurs
+// membres qu'ils ont encore ce projet).
 func (r *pgProjectRepo) DeleteProject(ctx context.Context, projectID string) error {
-	return r.db.WithContext(ctx).Unscoped().Where("id = ?", projectID).Delete(&domain.Project{}).Error
+	id, err := uuid.Parse(projectID)
+	if err != nil {
+		return err
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Unscoped().Where("id = ?", id).Delete(&domain.Project{}).Error; err != nil {
+			return err
+		}
+		return iam.DeleteResourcePolicy(ctx, tx, iam.ProjectName(id))
+	})
 }
 
 func (r *pgProjectRepo) GetProjectByID(ctx context.Context, id string) (*dauth.Project, error) {
@@ -70,4 +85,9 @@ func (r *pgProjectRepo) GetProjectByID(ctx context.Context, id string) (*dauth.P
 		return nil, err
 	}
 	return &project, nil
+}
+
+func (r *pgProjectRepo) UpdateProjectStatus(ctx context.Context, id, status string) error {
+	return r.db.WithContext(ctx).Model(&dauth.Project{}).Where("id = ?", id).
+		Updates(map[string]any{"status": status, "updated_at": time.Now()}).Error
 }

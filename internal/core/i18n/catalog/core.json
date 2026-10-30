@@ -146,5 +146,13 @@
  {
   "fr": "Requête invalide : %s",
   "en": "binding error: %s"
+ },
+ {
+  "fr": "Complétez votre profil avant de créer un projet",
+  "en": "complete your profile before creating a project"
+ },
+ {
+  "fr": "Limites de projet invalides : utilisez des quantités Kubernetes (ex. 2000m, 4Gi)",
+  "en": "invalid project limits: use Kubernetes quantities (e.g. 2000m, 4Gi)"
  }
 ]

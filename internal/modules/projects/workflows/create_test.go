@@ -22,21 +22,22 @@ import (
 type fakeProjectActs struct {
 	mu sync.Mutex
 
-	createInDBID        uuid.UUID
-	createInDBErr       error
-	createdNamespace    bool
-	createNSErr         error
-	reconcileErr        error
-	assignOwnerErr      error
-	dbDeleteCalled      bool
-	reconcileNS         string
-	reconcileCPU        string
-	reconcileMem        string
-	assignProjectID    string
-	assignUserID       string
+	createInDBID     uuid.UUID
+	createInDBErr    error
+	createdNamespace bool
+	createNSErr      error
+	reconcileErr     error
+	assignOwnerErr   error
+	dbDeleteCalled   bool
+	reconcileNS      string
+	reconcileCPU     string
+	reconcileMem     string
+	assignProjectID  string
+	assignUserID     string
+	statuses         []string
 }
 
-func (f *fakeProjectActs) CreateProjectInDB(_ context.Context, name, description, ownerID string) (*dauth.Project, error) {
+func (f *fakeProjectActs) CreateProjectInDB(_ context.Context, projectID, name, description, ownerID string) (*dauth.Project, error) {
 	if f.createInDBErr != nil {
 		return nil, f.createInDBErr
 	}
@@ -55,6 +56,13 @@ func (f *fakeProjectActs) CreateNamespace(_ context.Context, projectID, projectN
 func (f *fakeProjectActs) DeleteProjectDBActivity(_ context.Context, projectID string) error {
 	f.mu.Lock()
 	f.dbDeleteCalled = true
+	f.mu.Unlock()
+	return nil
+}
+
+func (f *fakeProjectActs) UpdateProjectStatusActivity(_ context.Context, projectID, status string) error {
+	f.mu.Lock()
+	f.statuses = append(f.statuses, status)
 	f.mu.Unlock()
 	return nil
 }
@@ -84,6 +92,7 @@ func registerFakeProjectActs(env *testsuite.TestWorkflowEnvironment, f *fakeProj
 	env.RegisterActivity(f.DeleteProjectDBActivity)
 	env.RegisterActivity(f.ReconcileProjectResources)
 	env.RegisterActivity(f.AssignDefaultOwner)
+	env.RegisterActivity(f.UpdateProjectStatusActivity)
 }
 
 func TestCreateProjectWorkflow_HappyPath(t *testing.T) {
@@ -123,6 +132,9 @@ func TestCreateProjectWorkflow_HappyPath(t *testing.T) {
 	// Owner assignment wired with proper IDs.
 	assert.Equal(t, projectUUID.String(), fake.assignProjectID)
 	assert.Equal(t, "owner-42", fake.assignUserID)
+
+	// Statut enregistré en base : READY (avant : PENDING pour toujours).
+	assert.Equal(t, []string{utils.ProjectStatusReady}, fake.statuses)
 }
 
 func TestCreateProjectWorkflow_NamespaceFailure_CompensatesDBRow(t *testing.T) {

@@ -2,12 +2,15 @@ package activities
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/thekrauss/kubemanager/internal/infrastructure/helm/charts"
+	"helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v3/pkg/storage/driver"
 	"strings"
 	"time"
 
 	"helm.sh/helm/v3/pkg/action"
-	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,14 +39,17 @@ type WorkloadIdentity struct {
 type InstallWorkloadInput struct {
 	Identity *WorkloadIdentity
 
-	ProjectID   string
-	WorkloadID  string
-	ReleaseName string
-	Namespace   string
-	ImageRepo   string
-	ImageTag    string
-	ExternalURL string
-	ServiceType string // "ClusterIP" ou "LoadBalancer"
+	ProjectID    string
+	WorkloadID   string
+	ReleaseName  string
+	Namespace    string
+	ImageRepo    string
+	ImageTag     string
+	ExternalURL  string
+	IngressClass string // vide : nginx
+	// IngressNamespace : espace du contrôleur d'ingress (vide : ingress-nginx).
+	IngressNamespace string
+	ServiceType      string // "ClusterIP" ou "LoadBalancer"
 
 	Env     map[string]string
 	Secrets map[string]string
@@ -100,25 +106,56 @@ func (a *WorkloadActivities) InstallChart(ctx context.Context, input InstallWork
 				return struct{}{}, err
 			}
 
-			upgrade := action.NewUpgrade(actionConfig)
-			upgrade.Install = true
-			upgrade.Namespace = input.Namespace
-			upgrade.Wait = true
-			upgrade.Timeout = 5 * time.Minute
-
-			chartPath := "/app/internal/infrastructure/helm/charts/standard-app"
-			chart, err := loader.Load(chartPath)
+			// Chart embarqué dans le binaire (internal/infrastructure/helm/charts).
+			chart, err := charts.StandardApp()
 			if err != nil {
 				return struct{}{}, fmt.Errorf("failed to load chart: %w", err)
 			}
 			vals := buildHelmValues(input)
 
-			if _, err := upgrade.Run(input.ReleaseName, chart, vals); err != nil {
+			if err := upgradeOrInstall(actionConfig, input.Namespace, input.ReleaseName, chart, vals); err != nil {
 				return struct{}{}, fmt.Errorf("helm release failed: %w", err)
 			}
 			return struct{}{}, nil
 		},
 	)
+	return err
+}
+
+// upgradeOrInstall : équivalent de `helm upgrade --install`. Dans le SDK,
+// Upgrade.Install n'a aucun effet (la logique est dans la commande helm) :
+// sans ce choix explicite, le premier déploiement d'un conteneur échouait
+// toujours (« has no deployed releases »).
+func upgradeOrInstall(cfg *action.Configuration, namespace, name string, ch *chart.Chart, vals map[string]any) error {
+	history := action.NewHistory(cfg)
+	history.Max = 1
+	releases, err := history.Run(name)
+	switch {
+	case errors.Is(err, driver.ErrReleaseNotFound) || (err == nil && len(releases) == 0):
+		return install(cfg, namespace, name, ch, vals, false)
+	case err != nil:
+		return err
+	}
+	upgrade := action.NewUpgrade(cfg)
+	upgrade.Namespace = namespace
+	upgrade.Wait = true
+	upgrade.Timeout = 5 * time.Minute
+	_, err = upgrade.Run(name, ch, vals)
+	if err != nil && strings.Contains(err.Error(), "has no deployed releases") {
+		// Seulement des tentatives en échec : on réinstalle par-dessus.
+		return install(cfg, namespace, name, ch, vals, true)
+	}
+	return err
+}
+
+func install(cfg *action.Configuration, namespace, name string, ch *chart.Chart, vals map[string]any, replace bool) error {
+	in := action.NewInstall(cfg)
+	in.Namespace = namespace
+	in.ReleaseName = name
+	in.Wait = true
+	in.Timeout = 5 * time.Minute
+	in.Replace = replace
+	_, err := in.Run(ch, vals)
 	return err
 }
 
@@ -219,8 +256,8 @@ func buildHelmValues(input InstallWorkloadInput) map[string]any {
 			"protocol":   "TCP",
 		},
 		"ingress": map[string]any{
-			"enabled":   true,
-			"className": "nginx",
+			"enabled":   input.ExternalURL != "", // sans URL publique : pas d'ingress
+			"className": fallback(input.IngressClass, "nginx"),
 			"host":      input.ExternalURL,
 			"tls": map[string]any{
 				"enabled":       input.TLSEnabled,
@@ -282,7 +319,7 @@ func buildHelmValues(input InstallWorkloadInput) map[string]any {
 		"networkPolicy": map[string]any{
 			"enabled":             true,
 			"ingressNSLabelKey":   "kubernetes.io/metadata.name",
-			"ingressNSLabelValue": "ingress-nginx",
+			"ingressNSLabelValue": fallback(input.IngressNamespace, "ingress-nginx"),
 			"egress": map[string]any{
 				"enabled":     true,
 				"allowDNS":    true,
