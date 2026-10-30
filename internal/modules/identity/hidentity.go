@@ -34,6 +34,10 @@ type Controller interface {
 	SocialLoginURL(c *gin.Context, in *identitytypes.SocialLoginURLQuery) (*identitytypes.SocialLoginURLResponse, error)
 	SocialCallback(c *gin.Context, in *identitytypes.SocialCallbackQuery) (*identitytypes.LoginResponse, error)
 
+	// CLI : flux device (RFC 8628)
+	DeviceCode(c *gin.Context)
+	DeviceToken(c *gin.Context)
+
 	// Verification
 	ResendVerificationEmail(c *gin.Context) error
 	ResendVerificationEmailForEmail(c *gin.Context, in *identitytypes.ForgotPasswordRequest) error

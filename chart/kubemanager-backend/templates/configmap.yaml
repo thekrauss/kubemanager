@@ -29,6 +29,7 @@ data:
 
   KUBEMANAGER_KEYCLOAK_ISSUER_URL: {{ .Values.config.keycloak.issuerUrl | quote }}
   KUBEMANAGER_KEYCLOAK_AUDIENCE: {{ .Values.config.keycloak.audience | quote }}
+  KUBEMANAGER_KEYCLOAK_CLI_CLIENT_ID: {{ .Values.config.keycloak.cliClientId | quote }}
 
   KUBEMANAGER_IAM_STS_ISSUER: {{ .Values.config.iam.stsIssuer | quote }}
   KUBEMANAGER_IAM_MFA_ACR_VALUES: {{ .Values.config.iam.mfaAcrValues | quote }}

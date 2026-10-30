@@ -73,6 +73,8 @@ config:
   keycloak:
     issuerUrl: "https://auth.example.com/realms/kubemanager"
     audience: "kubemanager-api"
+    # Client public de la CLI (Device Authorization Grant activé). Vide : désactivé.
+    cliClientId: "betorun-cli"
   iam:
     # STS : URL publique de l'émetteur des jetons machine (= <API>/kmanager/v1/iam).
     stsIssuer: "https://api.example.com/kmanager/v1/iam"

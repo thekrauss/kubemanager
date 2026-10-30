@@ -80,6 +80,9 @@ func addIdentityRoutes(app *App) {
 
 	// Login hébergé Keycloak (Authorization Code + PKCE). Le callback partage
 	// le handler du social (state + verifier en Redis).
+	// CLI : flux device (RFC 8628) relayé vers Keycloak ; la validation (avec MFA) se fait dans le navigateur.
+	IdentityGroup.AddRoute("/device/code", http.MethodPost, "CLI : démarrer une connexion par code (RFC 8628)", Public(), r.DeviceCode)
+	IdentityGroup.AddRoute("/device/token", http.MethodPost, "CLI : récupérer les jetons une fois le code validé (authorization_pending tant que non validé)", Public(), r.DeviceToken)
 	IdentityGroup.AddRoute("/oidc/authorize", http.MethodGet, "URL de la page de login Keycloak (PKCE S256)", Public(), tonic.Handler(r.LoginURL, http.StatusOK))
 	IdentityGroup.AddRoute("/oidc/callback", http.MethodGet, "Callback login hébergé (échange code + verifier → tokens)", Public(), tonic.Handler(r.SocialCallback, http.StatusOK))
 	IdentityGroup.AddRoute("/social/:provider", http.MethodGet, "URL d'autorisation sociale (kc_idp_hint)", Public(), tonic.Handler(r.SocialLoginURL, http.StatusOK))

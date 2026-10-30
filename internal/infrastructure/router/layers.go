@@ -64,6 +64,7 @@ func (a *App) initDomainLayers() error {
 			Cache:               a.AuthCache,
 			StateStore:          a.Cache, // Redis : cross-instance OK (fix H9)
 			StepUpACR:           firstOrEmpty(a.Config.IAM.MFAACRValues),
+			CLIClientID:         a.Config.Keycloak.CLIClientID,
 		})
 		identityController = identityCtrl.NewController(identityService, a.AuthCache)
 	} else {

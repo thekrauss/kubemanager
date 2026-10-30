@@ -46,5 +46,13 @@
  {
   "fr": "Fournisseur inconnu : google ou github",
   "en": "unknown social provider — accepted: google, github"
+ },
+ {
+  "fr": "la connexion de la CLI (flux device) n'est pas activée sur cette plateforme",
+  "en": "CLI login (device flow) is not enabled on this platform"
+ },
+ {
+  "fr": "device_code est obligatoire",
+  "en": "device_code is required"
  }
 ]

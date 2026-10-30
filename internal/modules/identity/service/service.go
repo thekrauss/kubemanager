@@ -30,6 +30,7 @@ var (
 	ErrUnknownProvider            = errors.New("unknown social provider — accepted: google, github")
 	ErrSubjectInvalid             = errors.New("keycloak user id (sub) is missing or invalid")
 	ErrMFANotConfigured           = errors.New("two-factor authentication is not configured on this platform")
+	ErrDeviceLoginDisabled        = errors.New("CLI login (device flow) is not enabled on this platform")
 )
 
 // validProviders : nom exposé → alias IDP configuré dans Keycloak (voir bootstrap_platform.sh).
@@ -71,6 +72,9 @@ type Service interface {
 
 	// Authorization Code + PKCE : login hébergé Keycloak, ou social (kc_idp_hint).
 	// Les deux reviennent sur HandleSocialCallback.
+	// StartDeviceLogin / PollDeviceLogin : connexion de la CLI (RFC 8628).
+	StartDeviceLogin(ctx context.Context) (*keycloakadmin.DeviceAuthorization, error)
+	PollDeviceLogin(ctx context.Context, deviceCode string) (*keycloakadmin.TokenPair, error)
 	// LoginURL : stepUp demande une ré-authentification avec MFA (step-up).
 	LoginURL(ctx context.Context, redirectURI string, stepUp bool) (string, error)
 	SocialLoginURL(ctx context.Context, provider, redirectURI string) (string, error)
@@ -106,6 +110,7 @@ type Deps struct {
 	Cache               cache.AuthCache // legacy — conservé pour compat (non utilisé pour state)
 	StateStore          StateStore      // store distribué du state CSRF (fix H9 : Redis)
 	StepUpACR           string          // acr_values demandé pour un step-up (ex. "gold") ; vide : MFA non configuré
+	CLIClientID         string          // client Keycloak public de la CLI (flux device) ; vide : désactivé
 }
 
 type service struct {
@@ -120,6 +125,7 @@ type service struct {
 	cache               cache.AuthCache
 	stateStore          StateStore
 	stepUpACR           string
+	cliClientID         string
 }
 
 func NewService(deps Deps) Service {
@@ -135,6 +141,7 @@ func NewService(deps Deps) Service {
 		cache:               deps.Cache,
 		stateStore:          deps.StateStore,
 		stepUpACR:           strings.TrimSpace(deps.StepUpACR),
+		cliClientID:         strings.TrimSpace(deps.CLIClientID),
 	}
 }
 

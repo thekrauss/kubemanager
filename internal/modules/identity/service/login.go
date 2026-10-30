@@ -466,3 +466,31 @@ func ExtractJTI(tokenString string) string {
 	}
 	return strings.TrimSpace(payload.JTI)
 }
+
+// ── CLI : flux device (RFC 8628) ─────────────────────────────────────────
+
+// StartDeviceLogin : code à afficher par la CLI et URL de validation.
+func (s *service) StartDeviceLogin(ctx context.Context) (*keycloakadmin.DeviceAuthorization, error) {
+	if s == nil || s.keycloak == nil {
+		return nil, ErrIdentityServiceUnavailable
+	}
+	if s.cliClientID == "" {
+		return nil, ErrDeviceLoginDisabled
+	}
+	return s.keycloak.StartDeviceAuthorization(ctx, s.cliClientID)
+}
+
+// PollDeviceLogin : jetons une fois la connexion validée dans le navigateur ;
+// sinon *keycloakadmin.DeviceTokenError (authorization_pending, slow_down…).
+func (s *service) PollDeviceLogin(ctx context.Context, deviceCode string) (*keycloakadmin.TokenPair, error) {
+	if s == nil || s.keycloak == nil {
+		return nil, ErrIdentityServiceUnavailable
+	}
+	if s.cliClientID == "" {
+		return nil, ErrDeviceLoginDisabled
+	}
+	if strings.TrimSpace(deviceCode) == "" {
+		return nil, betoerrors.New(betoerrors.CodeInvalidInput, "device_code is required")
+	}
+	return s.keycloak.PollDeviceToken(ctx, s.cliClientID, deviceCode)
+}

@@ -118,6 +118,9 @@ type KeycloakConfig struct {
 	// WebClientID : client public Keycloak (PKCE S256) utilisé pour les flux
 	// Authorization Code (login hébergé + social). Vide = client admin.
 	WebClientID string `mapstructure:"web_client_id"`
+	// CLIClientID : client Keycloak public de la CLI, avec « OAuth 2.0 Device
+	// Authorization Grant » activé. Vide : connexion de la CLI désactivée.
+	CLIClientID string `mapstructure:"cli_client_id"`
 }
 
 type JWTConfig struct {

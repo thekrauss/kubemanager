@@ -36,6 +36,9 @@ type KeycloakClient interface {
 	// GetAuthorizationURL builds the Keycloak authorization endpoint URL; an
 	// empty idpName means the hosted login page. Pure URL construction.
 	GetAuthorizationURL(idpName, redirectURI, state, codeChallenge string, opts ...AuthRequestOptions) string
+	// StartDeviceAuthorization / PollDeviceToken : flux device (RFC 8628) de la CLI.
+	StartDeviceAuthorization(ctx context.Context, clientID string) (*DeviceAuthorization, error)
+	PollDeviceToken(ctx context.Context, clientID, deviceCode string) (*TokenPair, error)
 	ExchangeCodeForToken(ctx context.Context, code, redirectURI, codeVerifier string) (*TokenPair, error)
 
 	// SendVerificationEmail triggers a VERIFY_EMAIL action email for the user.
