@@ -44,6 +44,8 @@ type Token struct {
 	AccessToken string `json:"access_token"`
 	TokenType   string `json:"token_type"`
 	ExpiresIn   int    `json:"expires_in"`
+	// IssuedTokenType : exigé par RFC 8693 pour un token-exchange.
+	IssuedTokenType string `json:"issued_token_type,omitempty"`
 }
 
 type assertionKey struct {

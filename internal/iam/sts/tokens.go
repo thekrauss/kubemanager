@@ -54,7 +54,9 @@ type Service struct {
 	Issuer string
 	Keys   *KeyRing
 	DB     *gorm.DB
-	now    func() time.Time
+	// Federation : émetteurs OIDC externes (nil : fédération désactivée).
+	Federation *Issuers
+	now        func() time.Time
 
 	statusMu sync.Mutex
 	status   map[string]statusEntry
@@ -66,7 +68,8 @@ type statusEntry struct {
 }
 
 func NewService(issuer string, keys *KeyRing, db *gorm.DB) *Service {
-	return &Service{Issuer: strings.TrimRight(issuer, "/"), Keys: keys, DB: db, now: time.Now, status: map[string]statusEntry{}}
+	return &Service{Issuer: strings.TrimRight(issuer, "/"), Keys: keys, DB: db, Federation: NewIssuers(),
+		now: time.Now, status: map[string]statusEntry{}}
 }
 
 // TokenURI : endpoint de jeton (audience des assertions).
@@ -183,6 +186,13 @@ func (s *Service) checkStatus(ctx context.Context, p iam.Principal, keyID string
 	}
 	if keyID == "" {
 		return true, nil
+	}
+	if trustID, ok := strings.CutPrefix(keyID, trustRefPrefix); ok {
+		// Jeton fédéré : la relation de confiance doit toujours exister.
+		var n int64
+		err = db.Raw(`SELECT count(*) FROM iam_federation_trusts WHERE id::text = ? AND service_account_id = ?`,
+			trustID, id).Row().Scan(&n)
+		return n == 1, err
 	}
 	var keyOK bool
 	// Désactivée, ou arrivée à échéance (fin de la grâce d'une rotation).

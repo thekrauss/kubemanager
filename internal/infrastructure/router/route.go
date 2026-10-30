@@ -228,7 +228,7 @@ func addIAMRoutes(app *App) {
 
 	// STS (iam.md §7.3) : publics, la preuve est dans la requête (assertion
 	// signée). Émetteur des jetons : <API>/kmanager/v1/iam.
-	grp.AddRoute("/token", http.MethodPost, "STS : échange une assertion signée par une clé de compte de service (RFC 7523) contre un jeton d'accès d'1 h",
+	grp.AddRoute("/token", http.MethodPost, "STS : assertion signée par une clé de compte de service (RFC 7523, 1 h) ou jeton OIDC d'une CI fédérée (RFC 8693, 15 min) contre un jeton d'accès",
 		Public(), r.Token)
 	grp.AddRoute("/.well-known/jwks.json", http.MethodGet, "STS : clés publiques de signature des jetons (JWKS)",
 		Public(), r.JWKS)
@@ -297,6 +297,9 @@ func addIAMRoutes(app *App) {
 	sas.AddRoute("/:saID/keys", http.MethodGet, "Lister les clés asymétriques du compte", g.Perm(iam.ServiceAccountKeysList, sa), tonic.Handler(r.ListSAKeys, http.StatusOK))
 	sas.AddRoute("/:saID/keys", http.MethodPost, "Créer une clé asymétrique (générée : clé privée remise une seule fois ; ou clé publique importée ; actAs requis)", g.Perm(iam.ServiceAccountKeysCreate, sa), tonic.Handler(r.CreateSAKey, http.StatusCreated))
 	sas.AddRoute("/:saID/keys/:keyID", http.MethodDelete, "Désactiver une clé asymétrique (jetons déjà émis refusés sous 30 s)", g.Perm(iam.ServiceAccountKeysDelete, sa), tonic.Handler(r.DisableSAKey, http.StatusNoContent))
+	sas.AddRoute("/:saID/federation", http.MethodGet, "Relations de confiance OIDC du compte (CI sans secret)", g.Perm(iam.ServiceAccountKeysList, sa), tonic.Handler(r.ListTrusts, http.StatusOK))
+	sas.AddRoute("/:saID/federation", http.MethodPost, "Créer une relation de confiance OIDC (GitHub Actions, GitLab CI… ; actAs requis)", g.Perm(iam.ServiceAccountKeysCreate, sa), tonic.Handler(r.CreateTrust, http.StatusCreated))
+	sas.AddRoute("/:saID/federation/:trustID", http.MethodDelete, "Supprimer une relation de confiance (jetons émis refusés sous 30 s)", g.Perm(iam.ServiceAccountKeysDelete, sa), tonic.Handler(r.DeleteTrust, http.StatusNoContent))
 	sas.AddRoute("/:saID/apiKeys", http.MethodGet, "Lister les clés API du compte", g.Perm(iam.APIKeysList, sa), tonic.Handler(r.ListAPIKeys, http.StatusOK))
 	sas.AddRoute("/:saID/apiKeys", http.MethodPost, "Créer une clé API (secret affiché une seule fois ; actAs requis)", g.Perm(iam.APIKeysCreate, sa), tonic.Handler(r.CreateAPIKey, http.StatusCreated))
 	sas.AddRoute("/:saID/apiKeys/:keyID", http.MethodDelete, "Révoquer une clé API (effet immédiat)", g.Perm(iam.APIKeysDelete, sa), tonic.Handler(r.RevokeAPIKey, http.StatusNoContent))

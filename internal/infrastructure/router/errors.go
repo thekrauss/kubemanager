@@ -104,6 +104,12 @@ var sentinelErrors = []sentinelMapping{
 	{iam.ErrGroupEscalation, http.StatusForbidden, "PERMISSION_DENIED", true},
 	{iam.ErrGroupOutOfScope, http.StatusBadRequest, betoerrors.CodeInvalidInput, true},
 	{iam.ErrMFANotConfigured, http.StatusConflict, "FAILED_PRECONDITION", false},
+	{iam.ErrInvalidIssuer, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{iam.ErrInvalidSubjectPattern, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{iam.ErrSubjectTooBroad, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{iam.ErrInvalidConditions, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{iam.ErrTooManyTrusts, http.StatusConflict, "FAILED_PRECONDITION", false},
+	{iam.ErrTrustNotFound, http.StatusNotFound, betoerrors.CodeNotFound, false},
 }
 
 // classifyError : statut, code et message sûr à exposer.

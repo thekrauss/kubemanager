@@ -254,5 +254,33 @@
  {
   "fr": "votre organisation exige la double authentification",
   "en": "your organization requires two-factor authentication"
+ },
+ {
+  "fr": "conditions : 10 claims au plus, noms et valeurs non vides",
+  "en": "conditions: at most 10 claims, non-empty names and values"
+ },
+ {
+  "fr": "relation de confiance introuvable",
+  "en": "federation trust not found"
+ },
+ {
+  "fr": "fédération : refus de contacter une adresse privée",
+  "en": "federation: refusing to contact a private address"
+ },
+ {
+  "fr": "pour cet émetteur, subject_pattern doit fixer le propriétaire (GitHub : « repo:<propriétaire>/… », GitLab : « project_path:<groupe>/… »)",
+  "en": "for this issuer, subject_pattern must pin the owner (GitHub: \"repo:<owner>/…\", GitLab: \"project_path:<group>/…\")"
+ },
+ {
+  "fr": "issuer doit être une URL https sans paramètres ni fragment",
+  "en": "issuer must be an https URL without query or fragment"
+ },
+ {
+  "fr": "subject_pattern doit être un sujet exact ou un préfixe terminé par « * » (un seul « * », à la fin)",
+  "en": "subject_pattern must be an exact subject or a prefix ending with '*' (a single trailing '*')"
+ },
+ {
+  "fr": "ce compte de service a déjà 20 relations de confiance",
+  "en": "this service account already has 20 federation trusts"
  }
 ]
