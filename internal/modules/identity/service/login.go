@@ -33,55 +33,6 @@ import (
 // pgUniqueViolation : code SQLSTATE Postgres pour unique_violation.
 const pgUniqueViolation = "23505"
 
-// ── Login ────────────────────────────────────────────────────────────────
-
-func (s *service) Login(ctx context.Context, email, password string) (*LoginResult, error) {
-	if s == nil || s.keycloak == nil {
-		return nil, ErrIdentityServiceUnavailable
-	}
-	email = normalizeEmail(email)
-	if email == "" || strings.TrimSpace(password) == "" {
-		return nil, ErrRegisterInputInvalid
-	}
-
-	tokens, err := s.keycloak.Login(ctx, email, password)
-	if err != nil {
-		return nil, err
-	}
-
-	claims := extractJWTClaims(tokens.AccessToken)
-	if !claims.EmailVerified {
-		return nil, ErrEmailNotVerified
-	}
-
-	sub := claims.Sub
-	bootstrapped := false
-	if sub != "" {
-		user, dbErr := s.users.FindByKeycloakUserID(ctx, sub)
-		switch {
-		case dbErr == nil && user != nil:
-			// Le user local existe — on est bootstrappé s'il a au moins un project membership.
-			member, mErr := s.projectMembers.FindFirstActiveByUser(ctx, user.ID)
-			if mErr == nil && member != nil {
-				bootstrapped = true
-			}
-			s.touchLastLogin(ctx, user)
-		case errors.Is(dbErr, gorm.ErrRecordNotFound):
-			// Auto-provision silent du user local au premier login (sans projet).
-			_, _ = s.syncLocalUser(ctx, sub, email, claims.Name, "")
-		}
-	}
-
-	return &LoginResult{
-		AccessToken:    tokens.AccessToken,
-		RefreshToken:   tokens.RefreshToken,
-		ExpiresIn:      tokens.ExpiresIn,
-		KeycloakUserID: sub,
-		Email:          email,
-		Bootstrapped:   bootstrapped,
-	}, nil
-}
-
 // ── Logout / Refresh ─────────────────────────────────────────────────────
 
 func (s *service) Logout(ctx context.Context, refreshToken string) error {
@@ -99,33 +50,6 @@ func (s *service) RefreshToken(ctx context.Context, refreshToken string) (*keycl
 }
 
 // ── Password reset (Keycloak-driven) ─────────────────────────────────────
-
-func (s *service) ForgotPassword(ctx context.Context, email string) error {
-	if s == nil || s.keycloak == nil {
-		return ErrIdentityServiceUnavailable
-	}
-	email = normalizeEmail(email)
-	if email == "" {
-		return ErrRegisterInputInvalid
-	}
-	kcUser, err := s.keycloak.FindUserByEmail(ctx, email)
-	if err != nil {
-		// Silent success si user inconnu — pour ne pas divulguer l'existence du compte.
-		if errors.Is(err, keycloakadmin.ErrUserNotFound) {
-			return nil
-		}
-		return err
-	}
-	return s.keycloak.ExecuteActionsEmail(ctx, kcUser.ID,
-		[]string{"UPDATE_PASSWORD"}, s.actionEmailOptions())
-}
-
-func (s *service) ResetPassword(ctx context.Context, keycloakUserID, newPassword string) error {
-	if s == nil || s.keycloak == nil {
-		return ErrIdentityServiceUnavailable
-	}
-	return s.keycloak.ResetPassword(ctx, keycloakUserID, newPassword)
-}
 
 // ── Social login (Google / GitHub via Keycloak IDP broker) ──────────────
 
@@ -336,35 +260,6 @@ func (s *service) HandleSocialCallback(ctx context.Context, code, state, redirec
 }
 
 // ── Verification emails ──────────────────────────────────────────────────
-
-func (s *service) ResendVerificationEmail(ctx context.Context, keycloakUserID string) error {
-	if s == nil || s.keycloak == nil {
-		return ErrIdentityServiceUnavailable
-	}
-	keycloakUserID = strings.TrimSpace(keycloakUserID)
-	if keycloakUserID == "" {
-		return ErrRegisterInputInvalid
-	}
-	return s.keycloak.SendVerificationEmail(ctx, keycloakUserID, s.actionEmailOptions())
-}
-
-func (s *service) ResendVerificationEmailByEmail(ctx context.Context, email string) error {
-	if s == nil || s.keycloak == nil {
-		return ErrIdentityServiceUnavailable
-	}
-	email = normalizeEmail(email)
-	if email == "" {
-		return ErrRegisterInputInvalid
-	}
-	kcUser, err := s.keycloak.FindUserByEmail(ctx, email)
-	if err != nil {
-		if errors.Is(err, keycloakadmin.ErrUserNotFound) {
-			return nil
-		}
-		return err
-	}
-	return s.keycloak.SendVerificationEmail(ctx, kcUser.ID, s.actionEmailOptions())
-}
 
 func (s *service) actionEmailOptions() *keycloakadmin.ActionEmailOptions {
 	if s.actionEmailClientID == "" && s.frontendBaseURL == "" {

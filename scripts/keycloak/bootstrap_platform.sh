@@ -38,6 +38,9 @@ API_CLIENT_ID="${API_CLIENT_ID:-kubemanager-api}"
 ADMIN_CLIENT_ID="${ADMIN_CLIENT_ID:-kubemanager-admin}"
 WEB_CLIENT_ID="${WEB_CLIENT_ID:-kubemanager-web}"
 CLI_CLIENT_ID="${CLI_CLIENT_ID:-betorun-cli}"
+# Client confidentiel réservé au backend : vérification des mots de passe
+# (docs/architecture/auth.md §5). Aucun flux navigateur.
+AUTH_CLIENT_ID="${AUTH_CLIENT_ID:-betorun-auth}"
 
 WEB_FRONTEND_BASE_URL="${WEB_FRONTEND_BASE_URL:-http://127.0.0.1:3000}"
 WEB_FRONTEND_ALT_BASE_URL="${WEB_FRONTEND_ALT_BASE_URL:-http://localhost:3000}"
@@ -67,7 +70,9 @@ KEYCLOAK_SMTP_SSL="${KEYCLOAK_SMTP_SSL:-false}"
 # silver (mot de passe) et gold (mot de passe + code TOTP), flux de connexion
 # conditionnel lié au realm. Le backend demande acr=gold pour le step-up :
 # KUBEMANAGER_IAM_MFA_ACR_VALUES=gold.
-KEYCLOAK_MFA_ENABLED="${KEYCLOAK_MFA_ENABLED:-true}"
+# Obsolète : la double authentification est gérée par betorun
+# (docs/architecture/auth.md §6). Conservé désactivé pour la transition.
+KEYCLOAK_MFA_ENABLED="${KEYCLOAK_MFA_ENABLED:-false}"
 MFA_FLOW_ALIAS="${MFA_FLOW_ALIAS:-betorun-browser}"
 # Durée (s) pendant laquelle un niveau atteint reste valable dans la session.
 MFA_LOA1_MAX_AGE="${MFA_LOA1_MAX_AGE:-36000}"
@@ -310,6 +315,50 @@ ensure_api_client_roles() {
       jq -n --arg n "$role" '{name:$n}'
     )" >/dev/null
   done
+}
+
+# Client de vérification des mots de passe : confidentiel, grant password
+# uniquement, sans redirection ni flux navigateur. Le backend jette les
+# jetons obtenus ; seuls ses propres jetons sortent.
+ensure_auth_client() {
+  local realm="$1" clientId="$2" uuid payload
+  uuid="$(get_client_uuid "$realm" "$clientId")"
+  payload="$(jq -n --arg cid "$clientId" '{
+    clientId: $cid, name: $cid, protocol: "openid-connect", enabled: true,
+    publicClient: false, serviceAccountsEnabled: false,
+    standardFlowEnabled: false, implicitFlowEnabled: false, directAccessGrantsEnabled: true,
+    redirectUris: [], webOrigins: [],
+    attributes: {"oauth2.device.authorization.grant.enabled": "false"}
+  }')"
+  if [ -z "$uuid" ]; then
+    log "Creating password verification client ${clientId}"
+    api POST "/admin/realms/${realm}/clients" "$payload" >/dev/null
+    uuid="$(get_client_uuid "$realm" "$clientId")"
+    [ -n "$uuid" ] || fail "failed to resolve ${clientId} uuid"
+  else
+    log "Reconciling password verification client ${clientId}"
+    api PUT "/admin/realms/${realm}/clients/${uuid}" "$(jq -n --arg id "$uuid" --argjson p "$payload" '$p + {id: $id}')" >/dev/null
+  fi
+  echo "$uuid"
+}
+
+# Protection contre la force brute (verrouillage temporaire après échecs),
+# en plus des limites de tentatives du backend.
+ensure_brute_force_protection() {
+  local realm="$1"
+  log "Enabling brute force protection"
+  api PUT "/admin/realms/${realm}" "$(jq -n '{bruteForceProtected: true, permanentLockout: false,
+    failureFactor: 10, waitIncrementSeconds: 60, maxFailureWaitSeconds: 900, maxDeltaTimeSeconds: 43200,
+    quickLoginCheckMilliSeconds: 1000, minimumQuickLoginWaitSeconds: 60}')" >/dev/null
+}
+
+# Politique des mots de passe : la même que le backend (internal/auth/
+# password.go), en défense en profondeur.
+ensure_password_policy() {
+  local realm="$1"
+  log "Setting password policy"
+  api PUT "/admin/realms/${realm}" "$(jq -n '{passwordPolicy:
+    "length(12) and maxLength(128) and notUsername(undefined) and notEmail(undefined) and passwordHistory(3)"}')" >/dev/null
 }
 
 ensure_admin_client() {
@@ -672,6 +721,11 @@ main() {
     ensure_mfa_loa "$KEYCLOAK_REALM"
   fi
 
+  local auth_uuid
+  auth_uuid="$(ensure_auth_client "$KEYCLOAK_REALM" "$AUTH_CLIENT_ID")"
+  ensure_brute_force_protection "$KEYCLOAK_REALM"
+  ensure_password_policy "$KEYCLOAK_REALM"
+
   log "Configuring social identity providers"
   configure_social_idps "$KEYCLOAK_REALM"
 
@@ -716,9 +770,9 @@ main() {
   echo "  KUBEMANAGER_KEYCLOAK_ISSUER_URL=${KEYCLOAK_BASE_URL}/realms/${KEYCLOAK_REALM}"
   echo "  KUBEMANAGER_KEYCLOAK_CLIENT_ID=${API_CLIENT_ID}"
   echo "  KUBEMANAGER_KEYCLOAK_CLI_CLIENT_ID=${CLI_CLIENT_ID}"
-  if is_true "$KEYCLOAK_MFA_ENABLED"; then
-    echo "  KUBEMANAGER_IAM_MFA_ACR_VALUES=gold"
-  fi
+  echo "  KUBEMANAGER_KEYCLOAK_AUTH_CLIENT_ID=${AUTH_CLIENT_ID}"
+  echo "  KUBEMANAGER_KEYCLOAK_AUTH_CLIENT_SECRET=<secret du client ${AUTH_CLIENT_ID}>"
+  echo "  KUBEMANAGER_IAM_MFA_ACR_VALUES=gold"
   echo
   echo "Next steps :"
   echo "  1. Créer un user de test :"

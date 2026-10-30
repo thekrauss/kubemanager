@@ -58,5 +58,81 @@
  {
   "fr": "pour la CLI, redirect_uri doit être http://127.0.0.1:<port>/callback",
   "en": "CLI redirect_uri must be http://127.0.0.1:<port>/callback"
+ },
+ {
+  "fr": "compte désactivé",
+  "en": "account disabled"
+ },
+ {
+  "fr": "auth : la clé de chiffrement doit faire 32 octets, encodée en base64",
+  "en": "auth: key encryption key must be 32 bytes, base64-encoded"
+ },
+ {
+  "fr": "Confirmez d'abord votre identité avec un code de vérification",
+  "en": "confirm your identity with a verification code first"
+ },
+ {
+  "fr": "Email ou mot de passe incorrect",
+  "en": "email or password is incorrect"
+ },
+ {
+  "fr": "Code de vérification invalide",
+  "en": "invalid verification code"
+ },
+ {
+  "fr": "Mot de passe refusé par la politique de sécurité",
+  "en": "password rejected by policy"
+ },
+ {
+  "fr": "La vérification des mots de passe n'est pas configurée",
+  "en": "password verification is not configured"
+ },
+ {
+  "fr": "Session introuvable",
+  "en": "session not found"
+ },
+ {
+  "fr": "Reconnectez-vous pour gérer vos paramètres de sécurité",
+  "en": "sign in again to manage your security settings"
+ },
+ {
+  "fr": "La connexion est momentanément indisponible",
+  "en": "sign-in is temporarily unavailable"
+ },
+ {
+  "fr": "La connexion a expiré, recommencez",
+  "en": "the sign-in has expired, start again"
+ },
+ {
+  "fr": "Ce lien est invalide ou a expiré",
+  "en": "this link is invalid or has expired"
+ },
+ {
+  "fr": "Ce mot de passe ne respecte pas les règles de sécurité",
+  "en": "this password does not meet the security requirements"
+ },
+ {
+  "fr": "Cette session a été fermée pour votre sécurité, reconnectez-vous",
+  "en": "this session was closed for your security, sign in again"
+ },
+ {
+  "fr": "Trop de tentatives, réessayez plus tard",
+  "en": "too many attempts, try again later"
+ },
+ {
+  "fr": "La double authentification est déjà activée",
+  "en": "two-factor authentication is already set up"
+ },
+ {
+  "fr": "La double authentification n'est pas activée",
+  "en": "two-factor authentication is not set up"
+ },
+ {
+  "fr": "Votre mot de passe actuel est incorrect",
+  "en": "your current password is incorrect"
+ },
+ {
+  "fr": "Votre session a expiré, reconnectez-vous",
+  "en": "your session has expired, sign in again"
  }
 ]

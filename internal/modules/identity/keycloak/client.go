@@ -24,7 +24,6 @@ type KeycloakClient interface {
 	FindUserByEmail(ctx context.Context, email string) (*UserProfile, error)
 
 	// User-facing auth (ROPC / token endpoint).
-	Login(ctx context.Context, email, password string) (*TokenPair, error)
 	RefreshToken(ctx context.Context, refreshToken string) (*TokenPair, error)
 	Logout(ctx context.Context, refreshToken string) error
 
@@ -46,6 +45,11 @@ type KeycloakClient interface {
 
 	// SendVerificationEmail triggers a VERIFY_EMAIL action email for the user.
 	SendVerificationEmail(ctx context.Context, userID string, opts *ActionEmailOptions) error
+
+	// Annuaire derrière le backend (directory.go).
+	VerifyPassword(ctx context.Context, email, password string) (*PasswordCheck, error)
+	MarkEmailVerified(ctx context.Context, subject string) error
+	SetPassword(ctx context.Context, subject, password string) error
 }
 
 var (
@@ -80,7 +84,11 @@ type AdminConfig struct {
 	// WebClientID : client public (PKCE) des flux Authorization Code. Vide =
 	// ClientID (comportement historique, client confidentiel).
 	WebClientID string
-	Timeout     time.Duration
+	// AuthClientID / AuthClientSecret : client confidentiel de vérification
+	// des mots de passe (VerifyPassword). Vide : vérification indisponible.
+	AuthClientID     string
+	AuthClientSecret string
+	Timeout          time.Duration
 }
 
 type Client struct {
@@ -89,6 +97,8 @@ type Client struct {
 	clientID     string
 	clientSecret string
 	webClientID  string
+	pwdClientID  string
+	pwdSecret    string
 	httpClient   *http.Client
 
 	mu             sync.Mutex
@@ -179,6 +189,8 @@ func New(cfg AdminConfig, issuerURL string) (*Client, error) {
 		clientID:     clientID,
 		clientSecret: clientSecret,
 		webClientID:  strings.TrimSpace(cfg.WebClientID),
+		pwdClientID:  strings.TrimSpace(cfg.AuthClientID),
+		pwdSecret:    strings.TrimSpace(cfg.AuthClientSecret),
 		httpClient:   &http.Client{Timeout: timeout},
 		clientUUIDs:  make(map[string]string),
 	}, nil
@@ -534,45 +546,6 @@ func (c *Client) clientRole(ctx context.Context, token string, clientUUID string
 		return roleRepresentation{}, fmt.Errorf("keycloak role %s not found", roleName)
 	}
 	return role, nil
-}
-
-func (c *Client) Login(ctx context.Context, email, password string) (*TokenPair, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
-	password = strings.TrimSpace(password)
-	if email == "" || password == "" {
-		return nil, errors.New("email and password are required")
-	}
-	form := url.Values{}
-	form.Set("grant_type", "password")
-	form.Set("client_id", c.clientID)
-	form.Set("client_secret", c.clientSecret)
-	form.Set("username", email)
-	form.Set("password", password)
-	form.Set("scope", "openid")
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		fmt.Sprintf("%s/realms/%s/protocol/openid-connect/token", c.baseURL, url.PathEscape(c.realm)),
-		strings.NewReader(form.Encode()),
-	)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, ErrInvalidCredentials
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("keycloak login failed with status %d", resp.StatusCode)
-	}
-	var t userTokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&t); err != nil {
-		return nil, err
-	}
-	return &TokenPair{AccessToken: t.AccessToken, RefreshToken: t.RefreshToken, ExpiresIn: t.ExpiresIn}, nil
 }
 
 func (c *Client) RefreshToken(ctx context.Context, refreshToken string) (*TokenPair, error) {

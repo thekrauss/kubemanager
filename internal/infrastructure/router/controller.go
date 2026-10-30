@@ -43,6 +43,8 @@ type ControllerContainer struct {
 	Project  projects.IProjectController
 	Workload workload.IWorkloadController
 	Identity identity.Controller
+	// Auth : connexion, sessions, second facteur, emails (nil sans annuaire).
+	Auth     *identity.AuthController
 	Realtime realtimeCtrl.IRealtimeController
 	Clusters clustersCtrl.IClusterController
 	Site     sites.ISiteController // nil si sites désactivés

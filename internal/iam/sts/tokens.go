@@ -13,6 +13,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"
 
+	"github.com/thekrauss/kubemanager/internal/auth"
 	"github.com/thekrauss/kubemanager/internal/iam"
 )
 
@@ -22,6 +23,10 @@ const Audience = "betorun-api"
 const (
 	// MethodJWTBearer : jeton obtenu avec une clé de compte de service (RFC 7523).
 	MethodJWTBearer = "jwt-bearer"
+	// MethodSession : jeton d'accès de la session d'une personne.
+	MethodSession = "session"
+	// sessionRefPrefix : référence de la session dans le claim btr_key.
+	sessionRefPrefix = "session:"
 
 	leeway = 30 * time.Second
 	// statusTTL : un compte ou une clé désactivé cesse d'être accepté au
@@ -36,8 +41,15 @@ type Claims struct {
 	jwt.RegisteredClaims
 	// Method : preuve présentée pour l'obtenir.
 	Method string `json:"btr_auth"`
-	// KeyID : clé de compte de service utilisée (jwt-bearer).
+	// KeyID : clé de compte de service utilisée (jwt-bearer), ou référence de
+	// la session d'une personne (session:<id>).
 	KeyID string `json:"btr_key,omitempty"`
+
+	// Session d'une personne (docs/architecture/auth.md §4.2).
+	SessionID string   `json:"sid,omitempty"`
+	AuthTime  int64    `json:"auth_time,omitempty"`
+	AMR       []string `json:"amr,omitempty"`
+	ACR       string   `json:"acr,omitempty"`
 }
 
 // Verified : jeton accepté.
@@ -47,6 +59,11 @@ type Verified struct {
 	KeyID     string
 	TokenID   string
 	ExpiresAt time.Time
+	// Session d'une personne (vide pour une machine).
+	SessionID string
+	AuthTime  time.Time
+	AMR       []string
+	ACR       string
 }
 
 // Service : émission et vérification des jetons.
@@ -84,6 +101,20 @@ func (s *Service) JWKSURI() string { return s.Issuer + "/.well-known/jwks.json" 
 
 // Mint signe un jeton pour principal, valable ttl (au plus MaxTokenTTL).
 func (s *Service) Mint(principal iam.Principal, method, keyID string, ttl time.Duration) (string, time.Time, error) {
+	return s.mint(Claims{RegisteredClaims: jwt.RegisteredClaims{Subject: string(principal)}, Method: method, KeyID: keyID}, ttl)
+}
+
+// MintSession : jeton d'accès de la session d'une personne. Sa validité
+// suit celle de la session (révoquée : refusé en statusTTL au plus).
+func (s *Service) MintSession(c auth.SessionClaims, ttl time.Duration) (string, time.Time, error) {
+	return s.mint(Claims{
+		RegisteredClaims: jwt.RegisteredClaims{Subject: string(iam.UserPrincipal(c.UserID))},
+		Method:           MethodSession, KeyID: sessionRefPrefix + c.SessionID.String(),
+		SessionID: c.SessionID.String(), AuthTime: c.AuthTime.Unix(), AMR: c.AMR, ACR: c.ACR,
+	}, ttl)
+}
+
+func (s *Service) mint(c Claims, ttl time.Duration) (string, time.Time, error) {
 	if ttl <= 0 || ttl > MaxTokenTTL {
 		ttl = MaxTokenTTL
 	}
@@ -97,14 +128,10 @@ func (s *Service) Mint(principal iam.Principal, method, keyID string, ttl time.D
 	}
 	now := s.now()
 	exp := now.Add(ttl)
-	tok := jwt.NewWithClaims(jwt.SigningMethodES256, Claims{
-		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer: s.Issuer, Subject: string(principal), Audience: jwt.ClaimStrings{Audience},
-			IssuedAt: jwt.NewNumericDate(now), NotBefore: jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(exp), ID: hex.EncodeToString(jti),
-		},
-		Method: method, KeyID: keyID,
-	})
+	c.Issuer, c.Audience = s.Issuer, jwt.ClaimStrings{Audience}
+	c.IssuedAt, c.NotBefore, c.ExpiresAt = jwt.NewNumericDate(now), jwt.NewNumericDate(now), jwt.NewNumericDate(exp)
+	c.ID = hex.EncodeToString(jti)
+	tok := jwt.NewWithClaims(jwt.SigningMethodES256, c)
 	tok.Header["kid"] = key.kid
 	tok.Header["typ"] = "at+jwt" // RFC 9068
 	signed, err := tok.SignedString(key.private)
@@ -147,7 +174,12 @@ func (s *Service) Verify(ctx context.Context, raw string) (*Verified, error) {
 	if !ok {
 		return nil, ErrInvalidToken
 	}
-	return &Verified{Principal: principal, Method: c.Method, KeyID: c.KeyID, TokenID: c.ID, ExpiresAt: c.ExpiresAt.Time}, nil
+	v := &Verified{Principal: principal, Method: c.Method, KeyID: c.KeyID, TokenID: c.ID, ExpiresAt: c.ExpiresAt.Time,
+		SessionID: c.SessionID, AMR: c.AMR, ACR: c.ACR}
+	if c.AuthTime > 0 {
+		v.AuthTime = time.Unix(c.AuthTime, 0)
+	}
+	return v, nil
 }
 
 // stillValid : compte actif et, le cas échéant, clé non désactivée (cache court).
@@ -176,10 +208,27 @@ func (s *Service) stillValid(ctx context.Context, p iam.Principal, keyID string)
 
 func (s *Service) checkStatus(ctx context.Context, p iam.Principal, keyID string) (bool, error) {
 	kind, id, err := p.Parse()
-	if err != nil || kind != iam.KindServiceAccount {
+	if err != nil {
 		return false, nil
 	}
 	db := s.DB.WithContext(ctx)
+	if kind == iam.KindUser {
+		// Personne : session ni révoquée ni expirée, compte actif.
+		sessionID, ok := strings.CutPrefix(keyID, sessionRefPrefix)
+		if !ok {
+			return false, nil
+		}
+		var n int64
+		now := s.now()
+		err = db.Raw(`SELECT count(*) FROM auth_sessions s JOIN users u ON u.id = s.user_id
+			WHERE s.id::text = ? AND s.user_id = ? AND s.revoked_at IS NULL AND s.expires_at > ?
+			AND s.idle_expires_at > ? AND u.is_active AND u.deleted_at IS NULL`,
+			sessionID, id, now, now).Row().Scan(&n)
+		return n == 1, err
+	}
+	if kind != iam.KindServiceAccount {
+		return false, nil
+	}
 	var disabled bool
 	err = db.Raw(`SELECT disabled FROM service_accounts WHERE id = ? AND deleted_at IS NULL`, id).Row().Scan(&disabled)
 	if errors.Is(err, sql.ErrNoRows) {

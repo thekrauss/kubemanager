@@ -174,7 +174,8 @@ func (a *App) initKeycloak() error {
 		ClientID:     cfg.AdminClientID,
 		ClientSecret: cfg.AdminClientSecret,
 		WebClientID:  cfg.WebClientID,
-		Timeout:      cfg.HTTPTimeout,
+		AuthClientID: cfg.AuthClientID, AuthClientSecret: cfg.AuthClientSecret,
+		Timeout: cfg.HTTPTimeout,
 	}, cfg.IssuerURL)
 	if err != nil {
 		return fmt.Errorf("keycloak client init: %w", err)

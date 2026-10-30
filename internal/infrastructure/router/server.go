@@ -54,6 +54,9 @@ type Observability struct {
 func (a *App) startHTTPServer() {
 
 	engine := gin.New()
+	if err := engine.SetTrustedProxies(trustedProxies(a.Config.Server.TrustedProxies)); err != nil {
+		a.Logger.Fatalw("invalid server.trusted_proxies", "error", err)
+	}
 
 	p := ginprometheus.NewPrometheus("gin")
 	p.MetricsPath = "/metrics"
@@ -183,4 +186,14 @@ func (a *App) gracefulShutdownServers(grpcServer *grpc.Server, httpServer *http.
 	if err := redis.Close(); err != nil {
 		log.Printf("redis close error: %v", err)
 	}
+}
+
+// defaultTrustedProxies : boucle locale (BFF de la console sur la même machine).
+var defaultTrustedProxies = []string{"127.0.0.1", "::1"}
+
+func trustedProxies(cfg []string) []string {
+	if len(cfg) == 0 {
+		return defaultTrustedProxies
+	}
+	return cfg
 }

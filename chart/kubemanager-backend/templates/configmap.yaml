@@ -7,6 +7,7 @@ data:
   KUBEMANAGER_SERVICE_NAME: {{ .Values.config.serviceName | quote }}
   KUBEMANAGER_SERVER_HTTP_PORT: {{ .Values.config.httpPort | quote }}
   KUBEMANAGER_SERVER_ALLOWED_ORIGINS: {{ join "," .Values.config.server.allowedOrigins | quote }}
+  KUBEMANAGER_SERVER_TRUSTED_PROXIES: {{ join "," .Values.config.server.trustedProxies | quote }}
 
   KUBEMANAGER_RATE_LIMIT_ENABLED: {{ .Values.config.rateLimit.enabled | quote }}
   KUBEMANAGER_RATE_LIMIT_LIMIT: {{ .Values.config.rateLimit.limit | quote }}

@@ -25,7 +25,3 @@ const (
 	// authMethodNone : le endpoint token n'exige aucune authentification client.
 	authMethodNone = "none"
 )
-
-// keycloakAccountSecurityPath : page « Sécurité » de la console de compte
-// Keycloak (retirée avec l'authentification gérée par betorun).
-const keycloakAccountSecurityPath = "/account/#/account-security/signing-in"

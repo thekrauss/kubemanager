@@ -7,7 +7,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
+
+	"github.com/thekrauss/kubemanager/internal/auth"
+	"github.com/thekrauss/kubemanager/internal/infrastructure/mail"
 
 	"github.com/thekrauss/kubemanager/internal/core/cache"
 	"github.com/thekrauss/kubemanager/internal/modules/auth/domain"
@@ -58,18 +62,12 @@ type LoginResult struct {
 
 type Service interface {
 	// Register / bootstrap
-	Register(ctx context.Context, req identitytypes.RegisterRequest) (*identitytypes.RegisterResponse, error)
 	Bootstrap(ctx context.Context, principal BootstrapPrincipal, req identitytypes.BootstrapRequest) (*identitytypes.BootstrapResponse, error)
 	BootstrapStatus(ctx context.Context, principal BootstrapPrincipal) (*identitytypes.BootstrapStatusResponse, error)
 
 	// Auth classique
-	Login(ctx context.Context, email, password string) (*LoginResult, error)
 	Logout(ctx context.Context, refreshToken string) error
 	RefreshToken(ctx context.Context, refreshToken string) (*keycloakadmin.TokenPair, error)
-
-	// Password
-	ForgotPassword(ctx context.Context, email string) error
-	ResetPassword(ctx context.Context, keycloakUserID, newPassword string) error
 
 	// Authorization Code + PKCE : login hébergé Keycloak, ou social (kc_idp_hint).
 	// Les deux reviennent sur HandleSocialCallback.
@@ -81,9 +79,28 @@ type Service interface {
 	SocialLoginURL(ctx context.Context, provider, redirectURI string) (string, error)
 	HandleSocialCallback(ctx context.Context, code, state, redirectURI string) (*LoginResult, error)
 
-	// Verification emails
-	ResendVerificationEmail(ctx context.Context, keycloakUserID string) error
-	ResendVerificationEmailByEmail(ctx context.Context, email string) error
+	// Authentification gérée par betorun (docs/architecture/auth.md).
+	PasswordLogin(ctx context.Context, in identitytypes.PasswordLoginRequest, cl Client) (*identitytypes.AuthResponse, error)
+	MFALogin(ctx context.Context, in identitytypes.MFALoginRequest, cl Client) (*identitytypes.AuthResponse, error)
+	RefreshSession(ctx context.Context, refreshToken string) (*identitytypes.RefreshTokenResponse, error)
+	EndSession(ctx context.Context, refreshToken string) error
+	StepUp(ctx context.Context, userID, sessionID uuid.UUID, code string) (*identitytypes.AuthResponse, error)
+	ListSessions(ctx context.Context, userID, current uuid.UUID) ([]auth.Session, error)
+	RevokeSession(ctx context.Context, userID, sessionID uuid.UUID) error
+	RevokeOtherSessions(ctx context.Context, userID, current uuid.UUID) error
+
+	MFAStatus(ctx context.Context, userID uuid.UUID) (*auth.FactorStatus, error)
+	StartTOTP(ctx context.Context, userID uuid.UUID, account string) (*auth.TOTPEnrollment, error)
+	ConfirmTOTP(ctx context.Context, userID, sessionID uuid.UUID, code string) (*identitytypes.RecoveryCodesResponse, error)
+	DisableTOTP(ctx context.Context, userID, sessionID uuid.UUID) error
+	RegenerateRecoveryCodes(ctx context.Context, userID, sessionID uuid.UUID) (*identitytypes.RecoveryCodesResponse, error)
+
+	RegisterAccount(ctx context.Context, req identitytypes.RegisterRequest, cl Client) (*identitytypes.RegisterResponse, error)
+	VerifyEmail(ctx context.Context, token string) error
+	ResendVerification(ctx context.Context, email string, cl Client) error
+	RequestPasswordReset(ctx context.Context, email string, cl Client) error
+	CompletePasswordReset(ctx context.Context, token, password string) error
+	ChangePassword(ctx context.Context, subject string, sessionID uuid.UUID, current, next string) error
 }
 
 // StateStore : store distribué pour le state CSRF OAuth (fix H9).
@@ -112,6 +129,14 @@ type Deps struct {
 	StateStore          StateStore      // store distribué du state CSRF (fix H9 : Redis)
 	StepUpACR           string          // acr_values demandé pour un step-up (ex. "gold") ; vide : MFA non configuré
 	CLIClientID         string          // client Keycloak public de la CLI (flux device) ; vide : désactivé
+
+	// Authentification gérée par betorun (docs/architecture/auth.md).
+	Sessions    *auth.Sessions
+	Factors     *auth.Factors
+	EmailTokens *auth.EmailTokens
+	Mailer      mail.Sender
+	Limiter     Limiter
+	Logger      *zap.SugaredLogger
 }
 
 type service struct {
@@ -127,6 +152,12 @@ type service struct {
 	stateStore          StateStore
 	stepUpACR           string
 	cliClientID         string
+	sessions            *auth.Sessions
+	factors             *auth.Factors
+	emailTokens         *auth.EmailTokens
+	mailer              mail.Sender
+	limiter             Limiter
+	logger              *zap.SugaredLogger
 }
 
 func NewService(deps Deps) Service {
@@ -143,34 +174,13 @@ func NewService(deps Deps) Service {
 		stateStore:          deps.StateStore,
 		stepUpACR:           strings.TrimSpace(deps.StepUpACR),
 		cliClientID:         strings.TrimSpace(deps.CLIClientID),
+		sessions:            deps.Sessions,
+		factors:             deps.Factors,
+		emailTokens:         deps.EmailTokens,
+		mailer:              deps.Mailer,
+		limiter:             deps.Limiter,
+		logger:              deps.Logger,
 	}
-}
-
-func (s *service) Register(ctx context.Context, req identitytypes.RegisterRequest) (*identitytypes.RegisterResponse, error) {
-	if s == nil || s.keycloak == nil {
-		return nil, ErrIdentityServiceUnavailable
-	}
-	email := normalizeEmail(req.Email)
-	fullName := strings.TrimSpace(req.FullName)
-	phoneNumber := strings.TrimSpace(req.PhoneNumber)
-	if email == "" || strings.TrimSpace(req.Password) == "" || fullName == "" {
-		return nil, ErrRegisterInputInvalid
-	}
-	if _, err := s.keycloak.FindUserByEmail(ctx, email); err == nil {
-		return nil, keycloakadmin.ErrUserAlreadyExists
-	} else if !errors.Is(err, keycloakadmin.ErrUserNotFound) {
-		return nil, err
-	}
-	kcUser, err := s.keycloak.CreateUser(ctx, keycloakadmin.CreateUserInput{
-		Email: email, Password: req.Password, FullName: fullName, PhoneNumber: phoneNumber, Enabled: true,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &identitytypes.RegisterResponse{
-		KeycloakUserID: kcUser.ID, Email: kcUser.Email, FullName: kcUser.FullName,
-		PhoneNumber: kcUser.PhoneNumber, RequiresBootstrap: true, CreatedAt: time.Now().UTC(),
-	}, nil
 }
 
 func (s *service) Bootstrap(ctx context.Context, principal BootstrapPrincipal, req identitytypes.BootstrapRequest) (*identitytypes.BootstrapResponse, error) {

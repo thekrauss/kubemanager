@@ -55,6 +55,10 @@ config:
     window: "1m"
   server:
     allowedOrigins: ["https://app.kubemanager.example"]
+    # Proxies dont X-Forwarded-For est cru (CIDR de l'ingress, BFF de la
+    # console). Vide : boucle locale seulement. À renseigner en prod, sinon
+    # toutes les requêtes semblent venir de l'ingress (limites par IP faussées).
+    trustedProxies: []
   redis:
     host: redis-master.kubemanager.svc
     port: 6379

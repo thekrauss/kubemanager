@@ -8,7 +8,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/thekrauss/kubemanager/internal/auth"
 	"github.com/thekrauss/kubemanager/internal/core/cache"
+	"github.com/thekrauss/kubemanager/internal/middleware/security"
 	identitysvc "github.com/thekrauss/kubemanager/internal/modules/identity/service"
 	identitytypes "github.com/thekrauss/kubemanager/internal/modules/identity/types"
 )
@@ -20,7 +22,6 @@ type Controller interface {
 	BootstrapStatus(c *gin.Context) (*identitytypes.BootstrapStatusResponse, error)
 
 	// Auth
-	Login(c *gin.Context, in *identitytypes.LoginRequest) (*identitytypes.LoginResponse, error)
 	Logout(c *gin.Context, in *identitytypes.LogoutRequest) (*identitytypes.LogoutResponse, error)
 	RefreshToken(c *gin.Context, in *identitytypes.RefreshTokenRequest) (*identitytypes.RefreshTokenResponse, error)
 	ValidateToken(c *gin.Context) (*identitytypes.TokenResponse, error)
@@ -61,7 +62,7 @@ func (ctrl *controller) Register(c *gin.Context, in *identitytypes.RegisterReque
 	if in == nil {
 		return nil, betoerrors.New(betoerrors.CodeInvalidInput, "input is required")
 	}
-	return ctrl.service.Register(c.Request.Context(), *in)
+	return ctrl.service.RegisterAccount(c.Request.Context(), *in, clientOf(c))
 }
 
 func (ctrl *controller) Bootstrap(c *gin.Context, in *identitytypes.BootstrapRequest) (*identitytypes.BootstrapResponse, error) {
@@ -93,27 +94,6 @@ func (ctrl *controller) BootstrapStatus(c *gin.Context) (*identitytypes.Bootstra
 
 // ── Auth ──────────────────────────────────────────────────────────────────
 
-func (ctrl *controller) Login(c *gin.Context, in *identitytypes.LoginRequest) (*identitytypes.LoginResponse, error) {
-	if ctrl == nil || ctrl.service == nil {
-		return nil, identitysvc.ErrIdentityServiceUnavailable
-	}
-	if in == nil {
-		return nil, betoerrors.New(betoerrors.CodeInvalidInput, "input is required")
-	}
-	result, err := ctrl.service.Login(c.Request.Context(), in.Email, in.Password)
-	if err != nil {
-		return nil, err
-	}
-	return &identitytypes.LoginResponse{
-		AccessToken:    result.AccessToken,
-		RefreshToken:   result.RefreshToken,
-		ExpiresIn:      result.ExpiresIn,
-		KeycloakUserID: result.KeycloakUserID,
-		Email:          result.Email,
-		Bootstrapped:   result.Bootstrapped,
-	}, nil
-}
-
 func (ctrl *controller) Logout(c *gin.Context, in *identitytypes.LogoutRequest) (*identitytypes.LogoutResponse, error) {
 	if ctrl == nil || ctrl.service == nil {
 		return nil, identitysvc.ErrIdentityServiceUnavailable
@@ -124,6 +104,13 @@ func (ctrl *controller) Logout(c *gin.Context, in *identitytypes.LogoutRequest) 
 	// Access token lu depuis le header Authorization (pas le body) pour pouvoir blacklister le JTI.
 	accessToken := strings.TrimPrefix(strings.TrimSpace(c.GetHeader("Authorization")), "Bearer ")
 
+	if strings.HasPrefix(in.RefreshToken, auth.RefreshTokenPrefix) {
+		if err := ctrl.service.EndSession(c.Request.Context(), in.RefreshToken); err != nil {
+			return nil, err
+		}
+		return &identitytypes.LogoutResponse{}, nil
+	}
+	// Session ouverte avant le passage aux sessions betorun (transition).
 	if err := ctrl.service.Logout(c.Request.Context(), in.RefreshToken); err != nil {
 		return nil, err
 	}
@@ -143,6 +130,10 @@ func (ctrl *controller) RefreshToken(c *gin.Context, in *identitytypes.RefreshTo
 	if in == nil {
 		return nil, betoerrors.New(betoerrors.CodeInvalidInput, "input is required")
 	}
+	if strings.HasPrefix(in.RefreshToken, auth.RefreshTokenPrefix) {
+		return ctrl.service.RefreshSession(c.Request.Context(), in.RefreshToken)
+	}
+	// Session ouverte avant le passage aux sessions betorun (transition).
 	tokens, err := ctrl.service.RefreshToken(c.Request.Context(), in.RefreshToken)
 	if err != nil {
 		return nil, err
@@ -159,15 +150,11 @@ func (ctrl *controller) ValidateToken(c *gin.Context) (*identitytypes.TokenRespo
 		return nil, identitysvc.ErrIdentityServiceUnavailable
 	}
 	// Le middleware auth a déjà validé le token — on remonte les claims du contexte.
-	userID := c.GetString("userID")
-	if userID == "" {
+	id, ok := security.InternalUserID(c)
+	if !ok {
 		return &identitytypes.TokenResponse{Valid: false}, nil
 	}
-	return &identitytypes.TokenResponse{
-		Valid:          true,
-		KeycloakUserID: userID,
-		Email:          c.GetString("email"),
-	}, nil
+	return &identitytypes.TokenResponse{Valid: true, UserID: id.String(), Email: c.GetString("email")}, nil
 }
 
 // ── Password ──────────────────────────────────────────────────────────────
@@ -179,7 +166,7 @@ func (ctrl *controller) ForgotPassword(c *gin.Context, in *identitytypes.ForgotP
 	if in == nil {
 		return betoerrors.New(betoerrors.CodeInvalidInput, "input is required")
 	}
-	return ctrl.service.ForgotPassword(c.Request.Context(), in.Email)
+	return ctrl.service.RequestPasswordReset(c.Request.Context(), in.Email, clientOf(c))
 }
 
 func (ctrl *controller) ChangePassword(c *gin.Context, in *identitytypes.ChangePasswordRequest) error {
@@ -193,7 +180,8 @@ func (ctrl *controller) ChangePassword(c *gin.Context, in *identitytypes.ChangeP
 	if keycloakUserID == "" {
 		return betoerrors.New(betoerrors.CodeUnauthorized, "authenticated user context missing")
 	}
-	return ctrl.service.ResetPassword(c.Request.Context(), keycloakUserID, in.NewPassword)
+	sid, _ := security.SessionID(c)
+	return ctrl.service.ChangePassword(c.Request.Context(), keycloakUserID, sid, in.CurrentPassword, in.NewPassword)
 }
 
 // ── Login hébergé (Authorization Code + PKCE) ─────────────────────────────
@@ -256,11 +244,11 @@ func (ctrl *controller) ResendVerificationEmail(c *gin.Context) error {
 	if ctrl == nil || ctrl.service == nil {
 		return identitysvc.ErrIdentityServiceUnavailable
 	}
-	keycloakUserID := c.GetString("userID")
-	if keycloakUserID == "" {
+	email := c.GetString("email")
+	if email == "" {
 		return betoerrors.New(betoerrors.CodeUnauthorized, "authenticated user context missing")
 	}
-	return ctrl.service.ResendVerificationEmail(c.Request.Context(), keycloakUserID)
+	return ctrl.service.ResendVerification(c.Request.Context(), email, clientOf(c))
 }
 
 func (ctrl *controller) ResendVerificationEmailForEmail(c *gin.Context, in *identitytypes.ForgotPasswordRequest) error {
@@ -270,5 +258,5 @@ func (ctrl *controller) ResendVerificationEmailForEmail(c *gin.Context, in *iden
 	if in == nil {
 		return betoerrors.New(betoerrors.CodeInvalidInput, "input is required")
 	}
-	return ctrl.service.ResendVerificationEmailByEmail(c.Request.Context(), in.Email)
+	return ctrl.service.ResendVerification(c.Request.Context(), in.Email, clientOf(c))
 }

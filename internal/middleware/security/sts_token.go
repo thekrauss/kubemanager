@@ -39,6 +39,9 @@ func (m *MiddlewareManager) handleSTSToken(c *gin.Context, raw string) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 		return
 	}
+	if v.Method == sts.MethodSession && m.applySessionToken(c, v) {
+		return
+	}
 	c.Set(ctxPrincipal, string(v.Principal))
 	c.Set("authMethod", "sts")
 	c.Set("tokenID", v.TokenID)

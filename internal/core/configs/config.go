@@ -121,6 +121,11 @@ type KeycloakConfig struct {
 	// CLIClientID : client Keycloak public de la CLI, avec « OAuth 2.0 Device
 	// Authorization Grant » activé. Vide : connexion de la CLI désactivée.
 	CLIClientID string `mapstructure:"cli_client_id"`
+	// AuthClientID / AuthClientSecret : client confidentiel réservé au
+	// backend, qui vérifie les mots de passe (docs/architecture/auth.md §5).
+	// Jamais exposé : le navigateur et la CLI ne parlent qu'à l'API betorun.
+	AuthClientID     string `mapstructure:"auth_client_id"`
+	AuthClientSecret string `mapstructure:"auth_client_secret"`
 }
 
 type JWTConfig struct {
@@ -152,6 +157,11 @@ type ServerConfig struct {
 	HTTPPort        int           `mapstructure:"http_port"`
 	ShutdownTimeout time.Duration `mapstructure:"shutdown_timeout"`
 	AllowedOrigins  []string      `mapstructure:"allowed_origins"`
+	// TrustedProxies : adresses ou CIDR des proxies dont les en-têtes
+	// X-Forwarded-For sont crus (ingress, BFF de la console). Vide : boucle
+	// locale seulement. Sinon un client choisirait son IP et contournerait
+	// les limites de tentatives.
+	TrustedProxies []string `mapstructure:"trusted_proxies"`
 }
 
 type DBConfig struct {

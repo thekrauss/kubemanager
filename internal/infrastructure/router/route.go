@@ -73,13 +73,36 @@ func addRealtimeRoutes(app *App) {
 		Authenticated(), tonic.Handler(r.GetSubscriptionToken, http.StatusOK))
 }
 
+// addAuthRoutes : authentification gérée par betorun (docs/architecture/
+// auth.md) — connexion, sessions, second facteur, liens envoyés par email.
+func addAuthRoutes(app *App) {
+	a := app.Controllers.Auth
+	if a == nil {
+		return
+	}
+	IdentityGroup.AddRoute("/login", http.MethodPost, "Connexion par email et mot de passe : session ouverte, ou second facteur demandé (challenge)", Public(), tonic.Handler(a.Login, http.StatusOK))
+	IdentityGroup.AddRoute("/login/mfa", http.MethodPost, "Connexion : code du second facteur (application ou code de secours)", Public(), tonic.Handler(a.LoginMFA, http.StatusOK))
+	IdentityGroup.AddRoute("/verify-email", http.MethodPost, "Confirmer l'adresse email (lien reçu)", Public(), tonic.Handler(a.VerifyEmail, http.StatusNoContent))
+	IdentityGroup.AddRoute("/reset-password", http.MethodPost, "Nouveau mot de passe depuis le lien reçu (toutes les sessions sont fermées)", Public(), tonic.Handler(a.ResetPassword, http.StatusNoContent))
+
+	IdentityGroup.AddRoute("/session/verify", http.MethodPost, "Confirmer son identité (code du second facteur) avant une action sensible", Authenticated(), tonic.Handler(a.StepUp, http.StatusOK))
+	IdentityGroup.AddRoute("/sessions", http.MethodGet, "Sessions actives (appareils)", Authenticated(), tonic.Handler(a.ListSessions, http.StatusOK))
+	IdentityGroup.AddRoute("/sessions/:id", http.MethodDelete, "Fermer une session", Authenticated(), tonic.Handler(a.RevokeSession, http.StatusNoContent))
+	IdentityGroup.AddRoute("/sessions/revoke-others", http.MethodPost, "Fermer toutes les autres sessions", Authenticated(), tonic.Handler(a.RevokeOtherSessions, http.StatusNoContent))
+
+	IdentityGroup.AddRoute("/mfa", http.MethodGet, "État du second facteur", Authenticated(), tonic.Handler(a.MFAStatus, http.StatusOK))
+	IdentityGroup.AddRoute("/mfa/totp", http.MethodPost, "Activer une application d'authentification : secret et QR code (à confirmer)", Authenticated(), tonic.Handler(a.StartTOTP, http.StatusOK))
+	IdentityGroup.AddRoute("/mfa/totp/confirm", http.MethodPost, "Confirmer l'application (premier code) : codes de secours remis une fois", Authenticated(), tonic.Handler(a.ConfirmTOTP, http.StatusOK))
+	IdentityGroup.AddRoute("/mfa/totp", http.MethodDelete, "Désactiver le second facteur (vérification récente exigée)", Authenticated(), tonic.Handler(a.DisableTOTP, http.StatusNoContent))
+	IdentityGroup.AddRoute("/mfa/recovery-codes", http.MethodPost, "Nouveaux codes de secours (vérification récente exigée)", Authenticated(), tonic.Handler(a.RegenerateRecoveryCodes, http.StatusOK))
+}
+
 func addIdentityRoutes(app *App) {
 	r := app.Controllers.Identity
 	if r == nil {
 		return
 	}
-	IdentityGroup.AddRoute("/register", http.MethodPost, "Créer un compte Keycloak", Public(), tonic.Handler(r.Register, http.StatusCreated))
-	IdentityGroup.AddRoute("/login", http.MethodPost, "Connexion email/password (ROPC)", Public(), tonic.Handler(r.Login, http.StatusOK))
+	IdentityGroup.AddRoute("/register", http.MethodPost, "Créer un compte (email de confirmation ; réponse identique si l'adresse a déjà un compte)", Public(), tonic.Handler(r.Register, http.StatusCreated))
 	IdentityGroup.AddRoute("/refresh", http.MethodPost, "Renouveler les tokens via refresh_token", Public(), tonic.Handler(r.RefreshToken, http.StatusOK))
 	IdentityGroup.AddRoute("/forgot-password", http.MethodPost, "Envoyer un email de reset password", Public(), tonic.Handler(r.ForgotPassword, http.StatusAccepted))
 	IdentityGroup.AddRoute("/resend-verification", http.MethodPost, "Renvoyer l'email de vérification (par email)", Public(), tonic.Handler(r.ResendVerificationEmailForEmail, http.StatusAccepted))
@@ -99,6 +122,8 @@ func addIdentityRoutes(app *App) {
 	IdentityGroup.AddRoute("/change-password", http.MethodPost, "Changer le mot de passe courant", Authenticated(), tonic.Handler(r.ChangePassword, http.StatusOK))
 	IdentityGroup.AddRoute("/bootstrap", http.MethodPost, "Provisionner le profil local + projet initial", Authenticated(), tonic.Handler(r.Bootstrap, http.StatusOK))
 	IdentityGroup.AddRoute("/bootstrap/status", http.MethodGet, "État du bootstrap local", Authenticated(), tonic.Handler(r.BootstrapStatus, http.StatusOK))
+
+	addAuthRoutes(app)
 }
 
 func addRBACRoutes(app *App) {

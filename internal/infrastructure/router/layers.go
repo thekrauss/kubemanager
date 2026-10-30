@@ -56,8 +56,9 @@ func (a *App) initDomainLayers() error {
 	// Identity : dépend de Keycloak + AuthCache (state OAuth). Nil si Keycloak disabled.
 	var identityService identitySvc.Service
 	var identityController identityCtrl.Controller
+	var authController *identityCtrl.AuthController
 	if a.Keycloak != nil {
-		identityService = identitySvc.NewService(identitySvc.Deps{
+		deps := identitySvc.Deps{
 			Keycloak:            a.Keycloak,
 			Users:               a.Repos.Auth,
 			Projects:            projectService,
@@ -70,8 +71,13 @@ func (a *App) initDomainLayers() error {
 			StateStore:          a.Cache, // Redis : cross-instance OK (fix H9)
 			StepUpACR:           firstOrEmpty(a.Config.IAM.MFAACRValues),
 			CLIClientID:         a.Config.Keycloak.CLIClientID,
-		})
+		}
+		if err := a.authDeps(&deps); err != nil {
+			return err
+		}
+		identityService = identitySvc.NewService(deps)
 		identityController = identityCtrl.NewController(identityService, a.AuthCache)
+		authController = identityCtrl.NewAuthController(identityService)
 	} else {
 		a.Logger.Warnw("identity service skipped — keycloak not initialized")
 	}
@@ -121,6 +127,7 @@ func (a *App) initDomainLayers() error {
 		Project:  projectController,
 		Workload: workloadController,
 		Identity: identityController,
+		Auth:     authController,
 		Realtime: realtimeController,
 		Clusters: clustersController,
 		Site:     siteController,
@@ -141,7 +148,6 @@ func firstOrEmpty(list []string) string {
 func (a *App) newIAMController(policies *iam.PolicyService) *iamapi.Controller {
 	ctrl := iamapi.NewController(policies, a.IAM, a.ServiceAccounts, a.ClusterAgents, a.STS)
 	ctrl.OrgPolicies = a.OrgPolicies
-	ctrl.MFA = iamapi.MFASettings{ACRValues: a.Config.IAM.MFAACRValues, MaxAge: a.stepUpMaxAge(),
-		AccountSecurityURL: iamapi.AccountSecurityURL(a.Config.Keycloak.IssuerURL)}
+	ctrl.MFA = iamapi.MFASettings{ACRValues: a.Config.IAM.MFAACRValues, MaxAge: a.stepUpMaxAge()}
 	return ctrl
 }

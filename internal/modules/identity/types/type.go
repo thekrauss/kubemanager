@@ -9,13 +9,11 @@ type RegisterRequest struct {
 	PhoneNumber string `json:"phone_number,omitempty"`
 }
 
+// RegisterResponse : identique que l'adresse ait déjà un compte ou non
+// (son titulaire est prévenu par email) ; rien de l'annuaire n'est exposé.
 type RegisterResponse struct {
-	KeycloakUserID    string    `json:"keycloak_user_id"`
-	Email             string    `json:"email"`
-	FullName          string    `json:"full_name,omitempty"`
-	PhoneNumber       string    `json:"phone_number,omitempty"`
-	RequiresBootstrap bool      `json:"requires_bootstrap"`
-	CreatedAt         time.Time `json:"created_at"`
+	Email            string `json:"email"`
+	VerificationSent bool   `json:"verification_sent"`
 }
 
 type BootstrapRequest struct {
@@ -43,9 +41,10 @@ type ProjectDTO struct {
 }
 
 type BootstrapResponse struct {
-	Created          bool        `json:"created"`
-	InternalUserID   string      `json:"internal_user_id"`
-	KeycloakUserID   string      `json:"keycloak_user_id"`
+	Created        bool   `json:"created"`
+	InternalUserID string `json:"internal_user_id"`
+	// KeycloakUserID : usage interne, jamais exposé (annuaire invisible).
+	KeycloakUserID   string      `json:"-"`
 	Email            string      `json:"email,omitempty"`
 	FullName         string      `json:"full_name,omitempty"`
 	PhoneNumber      string      `json:"phone_number,omitempty"`
@@ -56,26 +55,22 @@ type BootstrapResponse struct {
 }
 
 type BootstrapStatusResponse struct {
-	Bootstrapped      bool        `json:"bootstrapped"`
-	RequiresBootstrap bool        `json:"requires_bootstrap"`
-	InternalUserID    *string     `json:"internal_user_id,omitempty"`
-	KeycloakUserID    string      `json:"keycloak_user_id"`
-	Email             string      `json:"email,omitempty"`
-	FullName          string      `json:"full_name,omitempty"`
-	PhoneNumber       string      `json:"phone_number,omitempty"`
-	Country           string      `json:"country,omitempty"`
-	Role              string      `json:"role,omitempty"`
-	MembershipStatus  string      `json:"membership_status,omitempty"`
-	ProjectID         *string     `json:"project_id,omitempty"`
-	Project           *ProjectDTO `json:"project,omitempty"`
+	Bootstrapped      bool    `json:"bootstrapped"`
+	RequiresBootstrap bool    `json:"requires_bootstrap"`
+	InternalUserID    *string `json:"internal_user_id,omitempty"`
+	// KeycloakUserID : usage interne, jamais exposé (annuaire invisible).
+	KeycloakUserID   string      `json:"-"`
+	Email            string      `json:"email,omitempty"`
+	FullName         string      `json:"full_name,omitempty"`
+	PhoneNumber      string      `json:"phone_number,omitempty"`
+	Country          string      `json:"country,omitempty"`
+	Role             string      `json:"role,omitempty"`
+	MembershipStatus string      `json:"membership_status,omitempty"`
+	ProjectID        *string     `json:"project_id,omitempty"`
+	Project          *ProjectDTO `json:"project,omitempty"`
 }
 
 // ── Login / Logout / Refresh ──────────────────────────────────────────────
-
-type LoginRequest struct {
-	Email    string `json:"email"    binding:"required" description:"Email de l'utilisateur"`
-	Password string `json:"password" binding:"required" description:"Mot de passe"`
-}
 
 type LoginResponse struct {
 	AccessToken    string `json:"access_token"      description:"JWT d'accès Keycloak"`
@@ -107,9 +102,9 @@ type LogoutResponse struct{}
 type TokenRequest struct{}
 
 type TokenResponse struct {
-	Valid          bool   `json:"valid"`
-	KeycloakUserID string `json:"keycloak_user_id,omitempty"`
-	Email          string `json:"email,omitempty"`
+	Valid  bool   `json:"valid"`
+	UserID string `json:"user_id,omitempty"`
+	Email  string `json:"email,omitempty"`
 }
 
 // ── Password ──────────────────────────────────────────────────────────────
@@ -119,7 +114,8 @@ type ForgotPasswordRequest struct {
 }
 
 type ChangePasswordRequest struct {
-	NewPassword string `json:"new_password" binding:"required,min=8"`
+	CurrentPassword string `json:"current_password" binding:"required"`
+	NewPassword     string `json:"new_password" binding:"required,min=8"`
 }
 
 // ── Login hébergé Keycloak (Authorization Code + PKCE) ────────────────────

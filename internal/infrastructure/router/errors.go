@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/thekrauss/kubemanager/internal/auth"
 	"github.com/thekrauss/kubemanager/internal/iam"
 	idempotency "github.com/thekrauss/kubemanager/internal/infrastructure/idempotence"
 	authSvc "github.com/thekrauss/kubemanager/internal/modules/auth/service"
@@ -49,7 +50,24 @@ var sentinelErrors = []sentinelMapping{
 	{identitySvc.ErrBootstrapProjectRequired, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
 	{identitySvc.ErrUnknownProvider, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
 	{identitySvc.ErrInvalidState, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
-	{identitySvc.ErrEmailNotVerified, http.StatusForbidden, betoerrors.CodeForbidden, false},
+	{identitySvc.ErrEmailNotVerified, http.StatusForbidden, "EMAIL_NOT_VERIFIED", false},
+
+	// Authentification gérée par betorun (docs/architecture/auth.md) : codes
+	// stables, exploités par la console et la CLI.
+	{identitySvc.ErrInvalidCredentials, http.StatusUnauthorized, "INVALID_CREDENTIALS", false},
+	{identitySvc.ErrTooManyAttempts, http.StatusTooManyRequests, "TOO_MANY_ATTEMPTS", false},
+	{identitySvc.ErrMFAChallengeExpired, http.StatusUnauthorized, "MFA_CHALLENGE_EXPIRED", false},
+	{identitySvc.ErrAuthUnavailable, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", false},
+	{identitySvc.ErrWeakPassword, http.StatusBadRequest, "WEAK_PASSWORD", false},
+	{identitySvc.ErrCurrentPassword, http.StatusBadRequest, "INVALID_CURRENT_PASSWORD", false},
+	{auth.ErrInvalidCode, http.StatusBadRequest, "INVALID_CODE", false},
+	{auth.ErrNoFactor, http.StatusConflict, "MFA_NOT_ENROLLED", false},
+	{auth.ErrFactorExists, http.StatusConflict, "MFA_ALREADY_ENROLLED", false},
+	{auth.ErrRecentMFA, http.StatusUnauthorized, "STEP_UP_REQUIRED", false},
+	{auth.ErrEmailLinkInvalid, http.StatusBadRequest, "LINK_INVALID", false},
+	{auth.ErrRefreshInvalid, http.StatusUnauthorized, "SESSION_EXPIRED", false},
+	{auth.ErrRefreshReused, http.StatusUnauthorized, "SESSION_EXPIRED", false},
+	{auth.ErrSessionNotFound, http.StatusNotFound, betoerrors.CodeNotFound, false},
 	{identitySvc.ErrSubjectInvalid, http.StatusUnauthorized, betoerrors.CodeUnauthorized, false},
 	{identitySvc.ErrIdentityServiceUnavailable, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", false},
 	{identitySvc.ErrMFANotConfigured, http.StatusConflict, "FAILED_PRECONDITION", false},
