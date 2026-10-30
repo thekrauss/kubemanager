@@ -54,10 +54,10 @@ type AccumulatorConfig struct {
 // démarrer le ticker de flush.
 func NewUsageAccumulator(cfg AccumulatorConfig) *UsageAccumulator {
 	if cfg.FlushInterval <= 0 {
-		cfg.FlushInterval = 5 * time.Second
+		cfg.FlushInterval = DefaultUsageFlushInterval
 	}
 	if cfg.MaxPending <= 0 {
-		cfg.MaxPending = 500
+		cfg.MaxPending = DefaultUsageMaxPending
 	}
 	logger := cfg.Logger
 	if logger == nil {
@@ -65,7 +65,7 @@ func NewUsageAccumulator(cfg AccumulatorConfig) *UsageAccumulator {
 	}
 	return &UsageAccumulator{
 		repo:          cfg.Repo,
-		logger:        logger.With("component", "apikey-usage-accumulator"),
+		logger:        logger.With("component", usageAccumulatorComponent),
 		flushInterval: cfg.FlushInterval,
 		maxPending:    cfg.MaxPending,
 		pending:       make(map[uuid.UUID]int),
@@ -179,7 +179,7 @@ func (a *UsageAccumulator) flush(ctx context.Context) {
 	a.pendingCount.Add(-totalIncrs)
 
 	// Budget par flush (évite de bloquer longtemps si DB lente).
-	flushCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	flushCtx, cancel := context.WithTimeout(ctx, usageFlushTimeout)
 	defer cancel()
 
 	if err := a.repo.BatchIncrementAPIKeyUsage(flushCtx, snapshot); err != nil {

@@ -1,5 +1,7 @@
 package domain
 
+import "github.com/thekrauss/kubemanager/internal/iam"
+
 func RoleHasPermission(role RoleType, perm PermissionType) bool {
 
 	switch role {
@@ -65,11 +67,11 @@ func containsPermission(slice []PermissionType, item PermissionType) bool {
 func LegacyRoleToIAM(name string) string {
 	switch name {
 	case RoleTypes.Owner.String():
-		return "roles/owner"
+		return iam.RoleOwner
 	case RoleTypes.Developer.String():
-		return "roles/developer"
+		return iam.RoleDeveloper
 	case RoleTypes.Viewer.String():
-		return "roles/viewer"
+		return iam.RoleViewer
 	default:
 		return name
 	}

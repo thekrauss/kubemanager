@@ -5,13 +5,20 @@ import (
 	"go.uber.org/zap"
 )
 
-type contextKey string
+// Clés du gin.Context posées par les middlewares d'authentification et lues
+// par les handlers.
+const (
+	ContextKeyUserID       = "userID"
+	ContextKeyEmail        = "email"
+	ContextKeyProjectID    = "projectID"
+	ContextKeyAPIKeyID     = "apiKeyID"
+	ContextKeyAPIKeyScopes = "apiKeyScopes"
+	ContextKeyAuthMethod   = "authMethod"
+	ContextKeyAuthTime     = "authTime"
+	ContextKeyAuthAcr      = "authAcr"
+)
 
 const (
-	userIDKey  contextKey = "userID"
-	roleKey    contextKey = "role"
-	projectKey contextKey = "projectID"
-
 	// LoggerContextKey : clé utilisée pour stocker un SugaredLogger scopé au
 	// request (enrichi avec trace_id) dans le gin.Context. Les handlers
 	// récupèrent le logger via LoggerFrom(c) pour que leurs logs portent
@@ -22,7 +29,7 @@ const (
 // UserIDFromContext extracts the authenticated user ID from the Gin context.
 // The value is set by the auth middleware in middleware/security.
 func UserIDFromContext(c *gin.Context) (string, bool) {
-	uid := c.GetString("userID")
+	uid := c.GetString(ContextKeyUserID)
 	if uid == "" {
 		return "", false
 	}

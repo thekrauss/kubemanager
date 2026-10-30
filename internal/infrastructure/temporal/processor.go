@@ -1,4 +1,3 @@
-
 package temporal
 
 import (
@@ -21,12 +20,12 @@ import (
 	projectActivities "github.com/thekrauss/kubemanager/internal/modules/projects/activities"
 	projectRepo "github.com/thekrauss/kubemanager/internal/modules/projects/repository"
 	projectWorkflows "github.com/thekrauss/kubemanager/internal/modules/projects/workflows"
-	workloadActivities "github.com/thekrauss/kubemanager/internal/modules/workloads/activities"
-	workloadRepository "github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
-	workloadWorkflows "github.com/thekrauss/kubemanager/internal/modules/workloads/workflows"
 	siteActivities "github.com/thekrauss/kubemanager/internal/modules/sites/activities"
 	siteRepository "github.com/thekrauss/kubemanager/internal/modules/sites/repository"
 	siteWorkflows "github.com/thekrauss/kubemanager/internal/modules/sites/workflows"
+	workloadActivities "github.com/thekrauss/kubemanager/internal/modules/workloads/activities"
+	workloadRepository "github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
+	workloadWorkflows "github.com/thekrauss/kubemanager/internal/modules/workloads/workflows"
 )
 
 type WorkerConfig struct {
@@ -127,7 +126,7 @@ func (p *TemporalProcessor) Start() (<-chan error, error) {
 	go func() {
 		p.cfg.Logger.Infow("temporal worker starting",
 			"queue", p.cfg.Config.Temporal.TaskQueue,
-			"workflows", []string{"CreateProjectWorkflow", "DeployWorkloadWorkflow"},
+			"workflows", []string{projectWorkflows.CreateProjectWorkflowName, workloadWorkflows.DeployWorkloadWorkflowName},
 		)
 
 		if err := w.Run(nil); err != nil {

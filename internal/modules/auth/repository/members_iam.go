@@ -24,14 +24,14 @@ import (
 
 // iamToLegacy : affichage legacy ; les autres rôles IAM gardent leur nom.
 var iamToLegacy = map[string]string{
-	"roles/owner":     domain.RoleTypes.Owner.String(),
-	"roles/developer": domain.RoleTypes.Developer.String(),
-	"roles/viewer":    domain.RoleTypes.Viewer.String(),
+	iam.RoleOwner:     domain.RoleTypes.Owner.String(),
+	iam.RoleDeveloper: domain.RoleTypes.Developer.String(),
+	iam.RoleViewer:    domain.RoleTypes.Viewer.String(),
 }
 
 // roleRank : quand un utilisateur a plusieurs rôles sur un projet, le plus
 // fort représente son appartenance.
-var roleRank = map[string]int{"roles/owner": 4, "roles/editor": 3, "roles/developer": 2, "roles/viewer": 1}
+var roleRank = map[string]int{iam.RoleOwner: 4, iam.RoleEditor: 3, iam.RoleDeveloper: 2, iam.RoleViewer: 1}
 
 type memberRow struct {
 	ProjectID uuid.UUID
@@ -188,12 +188,12 @@ func (r *pgAuthRepo) Upsert(ctx context.Context, m *domain.ProjectMember) error 
 }
 
 func (r *pgAuthRepo) RemoveProjectMember(ctx context.Context, projectID, userID uuid.UUID) error {
-	return iam.RemovePrincipal(ctx, r.db, iam.ProjectName(projectID), iam.UserPrincipal(userID), "system:rbac")
+	return iam.RemovePrincipal(ctx, r.db, iam.ProjectName(projectID), iam.UserPrincipal(userID), iam.ActorSystemRBAC)
 }
 
 func setMemberRole(ctx context.Context, tx *gorm.DB, m *domain.ProjectMember) error {
 	project, user := iam.ProjectName(m.ProjectID), iam.UserPrincipal(m.UserID)
-	if err := iam.RemovePrincipal(ctx, tx, project, user, "system:rbac"); err != nil {
+	if err := iam.RemovePrincipal(ctx, tx, project, user, iam.ActorSystemRBAC); err != nil {
 		return err
 	}
 	if m.Status != "" && m.Status != domain.ProjectMemberStatusActive && m.Status != domain.ProjectMemberStatusApproved {
@@ -204,5 +204,5 @@ func setMemberRole(ctx context.Context, tx *gorm.DB, m *domain.ProjectMember) er
 		return fmt.Errorf("project member role is required")
 	}
 	iamRole := domain.LegacyRoleToIAM(name)
-	return iam.AddBinding(ctx, tx, iam.Binding{Resource: project, Role: iamRole, Principal: user}, "system:rbac")
+	return iam.AddBinding(ctx, tx, iam.Binding{Resource: project, Role: iamRole, Principal: user}, iam.ActorSystemRBAC)
 }

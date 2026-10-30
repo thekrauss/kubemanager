@@ -27,11 +27,6 @@ import (
 	"github.com/thekrauss/kubemanager/internal/modules/workloads/workflows"
 )
 
-const (
-	defaultChartName    = "standard-app"
-	defaultChartVersion = "0.1.0"
-)
-
 func defaultIfEmpty(v, def string) string {
 	if v == "" {
 		return def
@@ -153,7 +148,7 @@ func (s *WorkloadService) Deploy(ctx context.Context, in *WorkloadServiceRequest
 		}
 	}
 
-	targetNamespace := fmt.Sprintf("km-%s", project.Name)
+	targetNamespace := utils.ProjectNamespace(project.Name)
 
 	// Identité : vérifiée avant toute création (actAs sur le compte).
 	var runAs *uuid.UUID
@@ -182,10 +177,10 @@ func (s *WorkloadService) Deploy(ctx context.Context, in *WorkloadServiceRequest
 		TargetPort:         in.TargetPort,
 		PersistenceEnabled: in.PersistenceEnabled,
 		StorageSize:        in.StorageSize,
-		StorageClass:       defaultIfEmpty(in.StorageClass, "local-path"),
+		StorageClass:       defaultIfEmpty(in.StorageClass, utils.DefaultStorageClass),
 		TLSEnabled:         in.TLSEnabled,
-		Status:             "STARTING",
-		CurrentPhase:       "HELM_CHART_LOADING",
+		Status:             utils.WorkloadStarting,
+		CurrentPhase:       utils.PhaseHelmChartLoading,
 		ServiceAccountID:   runAs,
 	}
 	route := publicRoute(in.Name, pID, in.TLSEnabled)
@@ -236,8 +231,8 @@ func (s *WorkloadService) Deploy(ctx context.Context, in *WorkloadServiceRequest
 	}
 
 	_, err = s.Distributor.ExecuteWorkflow(ctx,
-		temporal.ExecuteOptions{WorkflowID: "workload-deploy-" + workload.ID.String()},
-		"DeployWorkloadWorkflow", wfInput)
+		temporal.ExecuteOptions{WorkflowID: workflows.WorkflowIDDeployPrefix + workload.ID.String()},
+		workflows.DeployWorkloadWorkflowName, wfInput)
 
 	return workload, err
 }
@@ -282,7 +277,7 @@ func (s *WorkloadService) Update(ctx context.Context, id string, req domain.Upda
 	}
 
 	_, err = s.Distributor.ExecuteWorkflow(ctx,
-		temporal.ExecuteOptions{WorkflowID: "workload-update-" + id},
+		temporal.ExecuteOptions{WorkflowID: workflows.WorkflowIDUpdatePrefix + id},
 		workflows.DeployWorkloadWorkflow, workflows.DeployWorkloadInput{
 			WorkloadID:         id,
 			ProjectID:          current.ProjectID.String(),
@@ -315,7 +310,7 @@ func (s *WorkloadService) currentEnv(ctx context.Context, w *domain.Workload) (m
 	if s.K8sClient == nil {
 		return nil, nil
 	}
-	secret, err := s.K8sClient.CoreV1().Secrets(w.Namespace).Get(ctx, w.Name+"-env", metav1.GetOptions{})
+	secret, err := s.K8sClient.CoreV1().Secrets(w.Namespace).Get(ctx, utils.EnvSecretName(w.Name), metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return nil, nil
 	}
@@ -349,10 +344,10 @@ func publicRoute(name string, projectID uuid.UUID, tls bool) route {
 	if ip == "" {
 		return r
 	}
-	r.Host = fmt.Sprintf("%s-%s.%s.sslip.io", name, projectID.String()[:6], ip)
-	scheme := "http"
+	r.Host = fmt.Sprintf("%s-%s.%s.%s", name, projectID.String()[:publicRouteProjectIDLen], ip, publicRouteDomain)
+	scheme := schemeHTTP
 	if tls {
-		scheme = "https"
+		scheme = schemeHTTPS
 	}
 	r.URL = scheme + "://" + r.Host
 	return r
@@ -371,7 +366,7 @@ func (s *WorkloadService) parseMemory(mem string) int64 {
 	if err != nil {
 		return 0
 	}
-	return res.Value() / (1024 * 1024) //  en Mi
+	return res.Value() / utils.BytesPerMi //  en Mi
 }
 
 func (s *WorkloadService) parseStorage(storage string) int64 {
@@ -382,7 +377,7 @@ func (s *WorkloadService) parseStorage(storage string) int64 {
 	if err != nil {
 		return 0
 	}
-	return res.Value() / (1024 * 1024)
+	return res.Value() / utils.BytesPerMi
 }
 
 func (s *WorkloadService) parseStorageToBytes(storage string) int64 {
@@ -392,13 +387,13 @@ func (s *WorkloadService) parseStorageToBytes(storage string) int64 {
 
 func (s *WorkloadService) validateNetwork(port int) error {
 
-	if port <= 0 || port > 65535 {
+	if port <= 0 || port > maxTargetPort {
 		return betoerrors.Newf(betoerrors.CodeInvalidInput, "invalid target port: %d (must be between 1 and 65535)", port)
 	}
 	// Pas de liste de ports "réservés" : le port cible vit dans le network
 	// namespace du pod, il ne peut pas entrer en collision avec les services
 	// de la plateforme (API, Postgres, Temporal…).
-	if port < 1024 && port != 80 {
+	if port < privilegedPortLimit && port != httpPort {
 		return betoerrors.New(betoerrors.CodeInvalidInput, "ports below 1024 (except 80) are system-privileged and not allowed")
 	}
 

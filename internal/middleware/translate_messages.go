@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 	"github.com/thekrauss/kubemanager/internal/core/i18n"
 )
 
@@ -49,8 +50,8 @@ func (w *translatingWriter) decide() {
 		return
 	}
 	w.decided = true
-	ct := w.Header().Get("Content-Type")
-	w.buffering = strings.Contains(ct, "json") && w.Header().Get("Content-Length") == ""
+	ct := w.Header().Get(httpheader.ContentType)
+	w.buffering = strings.Contains(ct, jsonContentMarker) && w.Header().Get(httpheader.ContentLength) == ""
 }
 
 func (w *translatingWriter) Write(b []byte) (int, error) {
@@ -116,7 +117,7 @@ func translateBody(body []byte, l i18n.Locale, isError bool) []byte {
 	}
 	keys := errorKeys
 	if !isError {
-		keys = []string{"message"}
+		keys = []string{messageField}
 	}
 	changed := false
 	for _, k := range keys {

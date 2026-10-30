@@ -41,14 +41,14 @@ type Credentials struct {
 
 // Dir : dossier de configuration (BETORUN_CONFIG_DIR pour les tests).
 func Dir() (string, error) {
-	if d := os.Getenv("BETORUN_CONFIG_DIR"); d != "" {
+	if d := os.Getenv(EnvConfigDir); d != "" {
 		return d, nil
 	}
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(base, "betorun"), nil
+	return filepath.Join(base, appDirName), nil
 }
 
 func load(name string, v any) error {
@@ -72,7 +72,7 @@ func save(name string, v any) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(dir, dirPerm); err != nil {
 		return err
 	}
 	raw, err := json.MarshalIndent(v, "", "  ")
@@ -84,7 +84,7 @@ func save(name string, v any) error {
 		return err
 	}
 	defer os.Remove(tmp.Name())
-	if err := tmp.Chmod(0o600); err != nil {
+	if err := tmp.Chmod(filePerm); err != nil {
 		tmp.Close()
 		return err
 	}
@@ -100,11 +100,11 @@ func save(name string, v any) error {
 
 func LoadSettings() (Settings, error) {
 	var s Settings
-	err := load("config.json", &s)
-	if v := strings.TrimSpace(os.Getenv("BETORUN_API_URL")); v != "" {
+	err := load(settingsFileName, &s)
+	if v := strings.TrimSpace(os.Getenv(EnvAPIURL)); v != "" {
 		s.APIURL = v
 	}
-	if v := strings.TrimSpace(os.Getenv("BETORUN_PROJECT")); v != "" {
+	if v := strings.TrimSpace(os.Getenv(EnvProject)); v != "" {
 		s.ProjectID = v
 	}
 	s.APIURL = strings.TrimRight(s.APIURL, "/")
@@ -114,16 +114,16 @@ func LoadSettings() (Settings, error) {
 // SaveSettings : réglages du fichier seulement (l'environnement n'est pas persisté).
 func SaveSettings(update func(*Settings)) error {
 	var s Settings
-	if err := load("config.json", &s); err != nil {
+	if err := load(settingsFileName, &s); err != nil {
 		return err
 	}
 	update(&s)
-	return save("config.json", s)
+	return save(settingsFileName, s)
 }
 
 func LoadCredentials() (*Credentials, error) {
 	var c Credentials
-	if err := load("credentials.json", &c); err != nil {
+	if err := load(credentialsFileName, &c); err != nil {
 		return nil, err
 	}
 	if c.AccessToken == "" {
@@ -132,14 +132,14 @@ func LoadCredentials() (*Credentials, error) {
 	return &c, nil
 }
 
-func SaveCredentials(c *Credentials) error { return save("credentials.json", c) }
+func SaveCredentials(c *Credentials) error { return save(credentialsFileName, c) }
 
 func DeleteCredentials() error {
 	dir, err := Dir()
 	if err != nil {
 		return err
 	}
-	err = os.Remove(filepath.Join(dir, "credentials.json"))
+	err = os.Remove(filepath.Join(dir, credentialsFileName))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}

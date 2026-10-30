@@ -23,7 +23,9 @@ import (
 	metricsv1 "k8s.io/metrics/pkg/client/clientset/versioned"
 
 	"github.com/thekrauss/kubemanager/internal/infrastructure/temporal"
+	"github.com/thekrauss/kubemanager/internal/modules/utils"
 	"github.com/thekrauss/kubemanager/internal/modules/workloads/domain"
+	"github.com/thekrauss/kubemanager/internal/modules/workloads/workflows"
 )
 
 //  CRUD read-side
@@ -45,13 +47,13 @@ func (s *WorkloadService) Delete(ctx context.Context, id uuid.UUID) error {
 	}
 
 	// Marque immédiatement DELETING pour éviter les double-deletes concurrents.
-	if err := s.Repo.UpdateStatus(ctx, id, "DELETING", "HELM_UNINSTALLING"); err != nil {
+	if err := s.Repo.UpdateStatus(ctx, id, utils.WorkloadDeleting, utils.PhaseHelmUninstalling); err != nil {
 		return err
 	}
 
 	_, err = s.Distributor.ExecuteWorkflow(ctx,
-		temporal.ExecuteOptions{WorkflowID: "workload-delete-" + id.String()},
-		"DeleteWorkloadWorkflow",
+		temporal.ExecuteOptions{WorkflowID: workflows.WorkflowIDDeletePrefix + id.String()},
+		workflows.DeleteWorkloadWorkflowName,
 		DeleteWorkloadInput{
 			WorkloadID:  id.String(),
 			ProjectID:   workload.ProjectID.String(),
@@ -83,7 +85,7 @@ func (s *WorkloadService) Stop(ctx context.Context, id uuid.UUID) error {
 	if err := s.scaleTo(ctx, w, 0); err != nil {
 		return fmt.Errorf("scale to 0: %w", err)
 	}
-	return s.Repo.UpdateStatus(ctx, id, "STOPPED", "SCALED_TO_ZERO")
+	return s.Repo.UpdateStatus(ctx, id, utils.WorkloadStopped, utils.PhaseScaledToZero)
 }
 
 // Start : remonte le deployment à `w.Replicas` (valeur DB, pas 1 en dur).
@@ -99,7 +101,7 @@ func (s *WorkloadService) Start(ctx context.Context, id uuid.UUID) error {
 	if err := s.scaleTo(ctx, w, target); err != nil {
 		return fmt.Errorf("scale to %d: %w", target, err)
 	}
-	return s.Repo.UpdateStatus(ctx, id, "RUNNING", "STARTED")
+	return s.Repo.UpdateStatus(ctx, id, utils.WorkloadRunning, utils.PhaseStarted)
 }
 
 // Restart : rollout restart via patch de l'annotation.
@@ -110,8 +112,8 @@ func (s *WorkloadService) Restart(ctx context.Context, id uuid.UUID) error {
 		return err
 	}
 	patch := fmt.Sprintf(
-		`{"spec":{"template":{"metadata":{"annotations":{"kubemanager.io/restartedAt":"%s"}}}}}`,
-		time.Now().UTC().Format(time.RFC3339),
+		`{"spec":{"template":{"metadata":{"annotations":{%q:%q}}}}}`,
+		utils.AnnotationRestartedAt, time.Now().UTC().Format(time.RFC3339),
 	)
 	_, err = s.K8sClient.AppsV1().Deployments(w.Namespace).Patch(
 		ctx, w.Name,
@@ -124,7 +126,7 @@ func (s *WorkloadService) Restart(ctx context.Context, id uuid.UUID) error {
 	// Redémarrage progressif : les anciens pods servent jusqu'à ce que les
 	// nouveaux soient prêts, le conteneur reste RUNNING (avant : RESTARTING,
 	// que rien ne faisait jamais repasser à RUNNING).
-	return s.Repo.UpdateStatus(ctx, id, "RUNNING", "ROLLOUT_RESTART")
+	return s.Repo.UpdateStatus(ctx, id, utils.WorkloadRunning, utils.PhaseRolloutRestart)
 }
 
 // Rollback : helm rollback à la révision cible (0 = revision précédente).
@@ -142,12 +144,12 @@ func (s *WorkloadService) Rollback(ctx context.Context, id uuid.UUID, toRevision
 	rb := action.NewRollback(cfg)
 	rb.Version = toRevision // 0 = previous release
 	rb.Wait = true
-	rb.Timeout = 2 * time.Minute
+	rb.Timeout = helmRollbackTimeout
 
 	if err := rb.Run(w.Name); err != nil {
 		return fmt.Errorf("helm rollback: %w", err)
 	}
-	return s.Repo.UpdateStatus(ctx, id, "RUNNING", "ROLLED_BACK")
+	return s.Repo.UpdateStatus(ctx, id, utils.WorkloadRunning, utils.PhaseRolledBack)
 }
 
 //  Observabilité
@@ -182,7 +184,7 @@ func (s *WorkloadService) LiveStatus(ctx context.Context, id uuid.UUID) (*domain
 
 	// Liste des pods (labelSelector standard Helm).
 	pods, err := s.K8sClient.CoreV1().Pods(w.Namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: "app=" + w.Name,
+		LabelSelector: utils.LabelApp + "=" + w.Name,
 	})
 	if err == nil {
 		status.Pods = make([]domain.PodStatus, 0, len(pods.Items))
@@ -215,7 +217,7 @@ func (s *WorkloadService) Logs(ctx context.Context, id uuid.UUID, opts LogOption
 	}
 
 	pods, err := s.K8sClient.CoreV1().Pods(w.Namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: "app=" + w.Name,
+		LabelSelector: utils.LabelApp + "=" + w.Name,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list pods: %w", err)
@@ -308,8 +310,8 @@ func (s *WorkloadService) Metrics(ctx context.Context, id uuid.UUID) (*domain.Wo
 
 	out := &domain.WorkloadMetrics{
 		WorkloadID:     id.String(),
-		CPUUsage:       "0m",
-		MemoryUsage:    "0Mi",
+		CPUUsage:       zeroCPUUsage,
+		MemoryUsage:    zeroMemoryUsage,
 		ReservedCPU:    w.CPULimit,
 		ReservedMemory: w.MemoryLimit,
 		Replicas:       w.Replicas,
@@ -321,7 +323,7 @@ func (s *WorkloadService) Metrics(ctx context.Context, id uuid.UUID) (*domain.Wo
 		return out, nil
 	}
 
-	selector := fmt.Sprintf("km-workload-id=%s", id.String())
+	selector := utils.LabelKmWorkloadID + "=" + id.String()
 	podMetrics, err := mClient.MetricsV1beta1().PodMetricses(w.Namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: selector,
 	})
@@ -339,15 +341,11 @@ func (s *WorkloadService) Metrics(ctx context.Context, id uuid.UUID) (*domain.Wo
 	}
 	out.PodCount = len(podMetrics.Items)
 	out.CPUUsage = fmt.Sprintf("%dm", totalCPUMilli)
-	out.MemoryUsage = fmt.Sprintf("%dMi", totalMemBytes/(1024*1024))
+	out.MemoryUsage = fmt.Sprintf("%dMi", totalMemBytes/utils.BytesPerMi)
 	return out, nil
 }
 
 //  Helpers privés
-
-// patchTypeMergePatch : constante locale pour éviter un import explicite
-// de k8s.io/apimachinery/pkg/types (qui n'est utilisé qu'ici).
-const patchTypeMergePatch = "application/strategic-merge-patch+json"
 
 func (s *WorkloadService) scaleTo(ctx context.Context, w *domain.Workload, replicas int32) error {
 	scale, err := s.K8sClient.AppsV1().Deployments(w.Namespace).GetScale(ctx, w.Name, metav1.GetOptions{})
@@ -365,7 +363,7 @@ func (s *WorkloadService) scaleTo(ctx context.Context, w *domain.Workload, repli
 func (s *WorkloadService) newHelmActionConfig(namespace string) (*action.Configuration, error) {
 	settings := cli.New()
 	cfg := new(action.Configuration)
-	err := cfg.Init(settings.RESTClientGetter(), namespace, "secret", func(format string, v ...interface{}) {
+	err := cfg.Init(settings.RESTClientGetter(), namespace, helmStorageDriver, func(format string, v ...interface{}) {
 		s.Logger.Debugf(format, v...)
 	})
 	return cfg, err

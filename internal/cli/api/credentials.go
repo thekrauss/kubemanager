@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/thekrauss/kubemanager/internal/cli/config"
 )
 
 // Identifiants machine : jetons courts obtenus auprès du STS de betorun,
@@ -53,7 +54,7 @@ type staticSource string
 
 func (s staticSource) Token(context.Context) (string, error) { return string(s), nil }
 func (staticSource) Invalidate()                             {}
-func (staticSource) Describe() string                        { return "BETORUN_TOKEN" }
+func (staticSource) Describe() string                        { return config.EnvToken }
 
 // StaticSource : jeton fourni tel quel.
 func StaticSource(token string) TokenSource { return staticSource(token) }

@@ -94,10 +94,10 @@ func (a *AuditLogger) LogAuthEvent(c *gin.Context, event string, fields ...zap.F
 		zap.Time("timestamp", time.Now().UTC()),
 	}
 
-	if userID := c.GetString("userID"); userID != "" {
+	if userID := c.GetString(ContextKeyUserID); userID != "" {
 		base = append(base, zap.String("user_id", userID))
 	}
-	if email := c.GetString("email"); email != "" {
+	if email := c.GetString(ContextKeyEmail); email != "" {
 		base = append(base, zap.String("email", email))
 	}
 	if traceID := c.GetString("trace_id"); traceID != "" {

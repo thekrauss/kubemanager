@@ -20,31 +20,31 @@ type (
 
 func (c *Client) ListWorkloads(ctx context.Context, project string) ([]Workload, error) {
 	var out []Workload
-	return out, c.Do(ctx, http.MethodGet, "/workloads?project_id="+url.QueryEscape(project), nil, &out)
+	return out, c.Do(ctx, http.MethodGet, pathWorkloads+"?"+queryProjectID+"="+url.QueryEscape(project), nil, &out)
 }
 
 func (c *Client) GetWorkload(ctx context.Context, id string) (*Workload, error) {
 	var out Workload
-	return &out, c.Do(ctx, http.MethodGet, "/workloads/"+url.PathEscape(id), nil, &out)
+	return &out, c.Do(ctx, http.MethodGet, pathWorkloads+"/"+url.PathEscape(id), nil, &out)
 }
 
 func (c *Client) CreateWorkload(ctx context.Context, req CreateWorkloadRequest) (*WorkloadResponse, error) {
 	var out WorkloadResponse
-	return &out, c.Do(ctx, http.MethodPost, "/workloads", req, &out)
+	return &out, c.Do(ctx, http.MethodPost, pathWorkloads, req, &out)
 }
 
 // UpdateWorkload : nouvelle version (image, variables).
 func (c *Client) UpdateWorkload(ctx context.Context, id string, req UpdateWorkloadRequest) error {
-	return c.Do(ctx, http.MethodPatch, "/workloads/"+url.PathEscape(id), req, nil)
+	return c.Do(ctx, http.MethodPatch, pathWorkloads+"/"+url.PathEscape(id), req, nil)
 }
 
 // WorkloadAction : stop, start, restart (corps vide).
 func (c *Client) WorkloadAction(ctx context.Context, id, action string) error {
-	return c.Do(ctx, http.MethodPost, "/workloads/"+url.PathEscape(id)+"/"+action, nil, nil)
+	return c.Do(ctx, http.MethodPost, pathWorkloads+"/"+url.PathEscape(id)+"/"+action, nil, nil)
 }
 
 func (c *Client) DeleteWorkload(ctx context.Context, id string) error {
-	return c.Do(ctx, http.MethodDelete, "/workloads/"+url.PathEscape(id), nil, nil)
+	return c.Do(ctx, http.MethodDelete, pathWorkloads+"/"+url.PathEscape(id), nil, nil)
 }
 
 // LogsOptions : paramètres de GET /workloads/:id/logs.
@@ -68,5 +68,5 @@ func (c *Client) StreamLogs(ctx context.Context, id string, o LogsOptions, w io.
 	if o.Since > 0 {
 		q.Set("since", strconv.FormatInt(o.Since, 10))
 	}
-	return c.Stream(ctx, "/workloads/"+url.PathEscape(id)+"/logs?"+q.Encode(), w)
+	return c.Stream(ctx, pathWorkloads+"/"+url.PathEscape(id)+segLogs+"?"+q.Encode(), w)
 }

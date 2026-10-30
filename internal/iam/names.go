@@ -24,11 +24,11 @@ var ErrInvalidResourceName = errors.New("invalid resource name")
 func (n ResourceName) String() string { return string(n) }
 
 func OrganizationName(id uuid.UUID) ResourceName {
-	return ResourceName("organizations/" + id.String())
+	return ResourceName(OrganizationsPrefix + id.String())
 }
 
 func ProjectName(id uuid.UUID) ResourceName {
-	return ResourceName("projects/" + id.String())
+	return ResourceName(ProjectsPrefix + id.String())
 }
 
 // Child : nom d'une sous-ressource, ex. ProjectName(p).Child("sites", s).
@@ -46,7 +46,7 @@ func (n ResourceName) Validate() error {
 	if len(parts) < 2 || len(parts)%2 != 0 {
 		return ErrInvalidResourceName
 	}
-	if parts[0] != "organizations" && parts[0] != "projects" {
+	if parts[0] != CollectionOrganizations && parts[0] != CollectionProjects {
 		return ErrInvalidResourceName
 	}
 	for i := 0; i < len(parts); i += 2 {
@@ -75,12 +75,12 @@ func isCamel(s string) bool {
 
 // Organization : UUID si le nom est "organizations/{id}".
 func (n ResourceName) Organization() (uuid.UUID, bool) {
-	return n.root("organizations")
+	return n.root(CollectionOrganizations)
 }
 
 // Project : UUID du projet si le nom est sous "projects/{id}".
 func (n ResourceName) Project() (uuid.UUID, bool) {
-	return n.root("projects")
+	return n.root(CollectionProjects)
 }
 
 func (n ResourceName) root(collection string) (uuid.UUID, bool) {

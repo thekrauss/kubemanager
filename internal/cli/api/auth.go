@@ -27,7 +27,7 @@ var (
 
 func (c *Client) StartDeviceLogin(ctx context.Context) (*DeviceCode, error) {
 	var out DeviceCode
-	err := c.DoPublic(ctx, http.MethodPost, "/identity/device/code", nil, &out)
+	err := c.DoPublic(ctx, http.MethodPost, pathIdentityDeviceCode, nil, &out)
 	var apiErr *Error
 	if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotImplemented {
 		return nil, ErrDeviceDisabled
@@ -49,18 +49,18 @@ func (c *Client) WaitDeviceLogin(ctx context.Context, dc *DeviceCode) (*config.C
 		case <-time.After(interval):
 		}
 		var out identitytypes.RefreshTokenResponse
-		err := c.DoPublic(ctx, http.MethodPost, "/identity/device/token", map[string]string{"device_code": dc.DeviceCode}, &out)
+		err := c.DoPublic(ctx, http.MethodPost, pathIdentityDeviceToken, map[string]string{"device_code": dc.DeviceCode}, &out)
 		var apiErr *Error
 		switch {
 		case err == nil:
 			return &config.Credentials{AccessToken: out.AccessToken, RefreshToken: out.RefreshToken,
 				ExpiresAt: c.now().Add(time.Duration(out.ExpiresIn) * time.Second)}, nil
-		case errors.As(err, &apiErr) && apiErr.Code == "authorization_pending":
-		case errors.As(err, &apiErr) && apiErr.Code == "slow_down":
-			interval += 5 * time.Second
-		case errors.As(err, &apiErr) && apiErr.Code == "expired_token":
+		case errors.As(err, &apiErr) && apiErr.Code == deviceErrAuthorizationPending:
+		case errors.As(err, &apiErr) && apiErr.Code == deviceErrSlowDown:
+			interval += deviceSlowDownStep
+		case errors.As(err, &apiErr) && apiErr.Code == deviceErrExpiredToken:
 			return nil, ErrDeviceExpired
-		case errors.As(err, &apiErr) && apiErr.Code == "access_denied":
+		case errors.As(err, &apiErr) && apiErr.Code == deviceErrAccessDenied:
 			return nil, ErrDeviceDenied
 		default:
 			return nil, err
@@ -80,21 +80,21 @@ func (c *Client) UseCredentials(creds *config.Credentials) {
 
 // Logout : révoque la session côté serveur.
 func (c *Client) Logout(ctx context.Context, refreshToken string) error {
-	return c.Do(ctx, http.MethodPost, "/identity/logout", identitytypes.LogoutRequest{RefreshToken: refreshToken}, nil)
+	return c.Do(ctx, http.MethodPost, pathIdentityLogout, identitytypes.LogoutRequest{RefreshToken: refreshToken}, nil)
 }
 
 // BrowserLoginURL : URL Keycloak pour une connexion de la CLI redirigée vers
 // son serveur local (RFC 8252) ; stepUp exige une double authentification
 // récente (réponse à STEP_UP_REQUIRED).
 func (c *Client) BrowserLoginURL(ctx context.Context, redirectURI string, stepUp bool) (string, error) {
-	q := url.Values{"redirect_uri": {redirectURI}, "client": {"cli"}}
+	q := url.Values{"redirect_uri": {redirectURI}, "client": {oidcClientCLI}}
 	if stepUp {
 		q.Set("step_up", "true")
 	}
 	var out struct {
 		URL string `json:"url"`
 	}
-	err := c.DoPublic(ctx, http.MethodGet, "/identity/oidc/authorize?"+q.Encode(), nil, &out)
+	err := c.DoPublic(ctx, http.MethodGet, pathIdentityOIDCAuthorize+"?"+q.Encode(), nil, &out)
 	return out.URL, err
 }
 
@@ -102,7 +102,7 @@ func (c *Client) BrowserLoginURL(ctx context.Context, redirectURI string, stepUp
 func (c *Client) BrowserLoginCallback(ctx context.Context, code, state, redirectURI string) (*config.Credentials, error) {
 	q := url.Values{"code": {code}, "state": {state}, "redirect_uri": {redirectURI}}
 	var out identitytypes.LoginResponse
-	if err := c.DoPublic(ctx, http.MethodGet, "/identity/oidc/callback?"+q.Encode(), nil, &out); err != nil {
+	if err := c.DoPublic(ctx, http.MethodGet, pathIdentityOIDCCallback+"?"+q.Encode(), nil, &out); err != nil {
 		return nil, err
 	}
 	return &config.Credentials{AccessToken: out.AccessToken, RefreshToken: out.RefreshToken,

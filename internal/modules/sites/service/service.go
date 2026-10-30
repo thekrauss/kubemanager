@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 	"github.com/thekrauss/kubemanager/internal/core/i18n"
 
 	"github.com/google/uuid"
@@ -24,8 +25,6 @@ import (
 	"github.com/thekrauss/kubemanager/internal/modules/sites/repository"
 	"github.com/thekrauss/kubemanager/internal/modules/sites/workflows"
 )
-
-const pgUniqueViolation = "23505"
 
 type ISiteService interface {
 	CreateSite(ctx context.Context, projectID uuid.UUID, req domain.CreateSiteRequest) (*domain.SiteResponse, error)
@@ -163,7 +162,7 @@ func (s *SiteService) DeleteSite(ctx context.Context, projectID, siteID uuid.UUI
 		return err
 	}
 	_, err = s.distributor.ExecuteWorkflow(ctx,
-		temporal.ExecuteOptions{WorkflowID: "site-delete-" + site.ID.String()},
+		temporal.ExecuteOptions{WorkflowID: workflows.WorkflowIDDeletePrefix + site.ID.String()},
 		workflows.DeleteSiteWorkflow, site.ID.String())
 	return err
 }
@@ -175,7 +174,7 @@ func (s *SiteService) Deploy(ctx context.Context, projectID, siteID uuid.UUID, u
 		return nil, betoerrors.New(betoerrors.CodeInvalidInput, "archive vide")
 	}
 	if size > s.cfg.Limits.MaxArchiveBytes {
-		return nil, betoerrors.Newf(betoerrors.CodeInvalidInput, "archive trop volumineuse (maximum %d Mo)", s.cfg.Limits.MaxArchiveBytes>>20)
+		return nil, betoerrors.Newf(betoerrors.CodeInvalidInput, "archive trop volumineuse (maximum %d Mo)", s.cfg.Limits.MaxArchiveBytes/domain.BytesPerMB)
 	}
 	site, err := s.getLiveSite(ctx, projectID, siteID)
 	if err != nil {
@@ -193,14 +192,14 @@ func (s *SiteService) Deploy(ctx context.Context, projectID, siteID uuid.UUID, u
 		return nil, err
 	}
 
-	if err := s.store.Put(ctx, dep.ArchiveKey, archive, size, "application/zip"); err != nil {
+	if err := s.store.Put(ctx, dep.ArchiveKey, archive, size, httpheader.MIMEZip); err != nil {
 		s.failDeployment(ctx, dep, "l'envoi de l'archive a échoué, réessayez")
 		return nil, fmt.Errorf("store archive: %w", err)
 	}
 
 	ref := activities.DeploymentRef{SiteID: site.ID.String(), DeploymentID: dep.ID.String()}
 	if _, err := s.distributor.ExecuteWorkflow(ctx,
-		temporal.ExecuteOptions{WorkflowID: "site-deploy-" + dep.ID.String()},
+		temporal.ExecuteOptions{WorkflowID: workflows.WorkflowIDDeployPrefix + dep.ID.String()},
 		workflows.DeploySiteWorkflow, ref); err != nil {
 		s.failDeployment(ctx, dep, "le déploiement n'a pas pu démarrer, réessayez")
 		return nil, fmt.Errorf("start deploy workflow: %w", err)
@@ -220,7 +219,7 @@ func (s *SiteService) ListDeployments(ctx context.Context, projectID, siteID uui
 	if err != nil {
 		return nil, err
 	}
-	deployments, err := s.repo.ListDeployments(ctx, site.ID, 50)
+	deployments, err := s.repo.ListDeployments(ctx, site.ID, deploymentsListLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +303,7 @@ func (s *SiteService) VerifyDomain(ctx context.Context, projectID, siteID, domai
 		return nil, notFound(err, "domaine introuvable")
 	}
 
-	lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	lookupCtx, cancel := context.WithTimeout(ctx, domainLookupTimeout)
 	defer cancel()
 	ok := s.pointsToEdge(lookupCtx, d.Hostname, site.Subdomain+"."+s.cfg.BaseDomain)
 
@@ -388,10 +387,10 @@ func (s *SiteService) domainResponse(d *domain.SiteDomain) *domain.DomainRespons
 
 // publicURL : http en dev local (*.localhost), https partout ailleurs.
 func (s *SiteService) publicURL(host string) string {
-	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
-		return "http://" + host
+	if host == localhostHost || strings.HasSuffix(host, localhostSuffix) {
+		return schemeHTTP + host
 	}
-	return "https://" + host
+	return schemeHTTPS + host
 }
 
 func notFound(err error, msg string) error {

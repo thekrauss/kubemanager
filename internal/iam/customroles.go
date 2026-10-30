@@ -206,7 +206,7 @@ func (s *CustomRoleService) Create(ctx context.Context, caller Principal, parent
 		return nil, ErrInvalidRoleID
 	}
 	title := strings.TrimSpace(in.Title)
-	if title == "" || len([]rune(title)) > 100 {
+	if title == "" || len([]rune(title)) > maxRoleTitleLen {
 		return nil, ErrCustomRoleTitleRequired
 	}
 	perms, err := validatePermissions(in.Permissions)
@@ -220,7 +220,7 @@ func (s *CustomRoleService) Create(ctx context.Context, caller Principal, parent
 	if err != nil {
 		return nil, err
 	}
-	row := customRoleRow{Name: string(parent) + "/roles/" + roleID, ParentResource: string(parent), RoleID: roleID,
+	row := customRoleRow{Name: string(parent) + CustomRoleSegment + roleID, ParentResource: string(parent), RoleID: roleID,
 		Title: title, Description: strings.TrimSpace(in.Description), Permissions: perms, Etag: etag,
 		CreatedBy: string(caller)}
 	if err := s.DB.WithContext(ctx).Create(&row).Error; err != nil {
@@ -267,7 +267,7 @@ func (s *CustomRoleService) Get(ctx context.Context, name string) (*CustomRole, 
 // Les permissions ajoutées doivent être détenues par l'appelant.
 func (s *CustomRoleService) Update(ctx context.Context, caller Principal, name, etag string, in CustomRoleInput) (*CustomRole, error) {
 	title := strings.TrimSpace(in.Title)
-	if title == "" || len([]rune(title)) > 100 {
+	if title == "" || len([]rune(title)) > maxRoleTitleLen {
 		return nil, ErrCustomRoleTitleRequired
 	}
 	perms, err := validatePermissions(in.Permissions)

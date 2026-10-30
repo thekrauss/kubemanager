@@ -119,7 +119,7 @@ func addFile(zw *zip.Writer, path, name string) error {
 // HumanSize : taille lisible, unités de la langue de l'interface.
 func HumanSize(n int64) string {
 	units := [3]string{"o", "Ko", "Mo"}
-	if i18n.Lang() == "en" {
+	if i18n.Lang() == i18n.LangEN {
 		units = [3]string{"B", "KB", "MB"}
 	}
 	switch {

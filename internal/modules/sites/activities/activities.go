@@ -49,13 +49,13 @@ func (r DeploymentRef) ids() (uuid.UUID, uuid.UUID, error) {
 func (a *SiteActivities) ExtractDeployment(ctx context.Context, ref DeploymentRef) (ExtractResult, error) {
 	siteID, depID, err := ref.ids()
 	if err != nil {
-		return ExtractResult{}, temporal.NewNonRetryableApplicationError("invalid deployment reference", "InvalidInput", err)
+		return ExtractResult{}, temporal.NewNonRetryableApplicationError("invalid deployment reference", domain.ErrTypeInvalidInput, err)
 	}
 	if err := a.Repo.UpdateDeploymentStatus(ctx, depID, domain.DeploymentStatusProcessing, ""); err != nil {
 		return ExtractResult{}, err
 	}
 
-	tmp, err := os.CreateTemp("", "site-*.zip")
+	tmp, err := os.CreateTemp("", extractTempPattern)
 	if err != nil {
 		return ExtractResult{}, err
 	}
@@ -64,7 +64,7 @@ func (a *SiteActivities) ExtractDeployment(ctx context.Context, ref DeploymentRe
 
 	if err := a.Store.Download(ctx, domain.ArchiveKey(siteID, depID), tmp); err != nil {
 		if errors.Is(err, objectstore.ErrNotFound) {
-			return ExtractResult{}, temporal.NewNonRetryableApplicationError("archive introuvable", "InvalidArchive", err)
+			return ExtractResult{}, temporal.NewNonRetryableApplicationError("archive introuvable", domain.ErrTypeInvalidArchive, err)
 		}
 		return ExtractResult{}, fmt.Errorf("download archive: %w", err)
 	}
@@ -74,7 +74,7 @@ func (a *SiteActivities) ExtractDeployment(ctx context.Context, ref DeploymentRe
 	}
 	zr, err := zip.NewReader(tmp, size)
 	if err != nil {
-		return ExtractResult{}, temporal.NewNonRetryableApplicationError("l'archive n'est pas un fichier .zip valide", "InvalidArchive", err)
+		return ExtractResult{}, temporal.NewNonRetryableApplicationError("l'archive n'est pas un fichier .zip valide", domain.ErrTypeInvalidArchive, err)
 	}
 
 	prefix := domain.ObjectPrefix(siteID, depID)
@@ -84,7 +84,7 @@ func (a *SiteActivities) ExtractDeployment(ctx context.Context, ref DeploymentRe
 	if err != nil {
 		var ae *ArchiveError
 		if errors.As(err, &ae) {
-			return ExtractResult{}, temporal.NewNonRetryableApplicationError(ae.Msg, "InvalidArchive", err)
+			return ExtractResult{}, temporal.NewNonRetryableApplicationError(ae.Msg, domain.ErrTypeInvalidArchive, err)
 		}
 		return ExtractResult{}, err
 	}
@@ -104,7 +104,7 @@ type ReadyInput struct {
 func (a *SiteActivities) MarkDeploymentReady(ctx context.Context, in ReadyInput) error {
 	siteID, depID, err := in.ids()
 	if err != nil {
-		return temporal.NewNonRetryableApplicationError("invalid deployment reference", "InvalidInput", err)
+		return temporal.NewNonRetryableApplicationError("invalid deployment reference", domain.ErrTypeInvalidInput, err)
 	}
 	return a.Repo.MarkDeploymentReady(ctx, siteID, depID, in.FileCount, in.SizeBytes)
 }
@@ -117,7 +117,7 @@ type FailedInput struct {
 func (a *SiteActivities) MarkDeploymentFailed(ctx context.Context, in FailedInput) error {
 	_, depID, err := in.ids()
 	if err != nil {
-		return temporal.NewNonRetryableApplicationError("invalid deployment reference", "InvalidInput", err)
+		return temporal.NewNonRetryableApplicationError("invalid deployment reference", domain.ErrTypeInvalidInput, err)
 	}
 	return a.Repo.UpdateDeploymentStatus(ctx, depID, domain.DeploymentStatusFailed, in.Message)
 }
@@ -126,7 +126,7 @@ func (a *SiteActivities) MarkDeploymentFailed(ctx context.Context, in FailedInpu
 func (a *SiteActivities) DeleteArchive(ctx context.Context, ref DeploymentRef) error {
 	siteID, depID, err := ref.ids()
 	if err != nil {
-		return temporal.NewNonRetryableApplicationError("invalid deployment reference", "InvalidInput", err)
+		return temporal.NewNonRetryableApplicationError("invalid deployment reference", domain.ErrTypeInvalidInput, err)
 	}
 	return a.Store.Delete(ctx, domain.ArchiveKey(siteID, depID))
 }
@@ -135,7 +135,7 @@ func (a *SiteActivities) DeleteArchive(ctx context.Context, ref DeploymentRef) e
 func (a *SiteActivities) DeleteSiteObjects(ctx context.Context, siteID string) error {
 	id, err := uuid.Parse(siteID)
 	if err != nil {
-		return temporal.NewNonRetryableApplicationError("invalid site id", "InvalidInput", err)
+		return temporal.NewNonRetryableApplicationError("invalid site id", domain.ErrTypeInvalidInput, err)
 	}
 	if err := a.Store.DeletePrefix(ctx, domain.SitePrefix(id)); err != nil {
 		return err
@@ -150,7 +150,7 @@ func (a *SiteActivities) DeleteSiteObjects(ctx context.Context, siteID string) e
 func (a *SiteActivities) DeleteProjectSiteObjects(ctx context.Context, projectID string) error {
 	id, err := uuid.Parse(projectID)
 	if err != nil {
-		return temporal.NewNonRetryableApplicationError("invalid project id", "InvalidInput", err)
+		return temporal.NewNonRetryableApplicationError("invalid project id", domain.ErrTypeInvalidInput, err)
 	}
 	sites, err := a.Repo.ListSites(ctx, id)
 	if err != nil {
@@ -180,7 +180,7 @@ func (a *SiteActivities) DeleteProjectSiteObjects(ctx context.Context, projectID
 func (a *SiteActivities) DeleteSiteRecord(ctx context.Context, siteID string) error {
 	id, err := uuid.Parse(siteID)
 	if err != nil {
-		return temporal.NewNonRetryableApplicationError("invalid site id", "InvalidInput", err)
+		return temporal.NewNonRetryableApplicationError("invalid site id", domain.ErrTypeInvalidInput, err)
 	}
 	return a.Repo.DeleteSite(ctx, id)
 }

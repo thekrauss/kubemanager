@@ -35,7 +35,7 @@ const clusterAgentAccountID = "cluster-agent"
 const DefaultClusterKeyGraceDays = 7
 
 // clusterKeyExpiringWithin : en deçà, une clé est signalée « expiring ».
-const clusterKeyExpiringWithin = 14 * 24 * time.Hour
+const clusterKeyExpiringWithin = 14 * day
 
 var clusterIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$`)
 
@@ -183,7 +183,7 @@ func (a *ClusterAgents) ensureAccount(ctx context.Context, tx *gorm.DB, caller P
 	res := tx.Exec(`INSERT INTO service_accounts (id, cluster_id, account_id, display_name, description, created_by)
 		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT (cluster_id) WHERE deleted_at IS NULL AND cluster_id IS NOT NULL DO NOTHING`,
-		id, clusterID, clusterAgentAccountID, truncate("Agent du cluster "+clusterID, 100),
+		id, clusterID, clusterAgentAccountID, truncate(clusterAgentAccountNamePrefix+clusterID, maxDisplayNameLen),
 		"Compte système du watcher : rend compte de ce seul cluster.", string(caller))
 	if res.Error != nil {
 		return uuid.Nil, res.Error
@@ -222,9 +222,9 @@ func maxDays(kind string) int {
 
 func (a *ClusterAgents) issue(ctx context.Context, tx *gorm.DB, caller Principal, kind string, saID uuid.UUID, clusterID, name string, days int) (*CreatedClusterKey, error) {
 	if strings.TrimSpace(name) == "" {
-		name = "watcher " + clusterID
+		name = clusterAgentKeyNamePrefix + clusterID
 	}
-	name = truncate(name, 100)
+	name = truncate(name, maxDisplayNameLen)
 	if kind == ClusterKeyFile {
 		key, err := a.SA.createSAKey(ctx, tx, saID, string(caller), CreateSAKeyRequest{DisplayName: name, ExpiresInDays: days},
 			keyFileMeta{ClusterID: clusterID})
@@ -306,9 +306,9 @@ func (a *ClusterAgents) Rotate(ctx context.Context, caller Principal, keyID stri
 	if req.GraceDays < 0 || req.GraceDays > maxClusterKeyGraceDays {
 		return nil, ErrInvalidGraceDays
 	}
-	grace := time.Duration(req.GraceDays) * 24 * time.Hour
+	grace := time.Duration(req.GraceDays) * day
 	if req.GraceDays == 0 && !req.Immediate {
-		grace = DefaultClusterKeyGraceDays * 24 * time.Hour
+		grace = DefaultClusterKeyGraceDays * day
 	}
 	if req.Immediate {
 		grace = 0
@@ -317,7 +317,7 @@ func (a *ClusterAgents) Rotate(ctx context.Context, caller Principal, keyID stri
 	if err != nil {
 		return nil, err
 	}
-	if old.Status == "revoked" || old.Status == "expired" {
+	if old.Status == ClusterKeyStatusRevoked || old.Status == ClusterKeyStatusExpired {
 		return nil, ErrClusterKeyInactive
 	}
 	newType := req.Type
@@ -526,13 +526,13 @@ func (a *ClusterAgents) status(revoked bool, expiresAt *time.Time) string {
 	now := a.SA.now()
 	switch {
 	case revoked:
-		return "revoked"
+		return ClusterKeyStatusRevoked
 	case expiresAt != nil && !now.Before(*expiresAt):
-		return "expired"
+		return ClusterKeyStatusExpired
 	case expiresAt != nil && expiresAt.Sub(now) < clusterKeyExpiringWithin:
-		return "expiring"
+		return ClusterKeyStatusExpiring
 	}
-	return "active"
+	return ClusterKeyStatusActive
 }
 
 func truncate(s string, n int) string {
@@ -557,7 +557,7 @@ func (a *ClusterAgents) ReportServiceAccountKeys(ctx context.Context, clusterID,
 	var parsed struct {
 		Keys []map[string]any `json:"keys"`
 	}
-	if issuer == "" || len(issuer) > 255 || len(jwks) == 0 || len(jwks) > maxClusterJWKSSize ||
+	if issuer == "" || len(issuer) > maxIssuerLen || len(jwks) == 0 || len(jwks) > maxClusterJWKSSize ||
 		json.Unmarshal(jwks, &parsed) != nil || len(parsed.Keys) == 0 {
 		return ErrInvalidClusterJWKS
 	}

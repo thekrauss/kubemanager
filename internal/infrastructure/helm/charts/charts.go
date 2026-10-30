@@ -11,12 +11,16 @@ import (
 	"helm.sh/helm/v3/pkg/chart/loader"
 )
 
+// StandardAppName : nom du chart des conteneurs (et de son répertoire
+// embarqué ; la directive go:embed ci-dessous doit rester littérale).
+const StandardAppName = "standard-app"
+
 //go:embed all:standard-app
 var files embed.FS
 
 // StandardApp : chart des conteneurs (standard-app).
 func StandardApp() (*chart.Chart, error) {
-	return load("standard-app")
+	return load(StandardAppName)
 }
 
 func load(dir string) (*chart.Chart, error) {

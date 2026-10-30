@@ -303,10 +303,10 @@ func (s *PolicyService) checkNoEscalation(ctx context.Context, caller Principal,
 }
 
 func needsOwner(r ResourceName) bool {
-	if _, ok := r.Organization(); ok && !strings.Contains(strings.TrimPrefix(string(r), "organizations/"), "/") {
+	if _, ok := r.Organization(); ok && !strings.Contains(strings.TrimPrefix(string(r), OrganizationsPrefix), "/") {
 		return true
 	}
-	if _, ok := r.Project(); ok && !strings.Contains(strings.TrimPrefix(string(r), "projects/"), "/") {
+	if _, ok := r.Project(); ok && !strings.Contains(strings.TrimPrefix(string(r), ProjectsPrefix), "/") {
 		return true
 	}
 	return false
@@ -314,7 +314,7 @@ func needsOwner(r ResourceName) bool {
 
 func hasUserOwner(bs []Binding) bool {
 	for _, b := range bs {
-		if b.Role == "roles/owner" && b.Condition == nil && strings.HasPrefix(string(b.Principal), KindUser+":") {
+		if b.Role == RoleOwner && b.Condition == nil && strings.HasPrefix(string(b.Principal), KindUser+PrincipalSeparator) {
 			return true
 		}
 	}

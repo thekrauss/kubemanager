@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/thekrauss/kubemanager/internal/audit"
+	"github.com/thekrauss/kubemanager/internal/core/pgerr"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -322,7 +323,7 @@ func (s *ServiceAccountService) issueKey(ctx context.Context, db *gorm.DB, saID 
 	key := APIKey{
 		ID: uuid.New(), KeyID: keyID, ServiceAccountID: saID, DisplayName: strings.TrimSpace(req.DisplayName),
 		Env: env, SecretHMAC: hashSecret(s.Pepper, secret), RestrictionsRaw: rawRestrictions,
-		Restrictions: req.Restrictions, ExpiresAt: s.now().Add(time.Duration(days) * 24 * time.Hour),
+		Restrictions: req.Restrictions, ExpiresAt: s.now().Add(time.Duration(days) * day),
 		CreatedBy: createdBy, CreatedAt: s.now(),
 	}
 	if err := db.WithContext(ctx).Create(&key).Error; err != nil {
@@ -428,7 +429,7 @@ func (s *ServiceAccountService) touchUsage(keyID, ip string) {
 	s.lastUsed[keyID] = now
 	s.usageMu.Unlock()
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), keyUsageUpdateTimeout)
 		defer cancel()
 		_ = s.DB.WithContext(ctx).Model(&APIKey{}).Where("key_id = ?", keyID).
 			Updates(map[string]any{"last_used_at": now, "last_used_ip": ip}).Error
@@ -437,5 +438,5 @@ func (s *ServiceAccountService) touchUsage(keyID, ip string) {
 
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+	return errors.As(err, &pgErr) && pgErr.Code == pgerr.UniqueViolation
 }

@@ -24,6 +24,10 @@ const (
 	apiKeyIDLen    = 10
 	apiKeySecretLn = 40
 	apiKeyCRCLen   = 6
+	// apiKeySep : séparateur des segments ; apiKeyParts : préfixe, env, id,
+	// secret, checksum.
+	apiKeySep   = "_"
+	apiKeyParts = 5
 	// MinAPIKeyPepperLen : longueur minimale du pepper serveur.
 	MinAPIKeyPepperLen = 32
 )
@@ -36,6 +40,8 @@ const (
 const (
 	base62   = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 	keyIDSet = "abcdefghijklmnopqrstuvwxyz0123456789"
+	// base62Radix : base de l'alphabet base62.
+	base62Radix = 62
 )
 
 // ErrAPIKeyInvalid : réponse unique à toute clé refusée (format, inconnue,
@@ -55,14 +61,14 @@ func generateAPIKey(env string) (full, keyID, secret string, err error) {
 	if secret, err = randomString(base62, apiKeySecretLn); err != nil {
 		return "", "", "", err
 	}
-	body := apiKeyPrefix + "_" + env + "_" + keyID + "_" + secret
-	return body + "_" + checksum(body), keyID, secret, nil
+	body := apiKeyPrefix + apiKeySep + env + apiKeySep + keyID + apiKeySep + secret
+	return body + apiKeySep + checksum(body), keyID, secret, nil
 }
 
 // parseAPIKey : découpe et vérifie le checksum, sans accès à la base.
 func parseAPIKey(raw string) (env, keyID, secret string, err error) {
-	parts := strings.Split(strings.TrimSpace(raw), "_")
-	if len(parts) != 5 || parts[0] != apiKeyPrefix {
+	parts := strings.Split(strings.TrimSpace(raw), apiKeySep)
+	if len(parts) != apiKeyParts || parts[0] != apiKeyPrefix {
 		return "", "", "", ErrAPIKeyInvalid
 	}
 	env, keyID, secret, crc := parts[1], parts[2], parts[3], parts[4]
@@ -70,7 +76,7 @@ func parseAPIKey(raw string) (env, keyID, secret string, err error) {
 		len(secret) != apiKeySecretLn || len(crc) != apiKeyCRCLen {
 		return "", "", "", ErrAPIKeyInvalid
 	}
-	body := strings.Join(parts[:4], "_")
+	body := strings.Join(parts[:apiKeyParts-1], apiKeySep)
 	if !hmac.Equal([]byte(checksum(body)), []byte(crc)) {
 		return "", "", "", ErrAPIKeyInvalid
 	}
@@ -88,7 +94,7 @@ func hashSecret(pepper []byte, secret string) string {
 func checksum(body string) string {
 	n := new(big.Int).SetUint64(uint64(crc32.ChecksumIEEE([]byte(body))))
 	out := make([]byte, apiKeyCRCLen)
-	b62 := big.NewInt(62)
+	b62 := big.NewInt(base62Radix)
 	mod := new(big.Int)
 	for i := apiKeyCRCLen - 1; i >= 0; i-- {
 		n.DivMod(n, b62, mod)

@@ -15,7 +15,6 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -183,11 +182,11 @@ func (s *APIKeyService) ListAudit(ctx context.Context, userIDStr string) ([]APIK
 	now := time.Now()
 	out := make([]APIKeyAuditEntry, 0, len(keys))
 	for _, k := range keys {
-		status := "active"
+		status := apiKeyStatusActive
 		if k.RevokedAt != nil || !k.IsActive {
-			status = "revoked"
+			status = apiKeyStatusRevoked
 		} else if k.ExpiresAt != nil && now.After(*k.ExpiresAt) {
-			status = "expired"
+			status = apiKeyStatusExpired
 		}
 		out = append(out, APIKeyAuditEntry{
 			ID:         k.ID.String(),
@@ -333,8 +332,8 @@ func (s *APIKeyService) generateKey() (string, string, error) {
 	if _, err := rand.Read(secretBytes); err != nil {
 		return "", "", err
 	}
-	prefix := fmt.Sprintf("km_%s_%s", env, hex.EncodeToString(prefixBytes))
-	full := fmt.Sprintf("%s_%s", prefix, hex.EncodeToString(secretBytes))
+	prefix := strings.Join([]string{apiKeyBrand, env, hex.EncodeToString(prefixBytes)}, apiKeySeparator)
+	full := prefix + apiKeySeparator + hex.EncodeToString(secretBytes)
 	return prefix, full, nil
 }
 
@@ -342,11 +341,11 @@ func (s *APIKeyService) generateKey() (string, string, error) {
 func extractPrefix(raw string) string {
 	// Le prefix a 3 segments séparés par "_", suivi du secret.
 	// ex: "km_prod_ab12cd34ef56_<secret>"
-	parts := strings.SplitN(raw, "_", 4)
-	if len(parts) < 4 {
+	parts := strings.SplitN(raw, apiKeySeparator, apiKeyPrefixParts+1)
+	if len(parts) < apiKeyPrefixParts+1 {
 		return ""
 	}
-	return strings.Join(parts[:3], "_")
+	return strings.Join(parts[:apiKeyPrefixParts], apiKeySeparator)
 }
 
 func hashKey(raw string) string {

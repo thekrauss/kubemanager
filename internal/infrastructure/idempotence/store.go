@@ -67,7 +67,7 @@ type MetricsSnapshot struct {
 
 func NewRedisManager(opt *redis.Options, ttl time.Duration) *RedisManager {
 	if ttl <= 0 {
-		ttl = 12 * time.Hour
+		ttl = DefaultRecordTTL
 	}
 	return &RedisManager{
 		client: redis.NewClient(opt),
@@ -82,7 +82,7 @@ type record struct {
 }
 
 func (m *RedisManager) key(key string) string {
-	return fmt.Sprintf("idempotency:%s", key)
+	return fmt.Sprintf(recordKeyFormat, key)
 }
 
 func (m *RedisManager) Lookup(ctx context.Context, key string, payloadHash string, dst any) (bool, error) {
@@ -281,7 +281,7 @@ func (m *RedisManager) compareAndSwap(ctx context.Context, key string, payloadHa
 		return nil
 	}
 	redisKey := m.key(key)
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := 0; attempt < casMaxAttempts; attempt++ {
 		err := m.client.Watch(ctx, func(tx *redis.Tx) error {
 			raw, err := tx.Get(ctx, redisKey).Bytes()
 			if err != nil {

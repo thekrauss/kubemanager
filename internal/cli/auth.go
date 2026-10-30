@@ -132,7 +132,7 @@ func newWhoami() *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			// Un compte de service (BETORUN_TOKEN) n'a pas de profil personnel.
-			if strings.HasPrefix(session.Principal, "user:") {
+			if strings.HasPrefix(session.Principal, principalUser) {
 				if status, err := cl.BootstrapStatus(cmd.Context()); err == nil {
 					fmt.Fprintln(out, i18n.T("whoami.account", firstNonEmpty(status.Email, status.FullName)))
 				}

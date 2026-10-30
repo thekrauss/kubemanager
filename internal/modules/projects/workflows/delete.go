@@ -1,8 +1,6 @@
 package workflows
 
 import (
-	"time"
-
 	"github.com/thekrauss/kubemanager/internal/modules/projects/activities"
 	siteActivities "github.com/thekrauss/kubemanager/internal/modules/sites/activities"
 	"go.temporal.io/sdk/temporal"
@@ -11,17 +9,17 @@ import (
 
 func DeleteProjectWorkflow(ctx workflow.Context, projectID, projectName string) error {
 	options := workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
+		StartToCloseTimeout: activityStartToCloseTimeout,
 		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval: time.Second,
-			MaximumAttempts: 3,
+			InitialInterval: activityRetryInitialInterval,
+			MaximumAttempts: activityRetryMaximumAttempts,
 		},
 	}
 
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	localOptions := workflow.LocalActivityOptions{
-		StartToCloseTimeout: 5 * time.Second,
+		StartToCloseTimeout: localActivityStartToCloseTimeout,
 	}
 	ctx = workflow.WithLocalActivityOptions(ctx, localOptions)
 

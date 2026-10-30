@@ -10,6 +10,7 @@ import (
 
 	"github.com/thekrauss/kubemanager/internal/infrastructure/observability"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/realtime"
+	"github.com/thekrauss/kubemanager/internal/modules/utils"
 	"github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
 )
 
@@ -29,16 +30,16 @@ type WorkloadDBActivities struct {
 type DeploymentEvent struct {
 	WorkloadID string    `json:"workload_id"`
 	ProjectID  string    `json:"project_id"`
-	Status     string    `json:"status"`      // STARTING / RUNNING / FAILED / DELETING ...
-	Phase      string    `json:"phase"`       // HELM_PREPARING / HELM_INSTALLING / DEPLOYED ...
+	Status     string    `json:"status"` // STARTING / RUNNING / FAILED / DELETING ...
+	Phase      string    `json:"phase"`  // HELM_PREPARING / HELM_INSTALLING / DEPLOYED ...
 	At         time.Time `json:"at"`
 }
 
 // UpdateWorkloadStatus : transition de statut/phase + broadcast Centrifugo.
 //
 // Pattern "DB first, broadcast second" :
-//   1. Persist en DB (source de vérité — si ça fail, on abort)
-//   2. Publish Centrifugo (best-effort — si ça fail, on log et on continue)
+//  1. Persist en DB (source de vérité — si ça fail, on abort)
+//  2. Publish Centrifugo (best-effort — si ça fail, on log et on continue)
 //
 // Le projectID est nécessaire pour construire le channel. Le workflow le
 // connaît via DeployWorkloadInput/DeleteWorkloadInput.ProjectID.
@@ -76,7 +77,7 @@ func (a *WorkloadDBActivities) SoftDeleteWorkload(ctx context.Context, workloadI
 	}
 
 	// Dernier event : workload disparu. Le frontend peut clore le subscribe.
-	a.broadcastDeploymentEvent(ctx, workloadID, projectID, "DELETED", "REMOVED")
+	a.broadcastDeploymentEvent(ctx, workloadID, projectID, utils.WorkloadDeleted, utils.PhaseRemoved)
 	return nil
 }
 

@@ -2,16 +2,16 @@
 //
 // Usage typique dans une activity :
 //
-//     func (a *Activities) CreateNamespace(ctx context.Context, payload CreateNamespacePayload) (*Result, error) {
-//         result, _, err := idempotency.ExecuteActivity[*Result](ctx, a.idempotency, payload,
-//             idempotency.ActivityOptions{ProcessingTTL: 2 * time.Minute},
-//             func() (*Result, error) {
-//                 // … appels K8s réels …
-//                 return doCreateNamespace(ctx, payload)
-//             },
-//         )
-//         return result, err
-//     }
+//	func (a *Activities) CreateNamespace(ctx context.Context, payload CreateNamespacePayload) (*Result, error) {
+//	    result, _, err := idempotency.ExecuteActivity[*Result](ctx, a.idempotency, payload,
+//	        idempotency.ActivityOptions{ProcessingTTL: 2 * time.Minute},
+//	        func() (*Result, error) {
+//	            // … appels K8s réels …
+//	            return doCreateNamespace(ctx, payload)
+//	        },
+//	    )
+//	    return result, err
+//	}
 //
 // La clé d'idempotence est dérivée de :
 //   - WorkflowID + ActivityID (déduplique les retries Temporal naturellement)
@@ -103,6 +103,6 @@ func ExecuteActivity[T any](
 // un autre contenu (« idempotency payload mismatch ») et la mise à jour
 // échouait.
 func activityKey(info activity.Info) string {
-	return fmt.Sprintf("tmp:%s:%s:%s:%s", info.WorkflowExecution.ID, info.WorkflowExecution.RunID,
+	return fmt.Sprintf(activityKeyFormat, info.WorkflowExecution.ID, info.WorkflowExecution.RunID,
 		info.ActivityType.Name, info.ActivityID)
 }

@@ -284,7 +284,7 @@ func (e *Engine) projectOrganization(ctx context.Context, projectID uuid.UUID) (
 	// Un projet ne change (presque) jamais d'organisation : cache plus long.
 	if e.cacheTTL > 0 {
 		e.mu.Lock()
-		e.orgs[projectID] = cachedOrg{org: org, expires: now.Add(60 * e.cacheTTL)}
+		e.orgs[projectID] = cachedOrg{org: org, expires: now.Add(orgCacheTTLFactor * e.cacheTTL)}
 		e.mu.Unlock()
 	}
 	return org, nil

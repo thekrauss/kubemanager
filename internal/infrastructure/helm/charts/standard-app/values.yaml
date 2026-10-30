@@ -22,8 +22,12 @@ commonLabels:
 # Secret externe contenant les envs applicatifs (construit par EnsureSecret).
 # Monté via envFrom → toutes les clés deviennent des variables d'env.
 envSecretName: ""
+# Empreinte du contenu de ce Secret (posée par l'API) : relance les pods
+# quand les variables changent.
+envChecksum: ""
 
-# EnvVars plain-text (non-secrets, type PORT, NODE_ENV). Injectés via `env`.
+# EnvVars en clair dans la spec du Deployment. betorun ne s'en sert pas (tout
+# passe par envSecretName) ; conservé pour un usage manuel du chart.
 envVars: {}
 
 service:

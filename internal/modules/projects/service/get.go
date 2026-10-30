@@ -27,7 +27,7 @@ func (s *ProjectService) GetProjectStatus(ctx context.Context, projectID string)
 	switch project.Status {
 
 	case utils.ProjectStatusReady:
-		nsName := fmt.Sprintf("km-%s", project.Name)
+		nsName := utils.ProjectNamespace(project.Name)
 		ns, err := s.K8sClient.CoreV1().Namespaces().Get(ctx, nsName, metav1.GetOptions{})
 
 		if err != nil {
@@ -52,7 +52,7 @@ func (s *ProjectService) GetProjectStatus(ctx context.Context, projectID string)
 		res.Phase = utils.PhaseRollbackInitiated
 
 	default:
-		res.Phase = "UNKNOWN_STATE"
+		res.Phase = utils.ProjectStatusUnknown
 	}
 
 	return res, nil
@@ -69,7 +69,7 @@ func (s *ProjectService) GetMetrics(ctx context.Context, projectID string) (*dom
 	if err != nil {
 		return nil, err
 	}
-	nsName := fmt.Sprintf("km-%s", project.Name)
+	nsName := utils.ProjectNamespace(project.Name)
 
 	mClient, err := metricsv1.NewForConfig(s.K8sConfig)
 	if err != nil {
@@ -93,7 +93,7 @@ func (s *ProjectService) GetMetrics(ctx context.Context, projectID string) (*dom
 
 	return &domain.NamespaceMetrics{
 		CPUUsage:    fmt.Sprintf("%dm", totalCPU),
-		MemoryUsage: fmt.Sprintf("%dMi", totalMem/1024/1024),
+		MemoryUsage: fmt.Sprintf("%dMi", totalMem/utils.BytesPerMi),
 		ReservedUsage: domain.UsageDTO{
 			CPU:     fmt.Sprintf("%dm", resCPU),
 			Memory:  fmt.Sprintf("%dMi", resMem),

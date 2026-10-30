@@ -48,5 +48,5 @@ func ParseImage(fullImage string) (ImageInfo, error) {
 	}
 
 	// Pas de tag → default "latest" (standard Docker).
-	return ImageInfo{Repository: fullImage, Tag: "latest"}, nil
+	return ImageInfo{Repository: fullImage, Tag: defaultImageTag}, nil
 }

@@ -8,9 +8,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/thekrauss/kubemanager/internal/core/configs"
+	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 )
 
 //go:generate mockgen -source=publisher.go -destination=mocks/mock_Publisher.go -package=mocks
@@ -42,7 +42,7 @@ func NewPublisher(cfg configs.CentrifugoConfig) (Publisher, error) {
 		apiURL:  apiURL,
 		apiKey:  apiKey,
 		client: &http.Client{
-			Timeout: 5 * time.Second,
+			Timeout: publishTimeout,
 		},
 	}, nil
 }
@@ -58,13 +58,13 @@ func (p *httpPublisher) Publish(ctx context.Context, channel string, data any) e
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.apiURL+"/publish", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.apiURL+publishPath, bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-API-Key", p.apiKey)
+	req.Header.Set(httpheader.ContentType, httpheader.MIMEJSON)
+	req.Header.Set(httpheader.Accept, httpheader.MIMEJSON)
+	req.Header.Set(httpheader.XAPIKey, p.apiKey)
 
 	resp, err := p.client.Do(req)
 	if err != nil {
@@ -74,7 +74,7 @@ func (p *httpPublisher) Publish(ctx context.Context, channel string, data any) e
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, errorBodyLimit))
 	return fmt.Errorf("centrifugo publish failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
 }
 
@@ -85,13 +85,13 @@ func (noopPublisher) Publish(context.Context, string, any) error {
 }
 
 func ProjectChannel(projectID string) string {
-	return fmt.Sprintf("project:%s:events", strings.TrimSpace(projectID))
+	return fmt.Sprintf(projectChannelFormat, strings.TrimSpace(projectID))
 }
 
 func WorkloadChannel(projectID string, workloadID string) string {
-	return fmt.Sprintf("project:%s:workload:%s", strings.TrimSpace(projectID), strings.TrimSpace(workloadID))
+	return fmt.Sprintf(workloadChannelFormat, strings.TrimSpace(projectID), strings.TrimSpace(workloadID))
 }
 
 func DeploymentChannel(projectID string, workloadID string) string {
-	return fmt.Sprintf("project:%s:workload:%s:deploy", strings.TrimSpace(projectID), strings.TrimSpace(workloadID))
+	return fmt.Sprintf(deploymentChannelFormat, strings.TrimSpace(projectID), strings.TrimSpace(workloadID))
 }

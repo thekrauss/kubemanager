@@ -2,23 +2,23 @@ package workflows
 
 import (
 	"errors"
-	"time"
 
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/thekrauss/kubemanager/internal/modules/sites/activities"
+	"github.com/thekrauss/kubemanager/internal/modules/sites/domain"
 )
 
 const genericDeployError = "le déploiement a échoué, réessayez"
 
 func activityCtx(ctx workflow.Context) workflow.Context {
 	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Minute,
+		StartToCloseTimeout: activityStartToCloseTimeout,
 		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval: time.Second,
-			MaximumInterval: time.Minute,
-			MaximumAttempts: 3,
+			InitialInterval: activityRetryInitialInterval,
+			MaximumInterval: activityRetryMaximumInterval,
+			MaximumAttempts: activityRetryMaximumAttempts,
 		},
 	})
 }
@@ -57,7 +57,7 @@ func DeploySiteWorkflow(ctx workflow.Context, ref activities.DeploymentRef) erro
 // l'utilisateur ; toute autre erreur (infra) reste interne.
 func userMessage(err error) string {
 	var appErr *temporal.ApplicationError
-	if errors.As(err, &appErr) && appErr.Type() == "InvalidArchive" {
+	if errors.As(err, &appErr) && appErr.Type() == domain.ErrTypeInvalidArchive {
 		return appErr.Message()
 	}
 	return genericDeployError

@@ -27,15 +27,15 @@ var ErrInvalidPrincipal = errors.New("invalid principal")
 func (p Principal) String() string { return string(p) }
 
 func UserPrincipal(id uuid.UUID) Principal {
-	return Principal(KindUser + ":" + id.String())
+	return Principal(KindUser + PrincipalSeparator + id.String())
 }
 
 func ServiceAccountPrincipal(id uuid.UUID) Principal {
-	return Principal(KindServiceAccount + ":" + id.String())
+	return Principal(KindServiceAccount + PrincipalSeparator + id.String())
 }
 
 func GroupPrincipal(id uuid.UUID) Principal {
-	return Principal(KindGroup + ":" + id.String())
+	return Principal(KindGroup + PrincipalSeparator + id.String())
 }
 
 // Parse : type et UUID ; les principals spéciaux renvoient uuid.Nil.
@@ -43,7 +43,7 @@ func (p Principal) Parse() (kind string, id uuid.UUID, err error) {
 	if p == AllAuthenticatedUsers || p == AllUsers {
 		return string(p), uuid.Nil, nil
 	}
-	kind, raw, ok := strings.Cut(string(p), ":")
+	kind, raw, ok := strings.Cut(string(p), PrincipalSeparator)
 	if !ok {
 		return "", uuid.Nil, ErrInvalidPrincipal
 	}

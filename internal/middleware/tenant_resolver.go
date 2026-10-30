@@ -6,6 +6,7 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/thekrauss/kubemanager/internal/core/configs"
+	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 )
 
 // TenantResolver derives the current tenant/project ID from HTTP attributes.
@@ -43,7 +44,7 @@ func (t *TenantResolver) fromHeader(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
-	for _, h := range []string{"X-Tenant-ID", "X-Project-ID"} {
+	for _, h := range []string{httpheader.XTenantID, httpheader.XProjectID} {
 		if val := strings.TrimSpace(r.Header.Get(h)); val != "" && isUUID(val) {
 			return val
 		}

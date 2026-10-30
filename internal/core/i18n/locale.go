@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 	"golang.org/x/text/language"
 )
 
@@ -60,9 +61,9 @@ func Parse(value string) (Locale, bool) {
 		return "", false
 	}
 	switch strings.ToLower(value) {
-	case "fr":
+	case string(FR):
 		return FR, true
-	case "en":
+	case string(EN):
 		return EN, true
 	}
 	tags, _, err := language.ParseAcceptLanguage(value)
@@ -72,9 +73,9 @@ func Parse(value string) (Locale, bool) {
 	for _, tag := range tags {
 		base, _ := tag.Base()
 		switch base.String() {
-		case "fr":
+		case string(FR):
 			return FR, true
-		case "en":
+		case string(EN):
 			return EN, true
 		}
 	}
@@ -100,7 +101,7 @@ func FromRequest(r *http.Request) Locale {
 			return l
 		}
 	}
-	if l, ok := Parse(r.Header.Get("Accept-Language")); ok {
+	if l, ok := Parse(r.Header.Get(httpheader.AcceptLanguage)); ok {
 		return l
 	}
 	return Default
@@ -118,7 +119,7 @@ func Explicit(r *http.Request) (Locale, bool) {
 			return l, true
 		}
 	}
-	return Parse(r.Header.Get("Accept-Language"))
+	return Parse(r.Header.Get(httpheader.AcceptLanguage))
 }
 
 // With range la langue dans le contexte.

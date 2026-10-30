@@ -159,9 +159,9 @@ func (s *ServiceAccountService) createSAKey(ctx context.Context, db *gorm.DB, sa
 		return nil, ErrTooManySAKeys
 	}
 
-	key := ServiceAccountKey{ID: uuid.New(), ServiceAccountID: saID, DisplayName: truncate(strings.TrimSpace(req.DisplayName), 100),
-		ValidAfter: now, ValidBefore: now.Add(time.Duration(days) * 24 * time.Hour), CreatedBy: createdBy, CreatedAt: now}
-	idBytes := make([]byte, 16)
+	key := ServiceAccountKey{ID: uuid.New(), ServiceAccountID: saID, DisplayName: truncate(strings.TrimSpace(req.DisplayName), maxDisplayNameLen),
+		ValidAfter: now, ValidBefore: now.Add(time.Duration(days) * day), CreatedBy: createdBy, CreatedAt: now}
+	idBytes := make([]byte, saKeyIDBytes)
 	if _, err := rand.Read(idBytes); err != nil {
 		return nil, err
 	}

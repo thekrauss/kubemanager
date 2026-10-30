@@ -48,11 +48,11 @@ func ValidateSubdomain(sub string) error {
 // point et tout nom sous le domaine de la plateforme.
 func NormalizeHostname(raw, baseDomain string) (string, error) {
 	host := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(raw)), ".")
-	if host == "" || len(host) > 253 || net.ParseIP(host) != nil || !strings.Contains(host, ".") {
+	if host == "" || len(host) > maxHostnameLen || net.ParseIP(host) != nil || !strings.Contains(host, ".") {
 		return "", ErrInvalidHostname
 	}
 	for _, label := range strings.Split(host, ".") {
-		if label == "" || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+		if label == "" || len(label) > maxLabelLen || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
 			return "", ErrInvalidHostname
 		}
 		for _, r := range label {

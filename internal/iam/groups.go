@@ -94,7 +94,7 @@ func (s *GroupService) Create(ctx context.Context, caller Principal, orgID uuid.
 	if !groupIDRe.MatchString(groupID) || strings.Contains(groupID, "--") {
 		return nil, ErrInvalidGroupID
 	}
-	g := &Group{ID: uuid.New(), OrganizationID: orgID, GroupID: groupID, DisplayName: truncate(strings.TrimSpace(displayName), 100),
+	g := &Group{ID: uuid.New(), OrganizationID: orgID, GroupID: groupID, DisplayName: truncate(strings.TrimSpace(displayName), maxDisplayNameLen),
 		Description: strings.TrimSpace(description), CreatedBy: string(caller)}
 	if err := s.DB.WithContext(ctx).Create(g).Error; err != nil {
 		if isUniqueViolation(err) {
@@ -156,7 +156,7 @@ func (s *GroupService) Update(ctx context.Context, orgID, id uuid.UUID, displayN
 	if err != nil {
 		return nil, err
 	}
-	g.DisplayName, g.Description = truncate(strings.TrimSpace(displayName), 100), strings.TrimSpace(description)
+	g.DisplayName, g.Description = truncate(strings.TrimSpace(displayName), maxDisplayNameLen), strings.TrimSpace(description)
 	if err := s.DB.WithContext(ctx).Model(g).Updates(map[string]any{
 		"display_name": g.DisplayName, "description": g.Description, "updated_at": time.Now()}).Error; err != nil {
 		return nil, err

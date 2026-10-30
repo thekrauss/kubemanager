@@ -46,12 +46,12 @@ func ExecuteWorker[T any](ctx context.Context, mgr Manager, key string, payloadH
 		result, err := work()
 		if err != nil {
 			if cleanupErr := atomic.Fail(ctx, key, payloadHash); cleanupErr != nil && opts.OnFinalizeError != nil {
-				opts.OnFinalizeError("fail", cleanupErr)
+				opts.OnFinalizeError(finalizeStepFail, cleanupErr)
 			}
 			return zero, "", err
 		}
 		if completeErr := atomic.Complete(ctx, key, payloadHash, result); completeErr != nil && opts.OnFinalizeError != nil {
-			opts.OnFinalizeError("complete", completeErr)
+			opts.OnFinalizeError(finalizeStepComplete, completeErr)
 		}
 		return result, WorkerExecuted, nil
 	}
@@ -73,7 +73,7 @@ func ExecuteWorker[T any](ctx context.Context, mgr Manager, key string, payloadH
 		return zero, "", err
 	}
 	if storeErr := mgr.Store(ctx, key, payloadHash, result); storeErr != nil && opts.OnFinalizeError != nil {
-		opts.OnFinalizeError("store", storeErr)
+		opts.OnFinalizeError(finalizeStepStore, storeErr)
 	}
 	return result, WorkerExecuted, nil
 }

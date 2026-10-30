@@ -96,7 +96,7 @@ func (s *ProjectService) CreateProject(ctx context.Context, req typesproject.Cre
 	}
 
 	handle, err := s.Distributor.ExecuteWorkflow(ctx,
-		temporal.ExecuteOptions{WorkflowID: "project-create-" + projectID},
+		temporal.ExecuteOptions{WorkflowID: workflows.WorkflowIDCreatePrefix + projectID},
 		workflows.CreateProjectWorkflow, input,
 	)
 	if err != nil {
@@ -120,8 +120,8 @@ func (s *ProjectService) DeleteProject(ctx context.Context, projectID string) (*
 	}
 
 	handle, err := s.Distributor.ExecuteWorkflow(ctx,
-		temporal.ExecuteOptions{WorkflowID: "project-delete-" + projectID},
-		"DeleteProjectWorkflow", projectID, project.Name,
+		temporal.ExecuteOptions{WorkflowID: workflows.WorkflowIDDeletePrefix + projectID},
+		workflows.DeleteProjectWorkflowName, projectID, project.Name,
 	)
 	if err != nil {
 		s.Logger.Errorw("Failed to start delete workflow", "error", err)
@@ -131,7 +131,7 @@ func (s *ProjectService) DeleteProject(ctx context.Context, projectID string) (*
 	return &typesproject.ProjectResponse{
 		ProjectID:  projectID,
 		WorkflowID: handle.WorkflowID,
-		Status:     "DELETING",
+		Status:     utils.ProjectStatusDeleting,
 		Message:    "The project deletion and cleanup has been initiated.",
 	}, nil
 }

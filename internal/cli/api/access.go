@@ -41,7 +41,7 @@ type (
 
 func (c *Client) GetPolicy(ctx context.Context, resource string) (*PolicyView, error) {
 	var out PolicyView
-	return &out, c.Do(ctx, http.MethodGet, "/iam/policy?resource="+url.QueryEscape(resource), nil, &out)
+	return &out, c.Do(ctx, http.MethodGet, pathIAMPolicy+"?"+queryResource+"="+url.QueryEscape(resource), nil, &out)
 }
 
 func (c *Client) SetPolicy(ctx context.Context, resource string, p Policy) (*PolicyView, error) {
@@ -50,12 +50,12 @@ func (c *Client) SetPolicy(ctx context.Context, resource string, p Policy) (*Pol
 		Resource string `json:"resource"`
 		Policy   Policy `json:"policy"`
 	}{resource, p}
-	return &out, c.Do(ctx, http.MethodPost, "/iam/policy", body, &out)
+	return &out, c.Do(ctx, http.MethodPost, pathIAMPolicy, body, &out)
 }
 
 func (c *Client) ListRoles(ctx context.Context) ([]Role, error) {
 	var out []Role
-	return out, c.Do(ctx, http.MethodGet, "/iam/roles", nil, &out)
+	return out, c.Do(ctx, http.MethodGet, pathIAMRoles, nil, &out)
 }
 
 // UpdatePolicy : lecture, modification, écriture avec l'etag ; relit et

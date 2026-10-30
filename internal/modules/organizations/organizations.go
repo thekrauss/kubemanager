@@ -19,6 +19,9 @@ const (
 	KindTeam     = "TEAM"
 )
 
+// defaultPersonalOrgName : nom de l'organisation personnelle créée sans nom.
+const defaultPersonalOrgName = "Mon organisation"
+
 type Organization struct {
 	ID          uuid.UUID      `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
 	DisplayName string         `gorm:"not null" json:"display_name"`
@@ -40,7 +43,7 @@ func EnsurePersonal(ctx context.Context, db *gorm.DB, userID uuid.UUID, displayN
 	}
 
 	if displayName == "" {
-		displayName = "Mon organisation"
+		displayName = defaultPersonalOrgName
 	}
 	org := Organization{ID: uuid.New(), DisplayName: displayName, Kind: KindPersonal, OwnerUserID: &userID}
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -49,9 +52,9 @@ func EnsurePersonal(ctx context.Context, db *gorm.DB, userID uuid.UUID, displayN
 		}
 		return iam.AddBinding(ctx, tx, iam.Binding{
 			Resource:  iam.OrganizationName(org.ID),
-			Role:      "roles/owner",
+			Role:      iam.RoleOwner,
 			Principal: iam.UserPrincipal(userID),
-		}, "system:organizations")
+		}, iam.ActorSystemOrganizations)
 	})
 	if err != nil {
 		// Créée entre-temps par une requête concurrente : on la relit.

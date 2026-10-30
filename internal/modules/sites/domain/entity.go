@@ -59,20 +59,20 @@ type SiteDomain struct {
 // ObjectPrefix : préfixe des fichiers d'un déploiement dans l'object store.
 // Partagé avec le binaire static-edge (internal/edge) — ne pas changer sans lui.
 func ObjectPrefix(siteID, deploymentID uuid.UUID) string {
-	return "sites/" + siteID.String() + "/" + deploymentID.String() + "/"
+	return ObjectsRoot + siteID.String() + "/" + deploymentID.String() + "/"
 }
 
 // SitePrefix : tous les objets d'un site (déploiements + archives).
 func SitePrefix(siteID uuid.UUID) string {
-	return "sites/" + siteID.String() + "/"
+	return ObjectsRoot + siteID.String() + "/"
 }
 
 // ArchiveKey : emplacement de l'archive .zip uploadée, avant extraction.
 func ArchiveKey(siteID, deploymentID uuid.UUID) string {
-	return "uploads/" + siteID.String() + "/" + deploymentID.String() + ".zip"
+	return UploadsRoot + siteID.String() + "/" + deploymentID.String() + ArchiveExt
 }
 
 // UploadsPrefix : archives d'un site.
 func UploadsPrefix(siteID uuid.UUID) string {
-	return "uploads/" + siteID.String() + "/"
+	return UploadsRoot + siteID.String() + "/"
 }

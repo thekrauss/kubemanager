@@ -3,7 +3,6 @@ package workflows
 import (
 	"context"
 	"fmt"
-	"time"
 
 	dauth "github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/utils"
@@ -68,16 +67,16 @@ type ProjectResult struct {
 
 func CreateProjectWorkflow(ctx workflow.Context, input CreateProjectInput) (ProjectResult, error) {
 	options := workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
+		StartToCloseTimeout: activityStartToCloseTimeout,
 		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval: time.Second,
-			MaximumAttempts: 3,
+			InitialInterval: activityRetryInitialInterval,
+			MaximumAttempts: activityRetryMaximumAttempts,
 		},
 	}
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	localOptions := workflow.LocalActivityOptions{
-		StartToCloseTimeout: 5 * time.Second,
+		StartToCloseTimeout: localActivityStartToCloseTimeout,
 	}
 	ctx = workflow.WithLocalActivityOptions(ctx, localOptions)
 
@@ -92,11 +91,11 @@ func CreateProjectWorkflow(ctx workflow.Context, input CreateProjectInput) (Proj
 	result.ProjectID = dbRes.ID.String()
 	// Fix #3 : calcule nsName UNE fois, utilise-le pour ReconcileProjectResources
 	// (avant : result.Namespace lu ligne 87 avant d'être setté → "" passé en paramètre).
-	result.Namespace = fmt.Sprintf("km-%s", input.Name)
+	result.Namespace = utils.ProjectNamespace(input.Name)
 
 	err = workflow.ExecuteActivity(ctx, a.CreateNamespace, result.ProjectID, input.Name).Get(ctx, nil)
 	if err != nil {
-		compensateOptions := workflow.LocalActivityOptions{StartToCloseTimeout: 1 * time.Minute}
+		compensateOptions := workflow.LocalActivityOptions{StartToCloseTimeout: compensationTimeout}
 		ctxComp := workflow.WithLocalActivityOptions(ctx, compensateOptions)
 
 		_ = workflow.ExecuteLocalActivity(ctxComp, a.DeleteProjectDBActivity, result.ProjectID).Get(ctx, nil)

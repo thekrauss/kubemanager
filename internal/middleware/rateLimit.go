@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
+	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 )
 
 // RateLimitConfig : fixed-window Redis-backed rate limit (per IP).
@@ -54,7 +55,7 @@ func RateLimitMiddleware(cfg RateLimitConfig, rdb *redis.Client) gin.HandlerFunc
 	}
 	window := cfg.Window
 	if window <= 0 {
-		window = time.Minute
+		window = defaultRateLimitWindow
 	}
 	windowMillis := strconv.FormatInt(window.Milliseconds(), 10)
 
@@ -66,15 +67,15 @@ func RateLimitMiddleware(cfg RateLimitConfig, rdb *redis.Client) gin.HandlerFunc
 		}
 
 		bucketStart := time.Now().Truncate(window)
-		key := fmt.Sprintf("rl:%s:%d", ip, bucketStart.Unix())
+		key := fmt.Sprintf(rateLimitKeyFormat, ip, bucketStart.Unix())
 
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 250*time.Millisecond)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), rateLimitBackendTimeout)
 		defer cancel()
 
 		res, err := rateLimitScript.Run(ctx, rdb, []string{key}, windowMillis).Result()
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
-				"error":   "RATE_LIMIT_BACKEND_UNAVAILABLE",
+				"error":   errCodeRateLimitBackendUnavailable,
 				"message": "rate limiter backend unavailable, retry shortly",
 			})
 			return
@@ -82,9 +83,9 @@ func RateLimitMiddleware(cfg RateLimitConfig, rdb *redis.Client) gin.HandlerFunc
 		count, _ := res.(int64)
 		if count > int64(cfg.Limit) {
 			retryAfter := int(time.Until(bucketStart.Add(window)).Seconds()) + 1
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
+			c.Header(httpheader.RetryAfter, strconv.Itoa(retryAfter))
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-				"error":   "RATE_LIMIT_EXCEEDED",
+				"error":   errCodeRateLimitExceeded,
 				"message": "too many requests, please slow down",
 			})
 			return

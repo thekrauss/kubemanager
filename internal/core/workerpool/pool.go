@@ -3,20 +3,20 @@
 //
 // Usage typique (updates DB "fire-and-forget") :
 //
-//     pool := workerpool.New(workerpool.Config{
-//         Workers:   16,
-//         QueueSize: 1024,
-//         TaskTimeout: 5 * time.Second,
-//         Logger:    logger,
-//     })
+//	pool := workerpool.New(workerpool.Config{
+//	    Workers:   16,
+//	    QueueSize: 1024,
+//	    TaskTimeout: 5 * time.Second,
+//	    Logger:    logger,
+//	})
 //
-//     // Côté handler HTTP :
-//     pool.Submit(func(ctx context.Context) {
-//         _ = repo.UpdateAPIKeyUsage(ctx, keyID)
-//     })
+//	// Côté handler HTTP :
+//	pool.Submit(func(ctx context.Context) {
+//	    _ = repo.UpdateAPIKeyUsage(ctx, keyID)
+//	})
 //
-//     // Côté shutdown :
-//     pool.Shutdown(10 * time.Second) // drain queue + wait workers
+//	// Côté shutdown :
+//	pool.Shutdown(10 * time.Second) // drain queue + wait workers
 //
 // Avantages vs `go func() { ... }` naïf :
 //   - Bornage du parallélisme (pas d'explosion si la DB est lente)
@@ -61,13 +61,13 @@ type Pool struct {
 // Défauts : Workers=8, QueueSize=256, TaskTimeout=10s si nuls.
 func New(cfg Config) *Pool {
 	if cfg.Workers <= 0 {
-		cfg.Workers = 8
+		cfg.Workers = defaultWorkers
 	}
 	if cfg.QueueSize <= 0 {
-		cfg.QueueSize = 256
+		cfg.QueueSize = defaultQueueSize
 	}
 	if cfg.TaskTimeout <= 0 {
-		cfg.TaskTimeout = 10 * time.Second
+		cfg.TaskTimeout = defaultTaskTimeout
 	}
 	logger := cfg.Logger
 	if logger == nil {

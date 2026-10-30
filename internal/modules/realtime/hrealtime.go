@@ -16,12 +16,21 @@ import (
 
 	"github.com/thekrauss/kubemanager/internal/core/configs"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/realtime"
+	"github.com/thekrauss/kubemanager/internal/middleware"
 )
 
 // TTLs Centrifugo (pattern Centrifugo : tokens courts + refresh côté SDK).
 const (
 	connectionTokenTTL   = 1 * time.Hour
 	subscriptionTokenTTL = 10 * time.Minute
+)
+
+// Schémas des URL de Centrifugo (http → ws, https → wss).
+const (
+	schemeHTTP  = "http://"
+	schemeHTTPS = "https://"
+	schemeWS    = "ws://"
+	schemeWSS   = "wss://"
 )
 
 // IRealtimeController : contrat HTTP.
@@ -84,7 +93,7 @@ func (ctrl *Controller) GetConnectionToken(c *gin.Context) (*ConnectionTokenResp
 
 	exp := time.Now().Add(connectionTokenTTL)
 	token, err := ctrl.signer.GenerateConnectionToken(c.Request.Context(), userID, exp, map[string]any{
-		"email": c.GetString("email"),
+		"email": c.GetString(middleware.ContextKeyEmail),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sign connection token: %w", err)
@@ -137,7 +146,7 @@ func (ctrl *Controller) GetSubscriptionToken(c *gin.Context, in *SubscribeReques
 //  Helpers ─
 
 func requireUserID(c *gin.Context) (string, error) {
-	uid := strings.TrimSpace(c.GetString("userID"))
+	uid := strings.TrimSpace(c.GetString(middleware.ContextKeyUserID))
 	if uid == "" {
 		return "", betoerrors.New(betoerrors.CodeUnauthorized, "authenticated user context missing")
 	}
@@ -147,8 +156,8 @@ func requireUserID(c *gin.Context) (string, error) {
 // parseProjectIDFromChannel : attend "project:<projectID>:...".
 // Accepte tous les sous-canaux (events, workload:X, workload:X:deploy).
 func parseProjectIDFromChannel(channel string) (uuid.UUID, error) {
-	parts := strings.SplitN(channel, ":", 3)
-	if len(parts) < 2 || parts[0] != "project" {
+	parts := strings.SplitN(channel, realtime.ChannelSeparator, 3)
+	if len(parts) < 2 || parts[0] != realtime.ChannelProjectNamespace {
 		return uuid.Nil, betoerrors.New(betoerrors.CodeInvalidInput, "channel must start with 'project:<projectID>'")
 	}
 	pid, err := uuid.Parse(strings.TrimSpace(parts[1]))
@@ -191,11 +200,11 @@ func buildWSURL(httpURL string) string {
 		return ""
 	}
 	switch {
-	case strings.HasPrefix(httpURL, "https://"):
-		return "wss://" + strings.TrimPrefix(httpURL, "https://") + "/connection/websocket"
-	case strings.HasPrefix(httpURL, "http://"):
-		return "ws://" + strings.TrimPrefix(httpURL, "http://") + "/connection/websocket"
+	case strings.HasPrefix(httpURL, schemeHTTPS):
+		return schemeWSS + strings.TrimPrefix(httpURL, schemeHTTPS) + realtime.WebSocketPath
+	case strings.HasPrefix(httpURL, schemeHTTP):
+		return schemeWS + strings.TrimPrefix(httpURL, schemeHTTP) + realtime.WebSocketPath
 	default:
-		return httpURL + "/connection/websocket"
+		return httpURL + realtime.WebSocketPath
 	}
 }

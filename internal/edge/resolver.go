@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/thekrauss/kubemanager/internal/modules/sites/domain"
 )
 
 // Site : ce que l'edge doit savoir pour servir un nom d'hôte.
@@ -21,7 +23,7 @@ type Site struct {
 
 // Prefix : même format que domain.ObjectPrefix côté API (internal/modules/sites).
 func (s *Site) Prefix() string {
-	return "sites/" + s.ID + "/" + s.DeploymentID + "/"
+	return domain.ObjectsRoot + s.ID + "/" + s.DeploymentID + "/"
 }
 
 // Resolver : nom d'hôte → site servi, ou nil si inconnu (ou non servable).
@@ -83,7 +85,7 @@ type cacheEntry struct {
 
 func NewCachedResolver(next Resolver, ttl time.Duration, maxEntries int) *CachedResolver {
 	if maxEntries <= 0 {
-		maxEntries = 100000
+		maxEntries = defaultResolverMaxEntries
 	}
 	return &CachedResolver{Next: next, TTL: ttl, MaxEntries: maxEntries, entries: map[string]cacheEntry{}, now: time.Now}
 }

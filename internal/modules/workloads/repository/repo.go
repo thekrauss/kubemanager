@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/thekrauss/kubemanager/internal/modules/utils"
 	"github.com/thekrauss/kubemanager/internal/modules/workloads/domain"
 	"gorm.io/gorm"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -63,8 +64,8 @@ func (r *workloadRepository) UpdateSpec(ctx context.Context, id uuid.UUID, image
 			"image":         image,
 			"storage_size":  storageSize,
 			"external_url":  externalURL,
-			"status":        "STARTING",
-			"current_phase": "HELM_CHART_LOADING",
+			"status":        utils.WorkloadStarting,
+			"current_phase": utils.PhaseHelmChartLoading,
 		}).Error
 }
 
@@ -81,7 +82,7 @@ func (r *workloadRepository) GetTotalUsageByProject(ctx context.Context, project
 	var workloads []domain.Workload
 
 	err = r.db.WithContext(ctx).
-		Where("project_id = ? AND status NOT IN ('FAILED', 'DELETED')", projectID).
+		Where("project_id = ? AND status NOT IN ?", projectID, []string{utils.WorkloadFailed, utils.WorkloadDeleted}).
 		Find(&workloads).Error
 	if err != nil {
 		return 0, 0, 0, err
@@ -119,7 +120,7 @@ func (r *workloadRepository) parseMemToMi(mem string) int64 {
 	if err != nil {
 		return 0
 	}
-	return q.Value() / (1024 * 1024)
+	return q.Value() / utils.BytesPerMi
 }
 
 func (r *workloadRepository) parseSizeToGi(size string) int64 {
@@ -127,5 +128,5 @@ func (r *workloadRepository) parseSizeToGi(size string) int64 {
 	if err != nil {
 		return 0
 	}
-	return q.Value() / (1024 * 1024 * 1024)
+	return q.Value() / utils.BytesPerGi
 }

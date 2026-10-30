@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"io"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -54,8 +53,8 @@ type LogOptions struct {
 // DefaultLogOptions : raisonnable pour un "kubectl logs" équivalent.
 func DefaultLogOptions() LogOptions {
 	return LogOptions{
-		TailLines:    500,
-		SinceSeconds: int64((24 * time.Hour).Seconds()),
+		TailLines:    defaultLogTailLines,
+		SinceSeconds: int64(defaultLogLookback.Seconds()),
 		Timestamps:   true,
 	}
 }

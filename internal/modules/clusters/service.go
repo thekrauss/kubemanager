@@ -15,6 +15,7 @@ import (
 
 	"github.com/thekrauss/kubemanager/internal/infrastructure/observability"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/realtime"
+	"github.com/thekrauss/kubemanager/internal/modules/utils"
 	workloadRepo "github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
 )
 
@@ -74,9 +75,9 @@ func (s *service) Enroll(ctx context.Context, req EnrollRequest) (*EnrollRespons
 	}
 
 	// Check si existant AVANT upsert pour distinguer enrolled / updated.
-	status := "enrolled"
+	status := enrollStatusEnrolled
 	if _, err := s.clusters.GetByClusterID(ctx, clusterID); err == nil {
-		status = "updated"
+		status = enrollStatusUpdated
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("cluster lookup: %w", err)
 	}
@@ -119,12 +120,12 @@ func (s *service) GetConfig(ctx context.Context, clusterID string) (*RemoteConfi
 // Mapping K8s reason → status workload interne.
 // Exhaustif sur les reasons courants ; default = garde le status existant.
 var reasonToWorkloadStatus = map[string]string{
-	"CrashLoopBackOff":           "CRASHLOOP",
-	"ImagePullBackOff":           "IMAGE_PULL_FAILED",
-	"CreateContainerConfigError": "CONFIG_ERROR",
-	"OOMKilled":                  "OOM_KILLED",
-	"Failed":                     "FAILED",
-	"Evicted":                    "EVICTED",
+	reasonCrashLoopBackOff:           utils.WorkloadCrashLoop,
+	reasonImagePullBackOff:           utils.WorkloadImagePullFailed,
+	reasonCreateContainerConfigError: utils.WorkloadConfigError,
+	reasonOOMKilled:                  utils.WorkloadOOMKilled,
+	reasonFailed:                     utils.WorkloadFailed,
+	reasonEvicted:                    utils.WorkloadEvicted,
 }
 
 // OnPodEvent : traite un event pod reçu du watcher.
@@ -152,28 +153,28 @@ func (s *service) OnPodEvent(ctx context.Context, clusterID string, event PodEve
 	if workloadIDStr == "" {
 		s.logger.Debugw("pod event without km-workload-id — ignored",
 			"cluster", clusterID, "pod", event.Name, "namespace", event.Namespace)
-		return &PodEventAck{EventID: event.EventID, Status: "ignored"}, nil
+		return &PodEventAck{EventID: event.EventID, Status: ackStatusIgnored}, nil
 	}
 
 	workloadID, err := uuid.Parse(workloadIDStr)
 	if err != nil {
 		s.logger.Warnw("pod event with invalid workload_id label",
 			"cluster", clusterID, "pod", event.Name, "label", workloadIDStr)
-		return &PodEventAck{EventID: event.EventID, Status: "ignored"}, nil
+		return &PodEventAck{EventID: event.EventID, Status: ackStatusIgnored}, nil
 	}
 
 	wl, err := s.workloads.GetByID(ctx, workloadID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// Workload supprimé côté DB mais pod pas encore cleanup côté K8s.
-			return &PodEventAck{EventID: event.EventID, Status: "ignored"}, nil
+			return &PodEventAck{EventID: event.EventID, Status: ackStatusIgnored}, nil
 		}
 		return nil, fmt.Errorf("workload lookup: %w", err)
 	}
 
 	newStatus, mapped := reasonToWorkloadStatus[event.Reason]
 	if mapped {
-		phase := "POD_" + event.Reason
+		phase := utils.PhasePodEventPrefix + event.Reason
 		if err := s.workloads.UpdateStatus(ctx, workloadID, newStatus, phase); err != nil {
 			s.logger.Errorw("update workload status failed", "workload", workloadID, "error", err)
 			// On continue quand même le broadcast — l'UI doit voir l'event même si DB down.
@@ -193,9 +194,9 @@ func (s *service) OnPodEvent(ctx context.Context, clusterID string, event PodEve
 
 	ack := &PodEventAck{EventID: event.EventID, WorkloadID: workloadID.String()}
 	if mapped {
-		ack.Status = "mapped"
+		ack.Status = ackStatusMapped
 	} else {
-		ack.Status = "accepted"
+		ack.Status = ackStatusAccepted
 	}
 	observability.PodEventsIngested.WithLabelValues(clusterID, ack.Status).Inc()
 	return ack, nil
@@ -208,7 +209,7 @@ func (s *service) publishPodEvent(ctx context.Context, projectID, workloadID str
 		return
 	}
 	payload := map[string]any{
-		"type":          "pod_event",
+		"type":          podEventType,
 		"workload_id":   workloadID,
 		"project_id":    projectID,
 		"cluster_event": event, // raw watcher event pour debug/UI détaillée
@@ -228,10 +229,10 @@ func (s *service) publishPodEvent(ctx context.Context, projectID, workloadID str
 //  3. event.ProjectID field (si le watcher l'a déjà mappé côté Labels watcher)
 func extractWorkloadID(event PodEvent) string {
 	if event.Labels != nil {
-		if id := strings.TrimSpace(event.Labels["km-workload-id"]); id != "" {
+		if id := strings.TrimSpace(event.Labels[utils.LabelKmWorkloadID]); id != "" {
 			return id
 		}
-		if id := strings.TrimSpace(event.Labels["workload-id"]); id != "" {
+		if id := strings.TrimSpace(event.Labels[utils.LabelWatcherWorkloadID]); id != "" {
 			return id
 		}
 	}

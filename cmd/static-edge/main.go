@@ -54,13 +54,13 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	db, err := sql.Open("pgx", cfg.databaseURL)
+	db, err := sql.Open(sqlDriverName, cfg.databaseURL)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
 	defer db.Close()
-	db.SetMaxOpenConns(10)
-	db.SetConnMaxIdleTime(5 * time.Minute)
+	db.SetMaxOpenConns(dbMaxOpenConns)
+	db.SetConnMaxIdleTime(dbConnMaxIdleTime)
 
 	store, err := objectstore.New(cfg.store)
 	if err != nil {
@@ -75,13 +75,13 @@ func run(logger *slog.Logger) error {
 	public := &http.Server{
 		Addr:              cfg.httpAddr,
 		Handler:           srv.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		ReadHeaderTimeout: publicReadHeaderTimeout,
+		IdleTimeout:       publicIdleTimeout,
 	}
 	internal := &http.Server{
 		Addr:              cfg.internalAddr,
 		Handler:           srv.InternalHandler(),
-		ReadHeaderTimeout: 5 * time.Second,
+		ReadHeaderTimeout: internalReadHeaderTimeout,
 	}
 
 	errCh := make(chan error, 2)
@@ -102,7 +102,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	_ = internal.Shutdown(shutdownCtx)
 	return public.Shutdown(shutdownCtx)
@@ -119,42 +119,42 @@ type config struct {
 
 func loadConfig() (config, error) {
 	cfg := config{
-		httpAddr:     envOr("EDGE_HTTP_ADDR", ":8090"),
-		internalAddr: envOr("EDGE_INTERNAL_ADDR", ":8091"),
-		databaseURL:  os.Getenv("EDGE_DATABASE_URL"),
-		baseDomain:   strings.TrimSuffix(strings.ToLower(os.Getenv("EDGE_BASE_DOMAIN")), "."),
-		cacheTTL:     10 * time.Second,
+		httpAddr:     envOr(envHTTPAddr, defaultHTTPAddr),
+		internalAddr: envOr(envInternalAddr, defaultInternalAddr),
+		databaseURL:  os.Getenv(envDatabaseURL),
+		baseDomain:   strings.TrimSuffix(strings.ToLower(os.Getenv(envBaseDomain)), "."),
+		cacheTTL:     defaultCacheTTL,
 		store: objectstore.Config{
-			Endpoint:  os.Getenv("EDGE_S3_ENDPOINT"),
-			AccessKey: os.Getenv("EDGE_S3_ACCESS_KEY"),
-			SecretKey: os.Getenv("EDGE_S3_SECRET_KEY"),
-			Bucket:    os.Getenv("EDGE_S3_BUCKET"),
-			Region:    os.Getenv("EDGE_S3_REGION"),
+			Endpoint:  os.Getenv(envS3Endpoint),
+			AccessKey: os.Getenv(envS3AccessKey),
+			SecretKey: os.Getenv(envS3SecretKey),
+			Bucket:    os.Getenv(envS3Bucket),
+			Region:    os.Getenv(envS3Region),
 		},
 	}
-	if v := os.Getenv("EDGE_CACHE_TTL"); v != "" {
+	if v := os.Getenv(envCacheTTL); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
-			return cfg, fmt.Errorf("EDGE_CACHE_TTL: %w", err)
+			return cfg, fmt.Errorf("%s: %w", envCacheTTL, err)
 		}
 		cfg.cacheTTL = d
 	}
-	if v := os.Getenv("EDGE_S3_USE_SSL"); v != "" {
+	if v := os.Getenv(envS3UseSSL); v != "" {
 		b, err := strconv.ParseBool(v)
 		if err != nil {
-			return cfg, fmt.Errorf("EDGE_S3_USE_SSL: %w", err)
+			return cfg, fmt.Errorf("%s: %w", envS3UseSSL, err)
 		}
 		cfg.store.UseSSL = b
 	}
 
 	var missing []string
 	for name, v := range map[string]string{
-		"EDGE_DATABASE_URL":  cfg.databaseURL,
-		"EDGE_BASE_DOMAIN":   cfg.baseDomain,
-		"EDGE_S3_ENDPOINT":   cfg.store.Endpoint,
-		"EDGE_S3_ACCESS_KEY": cfg.store.AccessKey,
-		"EDGE_S3_SECRET_KEY": cfg.store.SecretKey,
-		"EDGE_S3_BUCKET":     cfg.store.Bucket,
+		envDatabaseURL: cfg.databaseURL,
+		envBaseDomain:  cfg.baseDomain,
+		envS3Endpoint:  cfg.store.Endpoint,
+		envS3AccessKey: cfg.store.AccessKey,
+		envS3SecretKey: cfg.store.SecretKey,
+		envS3Bucket:    cfg.store.Bucket,
 	} {
 		if v == "" {
 			missing = append(missing, name)

@@ -9,6 +9,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/objectstore"
 )
 
@@ -33,10 +34,10 @@ func (s *Server) Handler() http.Handler {
 // l'exposer publiquement : il révèle quels domaines sont servis.
 func (s *Server) InternalHandler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc(pathHealthz, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	mux.HandleFunc("/check", s.checkDomain)
+	mux.HandleFunc(pathCheck, s.checkDomain)
 	return mux
 }
 
@@ -44,7 +45,7 @@ func (s *Server) InternalHandler() http.Handler {
 // répond 200. Sans ça, n'importe quel domaine pointé vers l'edge ferait
 // émettre des certificats (abus + quotas Let's Encrypt).
 func (s *Server) checkDomain(w http.ResponseWriter, r *http.Request) {
-	host := normalizeHost(r.URL.Query().Get("domain"))
+	host := normalizeHost(r.URL.Query().Get(checkDomainParam))
 	if host == "" {
 		http.Error(w, "domain required", http.StatusBadRequest)
 		return
@@ -64,7 +65,7 @@ func (s *Server) checkDomain(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) serveSite(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set(httpheader.Allow, allowedMethods)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -86,7 +87,7 @@ func (s *Server) serveSite(w http.ResponseWriter, r *http.Request) {
 	dirRequest := strings.HasSuffix(r.URL.Path, "/") || rel == ""
 
 	if dirRequest {
-		if s.tryServe(w, r, site, path.Join(rel, "index.html"), http.StatusOK) {
+		if s.tryServe(w, r, site, path.Join(rel, indexFile), http.StatusOK) {
 			return
 		}
 	} else {
@@ -95,7 +96,7 @@ func (s *Server) serveSite(w http.ResponseWriter, r *http.Request) {
 		}
 		// /docs → /docs/ si docs/index.html existe : les liens relatifs de la
 		// page se résolvent alors dans le bon dossier.
-		if s.exists(r, site, path.Join(rel, "index.html")) {
+		if s.exists(r, site, path.Join(rel, indexFile)) {
 			target := clean + "/"
 			if r.URL.RawQuery != "" {
 				target += "?" + r.URL.RawQuery
@@ -104,15 +105,15 @@ func (s *Server) serveSite(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// URLs propres : /about → about.html.
-		if path.Ext(rel) == "" && s.tryServe(w, r, site, rel+".html", http.StatusOK) {
+		if path.Ext(rel) == "" && s.tryServe(w, r, site, rel+htmlExt, http.StatusOK) {
 			return
 		}
 	}
 
-	if site.SPAFallback && s.tryServe(w, r, site, "index.html", http.StatusOK) {
+	if site.SPAFallback && s.tryServe(w, r, site, indexFile, http.StatusOK) {
 		return
 	}
-	if s.tryServe(w, r, site, "404.html", http.StatusNotFound) {
+	if s.tryServe(w, r, site, notFoundFile, http.StatusNotFound) {
 		return
 	}
 	writeNotFound(w)
@@ -143,14 +144,14 @@ func (s *Server) tryServe(w http.ResponseWriter, r *http.Request, site *Site, re
 
 	h := w.Header()
 	if info.ContentType != "" {
-		h.Set("Content-Type", info.ContentType)
+		h.Set(httpheader.ContentType, info.ContentType)
 	}
-	h.Set("X-Content-Type-Options", "nosniff")
-	if strings.HasSuffix(rel, ".html") {
+	h.Set(httpheader.XContentTypeOpts, httpheader.NoSniff)
+	if strings.HasSuffix(rel, htmlExt) {
 		// HTML toujours revalidé : un nouveau déploiement est visible tout de suite.
-		h.Set("Cache-Control", "public, max-age=0, must-revalidate")
+		h.Set(httpheader.CacheControl, cacheControlHTML)
 	} else {
-		h.Set("Cache-Control", "public, max-age=3600")
+		h.Set(httpheader.CacheControl, cacheControlAsset)
 	}
 
 	if status != http.StatusOK {
@@ -161,7 +162,7 @@ func (s *Server) tryServe(w http.ResponseWriter, r *http.Request, site *Site, re
 		return true
 	}
 	if info.ETag != "" {
-		h.Set("ETag", `"`+strings.Trim(info.ETag, `"`)+`"`)
+		h.Set(httpheader.ETag, `"`+strings.Trim(info.ETag, `"`)+`"`)
 	}
 	// ServeContent : Range, If-None-Match, If-Modified-Since, HEAD.
 	http.ServeContent(w, r, "", info.LastModified, obj)
@@ -169,8 +170,8 @@ func (s *Server) tryServe(w http.ResponseWriter, r *http.Request, site *Site, re
 }
 
 func writeNotFound(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set(httpheader.ContentType, httpheader.MIMETextHTMLUTF8)
+	w.Header().Set(httpheader.CacheControl, httpheader.NoStore)
 	w.WriteHeader(http.StatusNotFound)
 	_, _ = w.Write([]byte(notFoundPage))
 }

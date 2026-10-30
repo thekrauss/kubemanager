@@ -16,7 +16,7 @@ type BootstrapStatus = identitytypes.BootstrapStatusResponse
 
 func (c *Client) BootstrapStatus(ctx context.Context) (*BootstrapStatus, error) {
 	var out BootstrapStatus
-	return &out, c.Do(ctx, http.MethodGet, "/identity/bootstrap/status", nil, &out)
+	return &out, c.Do(ctx, http.MethodGet, pathIdentityBootstrapStatus, nil, &out)
 }
 
 // Session : état d'authentification (double authentification…).
@@ -29,7 +29,7 @@ type Session struct {
 
 func (c *Client) Session(ctx context.Context) (*Session, error) {
 	var out Session
-	return &out, c.Do(ctx, http.MethodGet, "/iam/session", nil, &out)
+	return &out, c.Do(ctx, http.MethodGet, pathIAMSession, nil, &out)
 }
 
 // Site et Deployment : types de l'API des sites statiques.
@@ -38,7 +38,7 @@ type (
 	Deployment = sitesdomain.SiteDeployment
 )
 
-func sitesPath(project string) string { return "/projects/" + url.PathEscape(project) + "/sites" }
+func sitesPath(project string) string { return pathProjects + "/" + url.PathEscape(project) + segSites }
 
 func (c *Client) ListSites(ctx context.Context, project string) ([]Site, error) {
 	var out []Site
@@ -62,13 +62,13 @@ func (c *Client) GetSite(ctx context.Context, project, siteID string) (*Site, er
 
 func (c *Client) UploadDeployment(ctx context.Context, project, siteID string, archive io.Reader) (*Deployment, error) {
 	var out Deployment
-	err := c.Upload(ctx, sitesPath(project)+"/"+url.PathEscape(siteID)+"/deployments", "archive", "site.zip", archive, &out)
+	err := c.Upload(ctx, sitesPath(project)+"/"+url.PathEscape(siteID)+segDeployments, sitesdomain.ArchiveFormField, uploadFileName, archive, &out)
 	return &out, err
 }
 
 func (c *Client) ListDeployments(ctx context.Context, project, siteID string) ([]Deployment, error) {
 	var out []Deployment
-	return out, c.Do(ctx, http.MethodGet, sitesPath(project)+"/"+url.PathEscape(siteID)+"/deployments", nil, &out)
+	return out, c.Do(ctx, http.MethodGet, sitesPath(project)+"/"+url.PathEscape(siteID)+segDeployments, nil, &out)
 }
 
 // FindDeployment : état courant d'un déploiement.
@@ -90,7 +90,7 @@ type Domain = sitesdomain.DomainResponse
 
 func (c *Client) ListDomains(ctx context.Context, project, siteID string) ([]Domain, error) {
 	var out []Domain
-	return out, c.Do(ctx, http.MethodGet, sitesPath(project)+"/"+url.PathEscape(siteID)+"/domains", nil, &out)
+	return out, c.Do(ctx, http.MethodGet, sitesPath(project)+"/"+url.PathEscape(siteID)+segDomains, nil, &out)
 }
 
 func (c *Client) AddDomain(ctx context.Context, project, siteID, hostname string) (*Domain, error) {
@@ -98,16 +98,16 @@ func (c *Client) AddDomain(ctx context.Context, project, siteID, hostname string
 	body := struct {
 		Hostname string `json:"hostname"`
 	}{hostname}
-	return &out, c.Do(ctx, http.MethodPost, sitesPath(project)+"/"+url.PathEscape(siteID)+"/domains", body, &out)
+	return &out, c.Do(ctx, http.MethodPost, sitesPath(project)+"/"+url.PathEscape(siteID)+segDomains, body, &out)
 }
 
 func (c *Client) VerifyDomain(ctx context.Context, project, siteID, domainID string) (*Domain, error) {
 	var out Domain
 	return &out, c.Do(ctx, http.MethodPost,
-		sitesPath(project)+"/"+url.PathEscape(siteID)+"/domains/"+url.PathEscape(domainID)+"/verify", nil, &out)
+		sitesPath(project)+"/"+url.PathEscape(siteID)+segDomains+"/"+url.PathEscape(domainID)+segVerify, nil, &out)
 }
 
 func (c *Client) DeleteDomain(ctx context.Context, project, siteID, domainID string) error {
 	return c.Do(ctx, http.MethodDelete,
-		sitesPath(project)+"/"+url.PathEscape(siteID)+"/domains/"+url.PathEscape(domainID), nil, nil)
+		sitesPath(project)+"/"+url.PathEscape(siteID)+segDomains+"/"+url.PathEscape(domainID), nil, nil)
 }

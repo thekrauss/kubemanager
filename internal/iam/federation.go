@@ -127,7 +127,7 @@ func validateTrust(in FederationTrustInput) (string, error) {
 		return "", err
 	}
 	p := strings.TrimSpace(in.SubjectPattern)
-	if p == "" || len(p) > 255 || strings.Contains(strings.TrimSuffix(p, "*"), "*") || p == "*" {
+	if p == "" || len(p) > maxSubjectPatternLen || strings.Contains(strings.TrimSuffix(p, "*"), "*") || p == "*" {
 		return "", ErrInvalidSubjectPattern
 	}
 	switch issuer {
@@ -181,7 +181,7 @@ func (s *ServiceAccountService) CreateTrust(ctx context.Context, caller Principa
 		conds = map[string]string{}
 	}
 	raw, _ := json.Marshal(conds)
-	t := &FederationTrust{ID: uuid.New(), ServiceAccountID: sa.ID, DisplayName: truncate(strings.TrimSpace(in.DisplayName), 100),
+	t := &FederationTrust{ID: uuid.New(), ServiceAccountID: sa.ID, DisplayName: truncate(strings.TrimSpace(in.DisplayName), maxDisplayNameLen),
 		Issuer: issuer, SubjectPattern: strings.TrimSpace(in.SubjectPattern), ConditionsRaw: raw, Conditions: conds,
 		CreatedBy: string(caller), CreatedAt: s.now()}
 	if err := s.DB.WithContext(ctx).Create(t).Error; err != nil {

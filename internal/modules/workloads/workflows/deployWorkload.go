@@ -1,8 +1,7 @@
 package workflows
 
 import (
-	"time"
-
+	"github.com/thekrauss/kubemanager/internal/modules/utils"
 	"github.com/thekrauss/kubemanager/internal/modules/workloads/activities"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -64,16 +63,16 @@ type DeployWorkloadInput struct {
 
 func DeployWorkloadWorkflow(ctx workflow.Context, input DeployWorkloadInput) error {
 	options := workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
+		StartToCloseTimeout: activityStartToCloseTimeout,
 		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval: time.Second,
-			MaximumAttempts: 3,
+			InitialInterval: activityRetryInitialInterval,
+			MaximumAttempts: activityRetryMaximumAttempts,
 		},
 	}
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	localOptions := workflow.LocalActivityOptions{
-		StartToCloseTimeout: 5 * time.Second,
+		StartToCloseTimeout: localActivityStartToCloseTimeout,
 	}
 	ctx = workflow.WithLocalActivityOptions(ctx, localOptions)
 
@@ -81,7 +80,7 @@ func DeployWorkloadWorkflow(ctx workflow.Context, input DeployWorkloadInput) err
 	var helmActs *activities.WorkloadActivities
 
 	err := workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
-		input.WorkloadID, input.ProjectID, "STARTING", "HELM_PREPARING").Get(ctx, nil)
+		input.WorkloadID, input.ProjectID, utils.WorkloadStarting, utils.PhaseHelmPreparing).Get(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -92,7 +91,7 @@ func DeployWorkloadWorkflow(ctx workflow.Context, input DeployWorkloadInput) err
 		return info
 	}).Get(&imgInfo); err != nil {
 		workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
-			input.WorkloadID, input.ProjectID, "FAILED", "IMAGE_PARSE_ERROR")
+			input.WorkloadID, input.ProjectID, utils.WorkloadFailed, utils.PhaseImageParseError)
 		return err
 	}
 
@@ -101,12 +100,12 @@ func DeployWorkloadWorkflow(ctx workflow.Context, input DeployWorkloadInput) err
 		input.Namespace, input.ReleaseName, input.ProjectID, secretData).Get(ctx, nil)
 	if err != nil {
 		workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
-			input.WorkloadID, input.ProjectID, "FAILED", "SECRET_CREATION_ERROR")
+			input.WorkloadID, input.ProjectID, utils.WorkloadFailed, utils.PhaseSecretCreateError)
 		return err
 	}
 
 	workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
-		input.WorkloadID, input.ProjectID, "STARTING", "HELM_INSTALLING").Get(ctx, nil)
+		input.WorkloadID, input.ProjectID, utils.WorkloadStarting, utils.PhaseHelmReleaseInstalling).Get(ctx, nil)
 
 	helmInput := activities.InstallWorkloadInput{
 		ProjectID:            input.ProjectID,
@@ -147,12 +146,12 @@ func DeployWorkloadWorkflow(ctx workflow.Context, input DeployWorkloadInput) err
 	err = workflow.ExecuteActivity(ctx, helmActs.InstallChart, helmInput).Get(ctx, nil)
 	if err != nil {
 		workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
-			input.WorkloadID, input.ProjectID, "FAILED", "HELM_ERROR")
+			input.WorkloadID, input.ProjectID, utils.WorkloadFailed, utils.PhaseHelmError)
 		return err
 	}
 
 	workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
-		input.WorkloadID, input.ProjectID, "RUNNING", "DEPLOYED").Get(ctx, nil)
+		input.WorkloadID, input.ProjectID, utils.WorkloadRunning, utils.PhaseDeployed).Get(ctx, nil)
 
 	return nil
 }

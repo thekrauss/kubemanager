@@ -59,9 +59,9 @@ type RistrettoAuthCache struct {
 
 func NewRistrettoAuthCache() (*RistrettoAuthCache, error) {
 	cache, err := ristretto.NewCache(&ristretto.Config{
-		NumCounters: 1e7,
-		MaxCost:     1 << 30,
-		BufferItems: 64,
+		NumCounters: ristrettoNumCounters,
+		MaxCost:     ristrettoMaxCost,
+		BufferItems: ristrettoBufferItems,
 	})
 	if err != nil {
 		return nil, err
@@ -70,13 +70,13 @@ func NewRistrettoAuthCache() (*RistrettoAuthCache, error) {
 }
 
 func (c *RistrettoAuthCache) SetAccessTokenClaims(ctx context.Context, token string, claims AccessTokenClaims, ttl time.Duration) error {
-	key := "claims:" + secureKey(token)
+	key := localKeyClaims + secureKey(token)
 	c.cache.SetWithTTL(key, claims, 1, ttl)
 	return nil
 }
 
 func (c *RistrettoAuthCache) GetAccessTokenClaims(ctx context.Context, token string) (AccessTokenClaims, bool, error) {
-	key := "claims:" + secureKey(token)
+	key := localKeyClaims + secureKey(token)
 	val, ok := c.cache.Get(key)
 	if !ok {
 		return AccessTokenClaims{}, false, nil
@@ -86,25 +86,25 @@ func (c *RistrettoAuthCache) GetAccessTokenClaims(ctx context.Context, token str
 }
 
 func (c *RistrettoAuthCache) BlacklistAccessTokenJTI(ctx context.Context, jti string, ttl time.Duration) error {
-	key := "bl:jti:" + secureKey(jti)
+	key := localKeyJTIBlacklist + secureKey(jti)
 	c.cache.SetWithTTL(key, struct{}{}, 1, ttl)
 	return nil
 }
 
 func (c *RistrettoAuthCache) IsAccessTokenJTIBlacklisted(ctx context.Context, jti string) (bool, error) {
-	key := "bl:jti:" + secureKey(jti)
+	key := localKeyJTIBlacklist + secureKey(jti)
 	_, ok := c.cache.Get(key)
 	return ok, nil
 }
 
 func (c *RistrettoAuthCache) SetAPIKeyValidation(ctx context.Context, rawKey string, validation APIKeyValidation, ttl time.Duration) error {
-	key := "ak:" + secureKey(rawKey)
+	key := localKeyAPIKey + secureKey(rawKey)
 	c.cache.SetWithTTL(key, validation, 1, ttl)
 	return nil
 }
 
 func (c *RistrettoAuthCache) GetAPIKeyValidation(ctx context.Context, rawKey string) (APIKeyValidation, bool, error) {
-	key := "ak:" + secureKey(rawKey)
+	key := localKeyAPIKey + secureKey(rawKey)
 	val, ok := c.cache.Get(key)
 	if !ok {
 		return APIKeyValidation{}, false, nil
@@ -114,19 +114,19 @@ func (c *RistrettoAuthCache) GetAPIKeyValidation(ctx context.Context, rawKey str
 }
 
 func (c *RistrettoAuthCache) RevokeAPIKeyPrefix(ctx context.Context, prefix string, ttl time.Duration) error {
-	key := "rev:" + secureKey(prefix)
+	key := localKeyRevokedKey + secureKey(prefix)
 	c.cache.SetWithTTL(key, struct{}{}, 1, ttl)
 	return nil
 }
 
 func (c *RistrettoAuthCache) IsAPIKeyPrefixRevoked(ctx context.Context, prefix string) (bool, error) {
-	key := "rev:" + secureKey(prefix)
+	key := localKeyRevokedKey + secureKey(prefix)
 	_, ok := c.cache.Get(key)
 	return ok, nil
 }
 
 func (c *RistrettoAuthCache) Get(ctx context.Context, key string) (string, error) {
-	val, ok := c.cache.Get("gen:" + key)
+	val, ok := c.cache.Get(localKeyGeneric + key)
 	if !ok {
 		return "", nil
 	}
@@ -138,12 +138,12 @@ func (c *RistrettoAuthCache) Get(ctx context.Context, key string) (string, error
 }
 
 func (c *RistrettoAuthCache) Set(ctx context.Context, key string, value string, ttl time.Duration) error {
-	c.cache.SetWithTTL("gen:"+key, value, 1, ttl)
+	c.cache.SetWithTTL(localKeyGeneric+key, value, 1, ttl)
 	return nil
 }
 
 func (c *RistrettoAuthCache) Delete(ctx context.Context, key string) error {
-	c.cache.Del("gen:" + key)
+	c.cache.Del(localKeyGeneric + key)
 	return nil
 }
 
@@ -162,6 +162,22 @@ const (
 	KeyBlacklist     = "blacklist:"
 	KeyResetToken    = "reset_token:"
 	KeyUser          = "user:"
+)
+
+// Préfixes des clés du cache local (Ristretto) d'authentification.
+const (
+	localKeyClaims       = "claims:"
+	localKeyJTIBlacklist = "bl:jti:"
+	localKeyAPIKey       = "ak:"
+	localKeyRevokedKey   = "rev:"
+	localKeyGeneric      = "gen:"
+)
+
+// Dimensionnement du cache local (Ristretto).
+const (
+	ristrettoNumCounters = 1e7
+	ristrettoMaxCost     = 1 << 30
+	ristrettoBufferItems = 64
 )
 
 type CacheRedis interface {
@@ -237,7 +253,7 @@ func (r *cacheRedis) DeleteUser(ctx context.Context, key string) error {
 }
 
 func (r *cacheRedis) getKey(prefix, id string) string {
-	return fmt.Sprintf("%s%s%s", ServiceKeyPrefix, prefix, id)
+	return ServiceKeyPrefix + prefix + id
 }
 
 func (r *cacheRedis) IncrementLoginAttempts(ctx context.Context, userID string, duration time.Duration) (int64, error) {
@@ -360,7 +376,7 @@ func (r *cacheRedis) Ping(ctx context.Context) error {
 // Évite les resets de TTL qui permettraient à un attaquant de maintenir le
 // compteur sous la limite en jouant avec la fenêtre.
 func (r *cacheRedis) Increment(ctx context.Context, key string, window time.Duration) (int64, error) {
-	fullKey := fmt.Sprintf("%s%s", ServiceKeyPrefix, key)
+	fullKey := ServiceKeyPrefix + key
 	count, err := r.Client.Incr(ctx, fullKey).Result()
 	if err != nil {
 		return 0, fmt.Errorf("redis incr: %w", err)
@@ -374,12 +390,12 @@ func (r *cacheRedis) Increment(ctx context.Context, key string, window time.Dura
 }
 
 func (r *cacheRedis) SetValue(ctx context.Context, key, value string, ttl time.Duration) error {
-	fullKey := fmt.Sprintf("%s%s", ServiceKeyPrefix, key)
+	fullKey := ServiceKeyPrefix + key
 	return r.Client.Set(ctx, fullKey, value, ttl).Err()
 }
 
 func (r *cacheRedis) GetValue(ctx context.Context, key string) (string, error) {
-	fullKey := fmt.Sprintf("%s%s", ServiceKeyPrefix, key)
+	fullKey := ServiceKeyPrefix + key
 	val, err := r.Client.Get(ctx, fullKey).Result()
 	if err == redis.Nil {
 		return "", ErrCacheMiss
@@ -388,6 +404,6 @@ func (r *cacheRedis) GetValue(ctx context.Context, key string) (string, error) {
 }
 
 func (r *cacheRedis) DeleteValue(ctx context.Context, key string) error {
-	fullKey := fmt.Sprintf("%s%s", ServiceKeyPrefix, key)
+	fullKey := ServiceKeyPrefix + key
 	return r.Client.Del(ctx, fullKey).Err()
 }

@@ -24,9 +24,9 @@ spec:
       labels:
         {{- include "standard-app.labels" . | nindent 8 }}
       annotations:
-        # Force le rollout restart quand le Secret envSecretName change.
-        # Requiert que l'API mette à jour le Secret AVANT helm upgrade.
-        checksum/env: {{ .Values.envSecretName | default "no-secret" | sha256sum }}
+        # Nouveaux pods quand le contenu du Secret envSecretName change
+        # (empreinte calculée par l'API, qui met le Secret à jour AVANT l'upgrade).
+        checksum/env: {{ .Values.envChecksum | default "none" | quote }}
     spec:
       serviceAccountName: {{ include "standard-app.serviceAccountName" . }}
       automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken | default false }}

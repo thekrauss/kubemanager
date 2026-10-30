@@ -66,8 +66,8 @@ func (s *hmacTokenSigner) GenerateSubscriptionToken(_ context.Context, subject s
 
 func (s *hmacTokenSigner) sign(claims map[string]any) (string, error) {
 	headerSegment, err := encodeJWTPart(map[string]any{
-		"alg": "HS256",
-		"typ": "JWT",
+		"alg": tokenAlg,
+		"typ": tokenTyp,
 	})
 	if err != nil {
 		return "", err

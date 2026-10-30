@@ -16,6 +16,7 @@ import (
 	idempotency "github.com/thekrauss/kubemanager/internal/infrastructure/idempotence"
 	authSvc "github.com/thekrauss/kubemanager/internal/modules/auth/service"
 	domain "github.com/thekrauss/kubemanager/internal/modules/projects/domain"
+	"github.com/thekrauss/kubemanager/internal/modules/utils"
 )
 
 // ProjectK8sActivities : activities Temporal manipulant des ressources Kubernetes.
@@ -36,19 +37,19 @@ func (a *ProjectK8sActivities) CreateNamespace(ctx context.Context, projectID st
 	}{projectID, projectName}
 
 	_, _, err := idempotency.ExecuteActivity(ctx, a.Idempotency, payload,
-		idempotency.ActivityOptions{ProcessingTTL: 2 * time.Minute},
+		idempotency.ActivityOptions{ProcessingTTL: k8sProcessingTTL},
 		func() (struct{}, error) {
-			nsName := fmt.Sprintf("km-%s", projectName)
+			nsName := utils.ProjectNamespace(projectName)
 			ns := &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: nsName,
 					Labels: map[string]string{
-						"kubemanager.io/managed":    "true",
-						"kubemanager.io/project-id": projectID,
-						"kubemanager.io/name":       projectName,
+						utils.LabelManaged:     utils.LabelManagedValue,
+						utils.LabelProjectID:   projectID,
+						utils.LabelProjectName: projectName,
 					},
 					Annotations: map[string]string{
-						"kubemanager.io/created-at": time.Now().Format(time.RFC3339),
+						utils.LabelCreatedAt: time.Now().Format(time.RFC3339),
 					},
 				},
 			}
@@ -66,9 +67,9 @@ func (a *ProjectK8sActivities) DeleteNamespace(ctx context.Context, projectName 
 	payload := struct{ ProjectName string }{projectName}
 
 	_, _, err := idempotency.ExecuteActivity(ctx, a.Idempotency, payload,
-		idempotency.ActivityOptions{ProcessingTTL: 2 * time.Minute},
+		idempotency.ActivityOptions{ProcessingTTL: k8sProcessingTTL},
 		func() (struct{}, error) {
-			nsName := fmt.Sprintf("km-%s", projectName)
+			nsName := utils.ProjectNamespace(projectName)
 			a.Logger.Infow("deleting Kubernetes namespace", "namespace", nsName)
 			err := a.K8sClient.CoreV1().Namespaces().Delete(ctx, nsName, metav1.DeleteOptions{})
 			if err != nil && !kerrors.IsNotFound(err) {
@@ -84,7 +85,7 @@ func (a *ProjectK8sActivities) ReconcileProjectResources(ctx context.Context, ns
 	payload := struct{ NS, CPU, Mem string }{nsName, cpu, mem}
 
 	_, _, err := idempotency.ExecuteActivity(ctx, a.Idempotency, payload,
-		idempotency.ActivityOptions{ProcessingTTL: 2 * time.Minute},
+		idempotency.ActivityOptions{ProcessingTTL: k8sProcessingTTL},
 		func() (struct{}, error) {
 			if _, err := a.K8sClient.CoreV1().Namespaces().Get(ctx, nsName, metav1.GetOptions{}); err != nil {
 				return struct{}{}, fmt.Errorf("namespace %s missing, reconciliation failed: %w", nsName, err)
@@ -98,7 +99,7 @@ func (a *ProjectK8sActivities) ReconcileProjectResources(ctx context.Context, ns
 			if err != nil {
 				return struct{}{}, fmt.Errorf("invalid memory limit %q: %w", mem, err)
 			}
-			quotaName := "project-quota"
+			quotaName := projectQuotaName
 			newQuotas := &corev1.ResourceQuota{
 				ObjectMeta: metav1.ObjectMeta{Name: quotaName, Namespace: nsName},
 				Spec: corev1.ResourceQuotaSpec{
@@ -140,7 +141,7 @@ func (a *ProjectK8sActivities) AssignDefaultOwner(ctx context.Context, projectID
 }
 
 func (a *ProjectK8sActivities) GetNamespaceMetrics(ctx context.Context, projectName string) (*domain.NamespaceMetrics, error) {
-	nsName := fmt.Sprintf("km-%s", projectName)
+	nsName := utils.ProjectNamespace(projectName)
 
 	podMetricsList, err := a.MetricsClient.MetricsV1beta1().PodMetricses(nsName).List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -157,6 +158,6 @@ func (a *ProjectK8sActivities) GetNamespaceMetrics(ctx context.Context, projectN
 
 	return &domain.NamespaceMetrics{
 		CPUUsage:    fmt.Sprintf("%dm", totalCPU),
-		MemoryUsage: fmt.Sprintf("%dMi", totalMem/1024/1024),
+		MemoryUsage: fmt.Sprintf("%dMi", totalMem/utils.BytesPerMi),
 	}, nil
 }

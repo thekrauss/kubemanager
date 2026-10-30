@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 	"github.com/thekrauss/kubemanager/internal/core/i18n"
 )
 
@@ -21,8 +22,8 @@ func Locale() gin.HandlerFunc {
 		l := i18n.FromRequest(c.Request)
 		c.Request = c.Request.WithContext(i18n.With(c.Request.Context(), l))
 		c.Set(LocaleContextKey, l)
-		c.Header("Content-Language", string(l))
-		c.Writer.Header().Add("Vary", "Accept-Language")
+		c.Header(httpheader.ContentLanguage, string(l))
+		c.Writer.Header().Add(httpheader.Vary, httpheader.AcceptLanguage)
 		c.Next()
 	}
 }

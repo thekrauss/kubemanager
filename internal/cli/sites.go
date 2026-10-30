@@ -13,6 +13,7 @@ import (
 	"github.com/thekrauss/kubemanager/internal/cli/api"
 	"github.com/thekrauss/kubemanager/internal/cli/archive"
 	"github.com/thekrauss/kubemanager/internal/cli/i18n"
+	sitesdomain "github.com/thekrauss/kubemanager/internal/modules/sites/domain"
 )
 
 // Attente de la publication (extraction et mise en ligne côté serveur).
@@ -124,7 +125,7 @@ func newSitesDeploy() *cobra.Command {
 
 			fmt.Fprintln(out, i18n.T("sites.deploy.processing"))
 			deadline := time.Now().Add(deployTimeout)
-			for dep.Status != "READY" && dep.Status != "FAILED" {
+			for dep.Status != sitesdomain.DeploymentStatusReady && dep.Status != sitesdomain.DeploymentStatusFailed {
 				if time.Now().After(deadline) {
 					return errors.New(i18n.T("sites.deploy.timeout"))
 				}
@@ -137,7 +138,7 @@ func newSitesDeploy() *cobra.Command {
 					return err
 				}
 			}
-			if dep.Status == "FAILED" {
+			if dep.Status == sitesdomain.DeploymentStatusFailed {
 				return errors.New(i18n.T("sites.deploy.failed", dep.Error))
 			}
 			if site, err = cl.GetSite(ctx, project, site.ID.String()); err != nil {

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/MicahParks/keyfunc/v2"
 	"github.com/golang-jwt/jwt/v5"
@@ -58,9 +57,9 @@ func NewVerifier(cfg Config, logger *zap.SugaredLogger) (*Verifier, error) {
 	}
 
 	options := keyfunc.Options{
-		RefreshTimeout:   10 * time.Second,
-		RefreshInterval:  6 * time.Hour,
-		RefreshRateLimit: 5 * time.Minute,
+		RefreshTimeout:   jwksRefreshTimeout,
+		RefreshInterval:  jwksRefreshInterval,
+		RefreshRateLimit: jwksRefreshRateLimit,
 	}
 
 	jwks, err := keyfunc.Get(jwksURL, options)

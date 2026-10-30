@@ -5,16 +5,15 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 	"github.com/thekrauss/kubemanager/internal/modules/auth/repository"
 	"github.com/thekrauss/kubemanager/internal/modules/utils"
 )
-
 
 func APIKeyAuth(authRepo repository.AuthRepository, logger *zap.SugaredLogger) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -24,7 +23,7 @@ func APIKeyAuth(authRepo repository.AuthRepository, logger *zap.SugaredLogger) g
 			return
 		}
 
-		prefix := raw[:min(7, len(raw))]
+		prefix := raw[:min(apiKeyLookupPrefixLen, len(raw))]
 		key, err := authRepo.GetAPIKeyByPrefix(c.Request.Context(), prefix)
 		if err != nil || key == nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid API key"})
@@ -51,17 +50,17 @@ func APIKeyAuth(authRepo repository.AuthRepository, logger *zap.SugaredLogger) g
 		// Update last_used_at + usage_count — ctx détaché du request HTTP
 		// (sinon annulé au retour → update jamais persisté).
 		go func(keyID uuid.UUID) {
-			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			bgCtx, cancel := context.WithTimeout(context.Background(), apiKeyUsageUpdateTimeout)
 			defer cancel()
 			if err := authRepo.UpdateAPIKeyUsage(bgCtx, keyID); err != nil {
 				logger.Warnw("failed to update api key usage", "key_id", keyID, "error", err)
 			}
 		}(key.ID)
 
-		c.Set("userID", key.UserID.String())
-		c.Set("projectID", key.ProjectID.String())
-		c.Set("apiKeyID", key.ID.String())
-		c.Set("apiKeyScopes", key.Scopes)
+		c.Set(ContextKeyUserID, key.UserID.String())
+		c.Set(ContextKeyProjectID, key.ProjectID.String())
+		c.Set(ContextKeyAPIKeyID, key.ID.String())
+		c.Set(ContextKeyAPIKeyScopes, key.Scopes)
 
 		c.Next()
 	}
@@ -69,7 +68,7 @@ func APIKeyAuth(authRepo repository.AuthRepository, logger *zap.SugaredLogger) g
 
 func RequireAPIKeyScope(requiredScope string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		scopesVal, exists := c.Get("apiKeyScopes")
+		scopesVal, exists := c.Get(ContextKeyAPIKeyScopes)
 		if !exists {
 			c.Next()
 			return
@@ -96,17 +95,17 @@ func RequireAPIKeyScope(requiredScope string) gin.HandlerFunc {
 
 func extractAPIKey(c *gin.Context) string {
 	// Try X-API-Key header first
-	if key := strings.TrimSpace(c.GetHeader("X-API-Key")); key != "" {
+	if key := strings.TrimSpace(c.GetHeader(httpheader.XAPIKey)); key != "" {
 		return key
 	}
 
 	// Try Authorization: ApiKey <key>
-	auth := strings.TrimSpace(c.GetHeader("Authorization"))
+	auth := strings.TrimSpace(c.GetHeader(httpheader.Authorization))
 	if auth == "" {
 		return ""
 	}
 	parts := strings.SplitN(auth, " ", 2)
-	if len(parts) == 2 && strings.EqualFold(parts[0], "ApiKey") {
+	if len(parts) == 2 && strings.EqualFold(parts[0], apiKeyAuthScheme) {
 		return strings.TrimSpace(parts[1])
 	}
 

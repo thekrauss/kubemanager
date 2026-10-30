@@ -45,12 +45,12 @@ func (x *iamCtx) organization(ctx context.Context) (string, error) {
 	if x.org != "" {
 		return x.org, nil
 	}
-	ancestors, err := x.cl.Ancestry(ctx, "projects/"+x.project)
+	ancestors, err := x.cl.Ancestry(ctx, prefixProjects+x.project)
 	if err != nil {
 		return "", err
 	}
 	for _, a := range ancestors {
-		if id, ok := strings.CutPrefix(a, "organizations/"); ok {
+		if id, ok := strings.CutPrefix(a, prefixOrganizations); ok {
 			x.org = id
 			return id, nil
 		}
@@ -68,7 +68,7 @@ func (x *iamCtx) group(ctx context.Context, ref string) (*api.Group, error) {
 	if err != nil {
 		return nil, err
 	}
-	ref = strings.TrimPrefix(strings.TrimSpace(ref), "group:")
+	ref = strings.TrimPrefix(strings.TrimSpace(ref), principalGroup)
 	for i := range groups {
 		if groups[i].GroupID == ref || groups[i].ID == ref {
 			return &groups[i], nil
@@ -84,7 +84,7 @@ func (x *iamCtx) serviceAccount(ctx context.Context, ref string) (*api.ServiceAc
 	if err != nil {
 		return nil, err
 	}
-	ref = strings.TrimPrefix(strings.TrimSpace(ref), "serviceAccount:")
+	ref = strings.TrimPrefix(strings.TrimSpace(ref), principalServiceAccount)
 	for i := range list {
 		if list[i].AccountID == ref || list[i].ID == ref {
 			return &list[i], nil
@@ -104,7 +104,7 @@ func (x *iamCtx) member(ctx context.Context, raw string) (string, error) {
 	switch {
 	case !ok:
 		return memberRef(raw), nil
-	case kind == "group":
+	case kind == kindGroup:
 		if _, err := uuid.Parse(name); err == nil {
 			return raw, nil
 		}
@@ -113,9 +113,9 @@ func (x *iamCtx) member(ctx context.Context, raw string) (string, error) {
 			return "", err
 		}
 		return g.Principal, nil
-	case kind == "serviceAccount" || kind == "sa":
+	case kind == kindServiceAccount || kind == kindServiceAccountShort:
 		if _, err := uuid.Parse(name); err == nil {
-			return "serviceAccount:" + name, nil
+			return principalServiceAccount + name, nil
 		}
 		sa, err := x.serviceAccount(ctx, name)
 		if err != nil {
@@ -137,7 +137,7 @@ func (x *iamCtx) role(ctx context.Context, raw string) (string, error) {
 	// Liste indisponible : le nom part tel quel, l'API le valide.
 	predefined, _ := x.cl.ListRoles(ctx)
 	for _, r := range predefined {
-		if r.Name == "roles/"+raw {
+		if r.Name == prefixRoles+raw {
 			return r.Name, nil
 		}
 	}
@@ -150,12 +150,12 @@ func (x *iamCtx) role(ctx context.Context, raw string) (string, error) {
 // customRole : rôle personnalisé du projet, sinon de l'organisation.
 func (x *iamCtx) customRole(ctx context.Context, raw string) (*api.CustomRole, error) {
 	raw = strings.TrimSpace(raw)
-	if strings.Contains(raw, "/roles/") {
+	if strings.Contains(raw, segmentCustomRoles) {
 		return x.cl.GetCustomRole(ctx, raw)
 	}
-	parents := []string{"projects/" + x.project}
+	parents := []string{prefixProjects + x.project}
 	if org, err := x.organization(ctx); err == nil {
-		parents = append(parents, "organizations/"+org)
+		parents = append(parents, prefixOrganizations+org)
 	}
 	for _, parent := range parents {
 		roles, err := x.cl.ListCustomRoles(ctx, parent)
@@ -370,7 +370,7 @@ func newRoles() *cobra.Command {
 			}
 			tw := newTable(cmd)
 			for _, r := range roles {
-				fmt.Fprintf(tw, "%s\t%s\n", strings.TrimPrefix(r.Name, "roles/"), r.Description)
+				fmt.Fprintf(tw, "%s\t%s\n", strings.TrimPrefix(r.Name, prefixRoles), r.Description)
 			}
 			if err := tw.Flush(); err != nil {
 				return err
@@ -379,9 +379,9 @@ func newRoles() *cobra.Command {
 				return nil
 			}
 			x := &iamCtx{cl: cl, project: s.ProjectID}
-			parents := []string{"projects/" + s.ProjectID}
+			parents := []string{prefixProjects + s.ProjectID}
 			if org, err := x.organization(cmd.Context()); err == nil {
-				parents = append(parents, "organizations/"+org)
+				parents = append(parents, prefixOrganizations+org)
 			}
 			var custom []api.CustomRole
 			for _, parent := range parents {
@@ -405,7 +405,7 @@ func newRoles() *cobra.Command {
 }
 
 func scopeOf(parent string) string {
-	if strings.HasPrefix(parent, "organizations/") {
+	if strings.HasPrefix(parent, prefixOrganizations) {
 		return i18n.T("roles.scope.org")
 	}
 	return i18n.T("roles.scope.project")
@@ -473,13 +473,13 @@ func newRolesCreate() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			parent := "projects/" + x.project
+			parent := prefixProjects + x.project
 			if onOrg {
 				org, err := x.organization(cmd.Context())
 				if err != nil {
 					return err
 				}
-				parent = "organizations/" + org
+				parent = prefixOrganizations + org
 			}
 			in.Title = firstNonEmpty(in.Title, args[0])
 			r, err := x.cl.CreateCustomRole(cmd.Context(), parent, args[0], in)
@@ -786,7 +786,7 @@ func newSAKeysCreate() *cobra.Command {
 	f := c.Flags()
 	f.StringVarP(&output, "output", "o", "", i18n.T("flag.sa.output"))
 	f.StringVar(&name, "name", "", i18n.T("flag.display_name"))
-	f.IntVar(&days, "expires-in-days", 90, i18n.T("flag.sa.days"))
+	f.IntVar(&days, "expires-in-days", defaultSAKeyDays, i18n.T("flag.sa.days"))
 	return c
 }
 

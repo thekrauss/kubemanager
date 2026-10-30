@@ -9,6 +9,9 @@ import (
 	"mime"
 	"path"
 	"strings"
+
+	"github.com/thekrauss/kubemanager/internal/core/httpheader"
+	"github.com/thekrauss/kubemanager/internal/modules/sites/domain"
 )
 
 // Limits : bornes d'une archive (protection zip bomb / abus de stockage).
@@ -95,7 +98,7 @@ func ExtractArchive(ctx context.Context, zr *zip.Reader, limits Limits, put PutF
 		declared += af.f.UncompressedSize64
 	}
 	if declared > uint64(limits.MaxExtractedBytes) {
-		return ExtractResult{}, archiveErrorf("site trop volumineux une fois décompressé (maximum %d Mo)", limits.MaxExtractedBytes>>20)
+		return ExtractResult{}, archiveErrorf("site trop volumineux une fois décompressé (maximum %d Mo)", limits.MaxExtractedBytes/domain.BytesPerMB)
 	}
 
 	var res ExtractResult
@@ -142,7 +145,7 @@ func collectFiles(zr *zip.Reader) ([]archiveFile, error) {
 
 func ignored(rel string) bool {
 	for _, seg := range strings.Split(rel, "/") {
-		if seg == "__MACOSX" || seg == ".git" || seg == ".DS_Store" {
+		if ignoredArchiveEntries[seg] {
 			return true
 		}
 	}
@@ -151,7 +154,7 @@ func ignored(rel string) bool {
 
 func hasRootIndex(files []archiveFile) bool {
 	for _, af := range files {
-		if af.rel == "index.html" {
+		if af.rel == domain.IndexFile {
 			return true
 		}
 	}
@@ -258,5 +261,5 @@ func contentTypeFor(rel string) string {
 	if ct := mime.TypeByExtension(ext); ct != "" {
 		return ct
 	}
-	return "application/octet-stream"
+	return httpheader.MIMEOctetStream
 }

@@ -186,7 +186,7 @@ func touchPolicy(ctx context.Context, db *gorm.DB, r ResourceName, actor string)
 }
 
 func newEtag() (string, error) {
-	b := make([]byte, 12)
+	b := make([]byte, etagBytes)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}

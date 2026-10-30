@@ -281,9 +281,9 @@ type AuditLogsResponse struct {
 func (h *Controller) ListAuditLogs(c *gin.Context, in *AuditLogsRequest) (*AuditLogsResponse, error) {
 	r := iam.ResourceName(in.Resource)
 	q := audit.Query{Resource: string(r), BeforeID: in.BeforeID, Limit: in.Limit}
-	if org, ok := r.Organization(); ok && !strings.Contains(strings.TrimPrefix(string(r), "organizations/"), "/") {
+	if org, ok := r.Organization(); ok && !strings.Contains(strings.TrimPrefix(string(r), iam.OrganizationsPrefix), "/") {
 		q.OrganizationID = &org
-	} else if project, ok := r.Project(); ok && !strings.Contains(strings.TrimPrefix(string(r), "projects/"), "/") {
+	} else if project, ok := r.Project(); ok && !strings.Contains(strings.TrimPrefix(string(r), iam.ProjectsPrefix), "/") {
 		q.ProjectID = &project
 	}
 	entries, err := audit.List(c.Request.Context(), h.DB, q)
@@ -293,7 +293,7 @@ func (h *Controller) ListAuditLogs(c *gin.Context, in *AuditLogsRequest) (*Audit
 	resp := &AuditLogsResponse{Entries: entries}
 	limit := in.Limit
 	if limit <= 0 || limit > audit.MaxPageSize {
-		limit = 50
+		limit = audit.DefaultPageSize
 	}
 	if len(entries) == limit {
 		resp.NextBeforeID = entries[len(entries)-1].ID

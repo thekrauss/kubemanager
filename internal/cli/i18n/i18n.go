@@ -12,16 +12,16 @@ import (
 
 // Lang : "fr" ou "en".
 func Lang() string {
-	for _, v := range []string{"BETORUN_LANG", "LC_ALL", "LC_MESSAGES", "LANG"} {
+	for _, v := range langEnvVars {
 		val := strings.ToLower(os.Getenv(v))
 		switch {
-		case strings.HasPrefix(val, "en"):
-			return "en"
-		case strings.HasPrefix(val, "fr"):
-			return "fr"
+		case strings.HasPrefix(val, LangEN):
+			return LangEN
+		case strings.HasPrefix(val, LangFR):
+			return LangFR
 		}
 	}
-	return "fr"
+	return defaultLang
 }
 
 // T : message traduit (formaté avec args si fourni).
@@ -31,7 +31,7 @@ func T(key string, args ...any) string {
 		return key
 	}
 	text := m[0]
-	if Lang() == "en" {
+	if Lang() == LangEN {
 		text = m[1]
 	}
 	if len(args) > 0 {

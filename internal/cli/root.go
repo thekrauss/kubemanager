@@ -106,9 +106,9 @@ func settings() (config.Settings, error) {
 	if flagProject != "" {
 		s.ProjectID = flagProject
 	}
-	if s.ProjectID == "" && os.Getenv("BETORUN_KEY_FILE") != "" {
+	if s.ProjectID == "" && os.Getenv(config.EnvKeyFile) != "" {
 		// En CI avec un fichier de clé : son projet, sans autre réglage.
-		s.ProjectID = api.KeyFileProject(os.Getenv("BETORUN_KEY_FILE"))
+		s.ProjectID = api.KeyFileProject(os.Getenv(config.EnvKeyFile))
 	}
 	if s.APIURL == "" {
 		return s, errors.New(i18n.T("err.no_api"))
@@ -152,20 +152,20 @@ func client(s config.Settings) *api.Client {
 //
 // nil : aucune, la session de l'utilisateur est utilisée.
 func credentialSource(apiURL string) (api.TokenSource, error) {
-	sa := strings.TrimSpace(os.Getenv("BETORUN_SERVICE_ACCOUNT"))
+	sa := strings.TrimSpace(os.Getenv(config.EnvServiceAccount))
 	switch {
-	case os.Getenv("BETORUN_TOKEN") != "":
-		return api.StaticSource(os.Getenv("BETORUN_TOKEN")), nil
-	case os.Getenv("BETORUN_KEY_FILE") != "":
-		return api.KeyFileSource(os.Getenv("BETORUN_KEY_FILE"))
-	case os.Getenv("BETORUN_TOKEN_FILE") != "":
-		return api.ExchangeSource(apiURL, os.Getenv("BETORUN_STS_TOKEN_URI"), sa, "workload identity",
-			api.FileSubject(os.Getenv("BETORUN_TOKEN_FILE"))), nil
-	case os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL") != "":
+	case os.Getenv(config.EnvToken) != "":
+		return api.StaticSource(os.Getenv(config.EnvToken)), nil
+	case os.Getenv(config.EnvKeyFile) != "":
+		return api.KeyFileSource(os.Getenv(config.EnvKeyFile))
+	case os.Getenv(config.EnvTokenFile) != "":
+		return api.ExchangeSource(apiURL, os.Getenv(config.EnvSTSTokenURI), sa, "workload identity",
+			api.FileSubject(os.Getenv(config.EnvTokenFile))), nil
+	case os.Getenv(config.EnvGitHubIDTokenRequestURL) != "":
 		return api.ExchangeSource(apiURL, "", sa, "GitHub Actions",
-			api.GitHubSubject(os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL"), os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN"), nil)), nil
-	case os.Getenv("BETORUN_ID_TOKEN") != "":
-		return api.ExchangeSource(apiURL, "", sa, "OIDC (BETORUN_ID_TOKEN)", api.EnvSubject("BETORUN_ID_TOKEN")), nil
+			api.GitHubSubject(os.Getenv(config.EnvGitHubIDTokenRequestURL), os.Getenv(config.EnvGitHubIDTokenRequestToken), nil)), nil
+	case os.Getenv(config.EnvIDToken) != "":
+		return api.ExchangeSource(apiURL, "", sa, "OIDC (BETORUN_ID_TOKEN)", api.EnvSubject(config.EnvIDToken)), nil
 	}
 	return nil, nil
 }

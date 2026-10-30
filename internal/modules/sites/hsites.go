@@ -10,12 +10,13 @@ import (
 	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
 	"go.uber.org/zap"
 
+	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 	"github.com/thekrauss/kubemanager/internal/modules/sites/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/sites/service"
 )
 
 // multipartOverhead : marge pour les en-têtes multipart autour de l'archive.
-const multipartOverhead = 1 << 20
+const multipartOverhead = domain.BytesPerMB
 
 type ISiteController interface {
 	CreateSite(c *gin.Context, in *domain.CreateSiteRequest) (*domain.SiteResponse, error)
@@ -109,11 +110,11 @@ func (h *SiteController) UploadDeployment(c *gin.Context, in *domain.UploadPath)
 	max := h.Service.MaxArchiveBytes()
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, max+multipartOverhead)
 
-	fh, err := c.FormFile("archive")
+	fh, err := c.FormFile(domain.ArchiveFormField)
 	if err != nil {
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
-			h.writeError(c, betoerrors.Newf(betoerrors.CodeInvalidInput, "archive trop volumineuse (maximum %d Mo)", max>>20))
+			h.writeError(c, betoerrors.Newf(betoerrors.CodeInvalidInput, "archive trop volumineuse (maximum %d Mo)", max/domain.BytesPerMB))
 			return
 		}
 		h.writeError(c, betoerrors.New(betoerrors.CodeInvalidInput, `champ "archive" (.zip) manquant`))
@@ -195,5 +196,5 @@ func (h *SiteController) writeError(c *gin.Context, err error) {
 	if status >= http.StatusInternalServerError && h.Logger != nil {
 		h.Logger.Errorw("site upload failed", "error", err)
 	}
-	c.Data(status, "application/json", body)
+	c.Data(status, httpheader.MIMEJSON, body)
 }

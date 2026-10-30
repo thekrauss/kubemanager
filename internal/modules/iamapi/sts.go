@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 	"github.com/thekrauss/kubemanager/internal/iam"
 	"github.com/thekrauss/kubemanager/internal/iam/sts"
 	"github.com/thekrauss/kubemanager/internal/middleware/security"
@@ -18,10 +19,10 @@ import (
 
 // Token : POST <issuer>/token, grant jwt-bearer (RFC 7523).
 func (h *Controller) Token(c *gin.Context) {
-	c.Header("Cache-Control", "no-store")
-	c.Header("Pragma", "no-cache")
+	c.Header(httpheader.CacheControl, httpheader.NoStore)
+	c.Header(httpheader.Pragma, httpheader.NoCache)
 	if h.STS == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "temporarily_unavailable"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": oauthErrTemporarilyUnavailable})
 		return
 	}
 	form := map[string]string{}
@@ -30,13 +31,13 @@ func (h *Controller) Token(c *gin.Context) {
 			form[k] = c.Request.PostForm.Get(k)
 		}
 	}
-	if form["grant_type"] == "" { // tolère un corps JSON
+	if form[formGrantType] == "" { // tolère un corps JSON
 		var body map[string]string
 		if c.ShouldBindJSON(&body) == nil {
 			form = body
 		}
 	}
-	grant := form["grant_type"]
+	grant := form[formGrantType]
 
 	var (
 		tok       *sts.Token
@@ -45,16 +46,16 @@ func (h *Controller) Token(c *gin.Context) {
 	)
 	switch grant {
 	case sts.GrantJWTBearer:
-		tok, principal, err = h.STS.ExchangeAssertion(c.Request.Context(), form["assertion"])
+		tok, principal, err = h.STS.ExchangeAssertion(c.Request.Context(), form[formAssertion])
 	case sts.GrantTokenExchange:
 		tok, principal, err = h.STS.ExchangeFederated(c.Request.Context(), sts.ExchangeRequest{
-			SubjectToken: form["subject_token"], SubjectTokenType: form["subject_token_type"],
-			ServiceAccount: form["service_account"],
+			SubjectToken: form[formSubjectToken], SubjectTokenType: form[formSubjectTokenType],
+			ServiceAccount: form[formServiceAccount],
 		})
 	case "":
-		err = &sts.GrantError{Code: "invalid_request", Description: "grant_type is required"}
+		err = &sts.GrantError{Code: oauthErrInvalidRequest, Description: "grant_type is required"}
 	default:
-		err = &sts.GrantError{Code: "unsupported_grant_type", Description: "supported: " + sts.GrantJWTBearer + ", " + sts.GrantTokenExchange}
+		err = &sts.GrantError{Code: oauthErrUnsupportedGrantType, Description: "supported: " + sts.GrantJWTBearer + ", " + sts.GrantTokenExchange}
 	}
 	// Audit : émission ou refus, au nom du compte dès que la clé est connue.
 	if principal != "" {
@@ -67,7 +68,7 @@ func (h *Controller) Token(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": ge.Code, "error_description": ge.Description})
 	case err != nil:
 		_ = c.Error(err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": oauthErrServerError})
 	default:
 		c.JSON(http.StatusOK, tok)
 	}
@@ -76,26 +77,26 @@ func (h *Controller) Token(c *gin.Context) {
 // JWKS : clés publiques de signature des jetons.
 func (h *Controller) JWKS(c *gin.Context) {
 	if h.STS == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "temporarily_unavailable"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": oauthErrTemporarilyUnavailable})
 		return
 	}
-	c.Header("Cache-Control", "public, max-age=300")
+	c.Header(httpheader.CacheControl, cacheControlJWKS)
 	c.JSON(http.StatusOK, h.STS.Keys.JWKS())
 }
 
 // Discovery : métadonnées de l'émetteur (forme OpenID Connect Discovery).
 func (h *Controller) Discovery(c *gin.Context) {
 	if h.STS == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "temporarily_unavailable"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": oauthErrTemporarilyUnavailable})
 		return
 	}
-	c.Header("Cache-Control", "public, max-age=3600")
+	c.Header(httpheader.CacheControl, cacheControlDiscovery)
 	c.JSON(http.StatusOK, gin.H{
 		"issuer":                                h.STS.Issuer,
 		"token_endpoint":                        h.STS.TokenURI(),
 		"jwks_uri":                              h.STS.JWKSURI(),
 		"grant_types_supported":                 []string{sts.GrantJWTBearer, sts.GrantTokenExchange},
-		"token_endpoint_auth_methods_supported": []string{"none"},
+		"token_endpoint_auth_methods_supported": []string{authMethodNone},
 		"token_endpoint_auth_signing_alg_values_supported": []string{iam.SAKeyAlgES256, iam.SAKeyAlgRS256},
 		"access_token_signing_alg_values_supported":        []string{sts.Algorithm},
 	})

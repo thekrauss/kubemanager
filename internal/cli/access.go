@@ -33,14 +33,14 @@ func projectResource() (*api.Client, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	return client(s), "projects/" + project, nil
+	return client(s), prefixProjects + project, nil
 }
 
 // memberRef : "awa@ex.sn" → "user:awa@ex.sn" ; principals complets inchangés.
 func memberRef(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if !strings.Contains(raw, ":") && strings.Contains(raw, "@") {
-		return "user:" + raw
+		return principalUser + raw
 	}
 	return raw
 }
@@ -49,7 +49,7 @@ func memberRef(raw string) string {
 func roleRef(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if !strings.Contains(raw, "/") {
-		return "roles/" + raw
+		return prefixRoles + raw
 	}
 	return raw
 }
@@ -57,12 +57,12 @@ func roleRef(raw string) string {
 // roleLabel : nom court d'un rôle pour l'affichage (roles/viewer → viewer,
 // projects/<id>/roles/ciDeployer → ciDeployer, organizations/<id>/roles/x → x (organisation)).
 func roleLabel(name string) string {
-	if short, ok := strings.CutPrefix(name, "roles/"); ok {
+	if short, ok := strings.CutPrefix(name, prefixRoles); ok {
 		return short
 	}
-	if i := strings.Index(name, "/roles/"); i >= 0 {
-		short := name[i+len("/roles/"):]
-		if strings.HasPrefix(name, "organizations/") {
+	if i := strings.Index(name, segmentCustomRoles); i >= 0 {
+		short := name[i+len(segmentCustomRoles):]
+		if strings.HasPrefix(name, prefixOrganizations) {
 			return short + " (" + i18n.T("roles.scope.org") + ")"
 		}
 		return short
@@ -72,7 +72,7 @@ func roleLabel(name string) string {
 
 // resolvePrincipal : principal de la policy qui correspond à ref (email compris).
 func resolvePrincipal(view *api.PolicyView, ref string) string {
-	email := strings.TrimPrefix(ref, "user:")
+	email := strings.TrimPrefix(ref, principalUser)
 	for _, m := range view.Members {
 		if strings.EqualFold(m.Email, email) {
 			return m.Principal
@@ -145,7 +145,7 @@ func newAccessGrant() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cl, resource := x.cl, "projects/"+x.project
+			cl, resource := x.cl, prefixProjects+x.project
 			member, err := x.member(cmd.Context(), args[0])
 			if err != nil {
 				return err
@@ -199,7 +199,7 @@ func newAccessRevoke() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cl, resource := x.cl, "projects/"+x.project
+			cl, resource := x.cl, prefixProjects+x.project
 			member, err := x.member(cmd.Context(), args[0])
 			if err != nil {
 				return err

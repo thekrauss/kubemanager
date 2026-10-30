@@ -15,6 +15,7 @@ import (
 
 	"github.com/thekrauss/kubemanager/internal/cli/config"
 	"github.com/thekrauss/kubemanager/internal/cli/i18n"
+	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 	identitytypes "github.com/thekrauss/kubemanager/internal/modules/identity/types"
 )
 
@@ -27,7 +28,7 @@ type Error struct {
 
 func (e *Error) Error() string {
 	switch {
-	case e.Code == "STEP_UP_REQUIRED":
+	case e.Code == errCodeStepUpRequired:
 		return i18n.T("err.step_up")
 	case e.Status == http.StatusForbidden:
 		return i18n.T("err.forbidden", e.Message)
@@ -58,7 +59,7 @@ type Client struct {
 }
 
 func New(baseURL string) *Client {
-	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), HTTP: &http.Client{Timeout: 5 * time.Minute}, now: time.Now}
+	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), HTTP: &http.Client{Timeout: httpTimeout}, now: time.Now}
 }
 
 // token : jeton d'accès valide, renouvelé 30 s avant son expiration.
@@ -78,11 +79,11 @@ func (c *Client) token(ctx context.Context) (string, error) {
 		}
 		c.creds = creds
 	}
-	if c.now().Add(30 * time.Second).Before(c.creds.ExpiresAt) {
+	if c.now().Add(sessionRefreshBefore).Before(c.creds.ExpiresAt) {
 		return c.creds.AccessToken, nil
 	}
 	var out identitytypes.RefreshTokenResponse
-	err := c.do(ctx, http.MethodPost, "/identity/refresh", "", identitytypes.RefreshTokenRequest{RefreshToken: c.creds.RefreshToken}, &out)
+	err := c.do(ctx, http.MethodPost, pathIdentityRefresh, "", identitytypes.RefreshTokenRequest{RefreshToken: c.creds.RefreshToken}, &out)
 	var apiErr *Error
 	if errors.As(err, &apiErr) && apiErr.Status < 500 {
 		return "", ErrSessionExpired
@@ -115,7 +116,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 		}
 		err = c.do(ctx, method, path, tok, body, out)
 	}
-	if c.OnStepUp == nil || !errors.As(err, &apiErr) || apiErr.Code != "STEP_UP_REQUIRED" {
+	if c.OnStepUp == nil || !errors.As(err, &apiErr) || apiErr.Code != errCodeStepUpRequired {
 		return err
 	}
 	// Confirmation d'identité, puis la même requête avec la nouvelle session.
@@ -151,7 +152,7 @@ func (c *Client) Upload(ctx context.Context, path, field, filename string, data 
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", mw.contentType())
+	req.Header.Set(httpheader.ContentType, mw.contentType())
 	return c.send(req, tok, out)
 }
 
@@ -169,24 +170,24 @@ func (c *Client) do(ctx context.Context, method, path, tok string, body, out any
 		return err
 	}
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(httpheader.ContentType, httpheader.MIMEJSON)
 	}
 	return c.send(req, tok, out)
 }
 
 func (c *Client) send(req *http.Request, tok string, out any) error {
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Accept-Language", i18n.Lang())
-	req.Header.Set("User-Agent", "betorun-cli")
+	req.Header.Set(httpheader.Accept, httpheader.MIMEJSON)
+	req.Header.Set(httpheader.AcceptLanguage, i18n.Lang())
+	req.Header.Set(httpheader.UserAgent, userAgent)
 	if tok != "" {
-		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set(httpheader.Authorization, bearerPrefix+tok)
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return fmt.Errorf("%s", i18n.T("err.network", c.BaseURL, err))
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
 		return err
 	}
@@ -235,9 +236,9 @@ func (c *Client) Stream(ctx context.Context, path string, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Accept-Language", i18n.Lang())
-	req.Header.Set("User-Agent", "betorun-cli")
-	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set(httpheader.AcceptLanguage, i18n.Lang())
+	req.Header.Set(httpheader.UserAgent, userAgent)
+	req.Header.Set(httpheader.Authorization, bearerPrefix+tok)
 	resp, err := (&http.Client{Transport: c.HTTP.Transport}).Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -247,7 +248,7 @@ func (c *Client) Stream(ctx context.Context, path string, w io.Writer) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxStreamErrorBytes))
 		return decodeError(resp.StatusCode, raw)
 	}
 	_, err = io.Copy(w, resp.Body)

@@ -2,13 +2,15 @@ package activities
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/helm/charts"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/storage/driver"
+	"sort"
 	"strings"
-	"time"
 
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
@@ -18,6 +20,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	idempotency "github.com/thekrauss/kubemanager/internal/infrastructure/idempotence"
+	"github.com/thekrauss/kubemanager/internal/modules/utils"
 )
 
 // WorkloadActivities : activities Temporal pour déployer des workloads via Helm.
@@ -95,12 +98,12 @@ type InstallWorkloadInput struct {
 
 func (a *WorkloadActivities) InstallChart(ctx context.Context, input InstallWorkloadInput) error {
 	_, _, err := idempotency.ExecuteActivity(ctx, a.Idempotency, input,
-		idempotency.ActivityOptions{ProcessingTTL: 10 * time.Minute},
+		idempotency.ActivityOptions{ProcessingTTL: installChartProcessingTTL},
 		func() (struct{}, error) {
 			settings := cli.New()
 
 			actionConfig := new(action.Configuration)
-			if err := actionConfig.Init(settings.RESTClientGetter(), input.Namespace, "secret", func(format string, v ...interface{}) {
+			if err := actionConfig.Init(settings.RESTClientGetter(), input.Namespace, helmStorageDriver, func(format string, v ...interface{}) {
 				fmt.Printf(format, v...)
 			}); err != nil {
 				return struct{}{}, err
@@ -139,9 +142,9 @@ func upgradeOrInstall(cfg *action.Configuration, namespace, name string, ch *cha
 	upgrade := action.NewUpgrade(cfg)
 	upgrade.Namespace = namespace
 	upgrade.Wait = true
-	upgrade.Timeout = 5 * time.Minute
+	upgrade.Timeout = helmInstallTimeout
 	_, err = upgrade.Run(name, ch, vals)
-	if err != nil && strings.Contains(err.Error(), "has no deployed releases") {
+	if err != nil && strings.Contains(err.Error(), helmErrNoDeployedReleases) {
 		// Seulement des tentatives en échec : on réinstalle par-dessus.
 		return install(cfg, namespace, name, ch, vals, true)
 	}
@@ -153,7 +156,7 @@ func install(cfg *action.Configuration, namespace, name string, ch *chart.Chart,
 	in.Namespace = namespace
 	in.ReleaseName = name
 	in.Wait = true
-	in.Timeout = 5 * time.Minute
+	in.Timeout = helmInstallTimeout
 	in.Replace = replace
 	_, err := in.Run(ch, vals)
 	return err
@@ -164,21 +167,21 @@ func install(cfg *action.Configuration, namespace, name string, ch *chart.Chart,
 func (a *WorkloadActivities) UninstallChart(ctx context.Context, namespace, releaseName string) error {
 	payload := struct{ NS, Release string }{namespace, releaseName}
 	_, _, err := idempotency.ExecuteActivity(ctx, a.Idempotency, payload,
-		idempotency.ActivityOptions{ProcessingTTL: 5 * time.Minute},
+		idempotency.ActivityOptions{ProcessingTTL: uninstallChartProcessingTTL},
 		func() (struct{}, error) {
 			settings := cli.New()
 			actionConfig := new(action.Configuration)
-			if err := actionConfig.Init(settings.RESTClientGetter(), namespace, "secret", func(format string, v ...interface{}) {
+			if err := actionConfig.Init(settings.RESTClientGetter(), namespace, helmStorageDriver, func(format string, v ...interface{}) {
 				fmt.Printf(format, v...)
 			}); err != nil {
 				return struct{}{}, err
 			}
 			u := action.NewUninstall(actionConfig)
 			u.Wait = true
-			u.Timeout = 3 * time.Minute
+			u.Timeout = helmUninstallTimeout
 			if _, err := u.Run(releaseName); err != nil {
 				// "release: not found" → considéré idempotent (déjà supprimée).
-				if strings.Contains(err.Error(), "not found") {
+				if strings.Contains(err.Error(), helmErrReleaseNotFound) {
 					return struct{}{}, nil
 				}
 				return struct{}{}, fmt.Errorf("helm uninstall: %w", err)
@@ -202,12 +205,12 @@ func buildHelmValues(input InstallWorkloadInput) map[string]any {
 	// Resources avec fallbacks sur les defaults restrictifs.
 	resources := map[string]any{
 		"requests": map[string]any{
-			"cpu":    fallback(input.CPURequest, "100m"),
-			"memory": fallback(input.MemoryRequest, "128Mi"),
+			"cpu":    fallback(input.CPURequest, defaultCPURequest),
+			"memory": fallback(input.MemoryRequest, defaultMemoryRequest),
 		},
 		"limits": map[string]any{
-			"cpu":    fallback(input.CPULimit, "500m"),
-			"memory": fallback(input.MemoryLimit, "512Mi"),
+			"cpu":    fallback(input.CPULimit, defaultCPULimit),
+			"memory": fallback(input.MemoryLimit, defaultMemoryLimit),
 		},
 	}
 
@@ -215,7 +218,7 @@ func buildHelmValues(input InstallWorkloadInput) map[string]any {
 	podSec := map[string]any{
 		"runAsNonRoot": true,
 		"seccompProfile": map[string]any{
-			"type": "RuntimeDefault",
+			"type": seccompProfileType,
 		},
 	}
 	containerSec := map[string]any{
@@ -223,7 +226,7 @@ func buildHelmValues(input InstallWorkloadInput) map[string]any {
 		"readOnlyRootFilesystem":   input.ReadOnlyRootFS,
 		"runAsNonRoot":             true,
 		"capabilities": map[string]any{
-			"drop": []string{"ALL"},
+			"drop": []string{dropAllCapability},
 		},
 	}
 	if input.RunAsUser > 0 {
@@ -236,7 +239,7 @@ func buildHelmValues(input InstallWorkloadInput) map[string]any {
 	}
 
 	// Probes : HealthPath sert pour liveness + startup par défaut.
-	healthPath := fallback(input.HealthPath, "/")
+	healthPath := fallback(input.HealthPath, defaultHealthPath)
 	readinessPath := fallback(input.ReadinessPath, healthPath)
 
 	vals := map[string]any{
@@ -250,18 +253,18 @@ func buildHelmValues(input InstallWorkloadInput) map[string]any {
 			"tag":        input.ImageTag,
 		},
 		"service": map[string]any{
-			"type":       fallback(input.ServiceType, "ClusterIP"),
-			"port":       80,
+			"type":       fallback(input.ServiceType, defaultServiceType),
+			"port":       defaultServicePort,
 			"targetPort": input.TargetPort,
-			"protocol":   "TCP",
+			"protocol":   defaultServiceProtocol,
 		},
 		"ingress": map[string]any{
 			"enabled":   input.ExternalURL != "", // sans URL publique : pas d'ingress
-			"className": fallback(input.IngressClass, "nginx"),
+			"className": fallback(input.IngressClass, defaultIngressClass),
 			"host":      input.ExternalURL,
 			"tls": map[string]any{
 				"enabled":       input.TLSEnabled,
-				"clusterIssuer": "letsencrypt-prod",
+				"clusterIssuer": defaultClusterIssuer,
 			},
 		},
 		"resources":                resources,
@@ -283,43 +286,43 @@ func buildHelmValues(input InstallWorkloadInput) map[string]any {
 		},
 		"autoscaling": map[string]any{
 			"enabled":                           input.AutoscalingEnabled,
-			"minReplicas":                       fallbackInt32(input.AutoscalingMin, 1),
-			"maxReplicas":                       fallbackInt32(input.AutoscalingMax, 10),
-			"targetCPUUtilizationPercentage":    fallbackInt32(input.AutoscalingTargetCPU, 75),
+			"minReplicas":                       fallbackInt32(input.AutoscalingMin, defaultAutoscalingMinReplicas),
+			"maxReplicas":                       fallbackInt32(input.AutoscalingMax, defaultAutoscalingMaxReplicas),
+			"targetCPUUtilizationPercentage":    fallbackInt32(input.AutoscalingTargetCPU, defaultAutoscalingTargetCPU),
 			"targetMemoryUtilizationPercentage": input.AutoscalingTargetMemory,
 		},
 		"pdb": map[string]any{
 			"enabled":      input.PDBEnabled,
-			"minAvailable": "50%",
+			"minAvailable": defaultPDBMinAvailable,
 		},
 		"probes": map[string]any{
 			"startup": map[string]any{
 				"enabled":          true,
-				"httpGet":          map[string]any{"path": healthPath, "port": "http"},
-				"periodSeconds":    5,
-				"failureThreshold": 30,
+				"httpGet":          map[string]any{"path": healthPath, "port": containerPortName},
+				"periodSeconds":    startupProbePeriodSeconds,
+				"failureThreshold": startupProbeFailureThreshold,
 			},
 			"readiness": map[string]any{
 				"enabled":             true,
-				"httpGet":             map[string]any{"path": readinessPath, "port": "http"},
-				"initialDelaySeconds": 5,
-				"periodSeconds":       10,
-				"timeoutSeconds":      3,
-				"failureThreshold":    3,
+				"httpGet":             map[string]any{"path": readinessPath, "port": containerPortName},
+				"initialDelaySeconds": readinessProbeInitialDelaySeconds,
+				"periodSeconds":       readinessProbePeriodSeconds,
+				"timeoutSeconds":      readinessProbeTimeoutSeconds,
+				"failureThreshold":    readinessProbeFailureThreshold,
 			},
 			"liveness": map[string]any{
 				"enabled":             true,
-				"httpGet":             map[string]any{"path": healthPath, "port": "http"},
-				"initialDelaySeconds": 30,
-				"periodSeconds":       20,
-				"timeoutSeconds":      5,
-				"failureThreshold":    3,
+				"httpGet":             map[string]any{"path": healthPath, "port": containerPortName},
+				"initialDelaySeconds": livenessProbeInitialDelaySeconds,
+				"periodSeconds":       livenessProbePeriodSeconds,
+				"timeoutSeconds":      livenessProbeTimeoutSeconds,
+				"failureThreshold":    livenessProbeFailureThreshold,
 			},
 		},
 		"networkPolicy": map[string]any{
 			"enabled":             true,
-			"ingressNSLabelKey":   "kubernetes.io/metadata.name",
-			"ingressNSLabelValue": fallback(input.IngressNamespace, "ingress-nginx"),
+			"ingressNSLabelKey":   namespaceNameLabel,
+			"ingressNSLabelValue": fallback(input.IngressNamespace, defaultIngressNamespace),
 			"egress": map[string]any{
 				"enabled":     true,
 				"allowDNS":    true,
@@ -331,18 +334,40 @@ func buildHelmValues(input InstallWorkloadInput) map[string]any {
 		"tmpfs": map[string]any{
 			"enabled": input.ReadOnlyRootFS,
 			"mounts": []map[string]any{
-				{"name": "tmp", "path": "/tmp", "sizeLimit": "64Mi"},
-				{"name": "run", "path": "/var/run", "sizeLimit": "16Mi"},
+				{"name": tmpfsTmpName, "path": tmpfsTmpPath, "sizeLimit": tmpfsTmpSizeLimit},
+				{"name": tmpfsRunName, "path": tmpfsRunPath, "sizeLimit": tmpfsRunSizeLimit},
 			},
 		},
-		"envSecretName": input.ReleaseName + "-env",
-	}
-
-	if len(input.Env) > 0 {
-		vals["envVars"] = input.Env
+		// Variables d'environnement : uniquement par le Secret <nom>-env
+		// (envFrom). Avant, elles étaient aussi recopiées en clair dans la
+		// spec du Deployment, lisible par qui peut lire les déploiements.
+		"envSecretName": utils.EnvSecretName(input.ReleaseName),
+		// Empreinte du contenu : change → nouveaux pods (le Secret seul ne
+		// relance rien, et le nom du Secret, lui, ne change jamais).
+		"envChecksum": envChecksum(input.Env, input.Secrets),
 	}
 
 	return vals
+}
+
+// envChecksum : empreinte stable des variables (clés triées).
+func envChecksum(maps ...map[string]string) string {
+	merged := map[string]string{}
+	for _, m := range maps {
+		for k, v := range m {
+			merged[k] = v
+		}
+	}
+	keys := make([]string, 0, len(merged))
+	for k := range merged {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	for _, k := range keys {
+		fmt.Fprintf(h, "%d:%s=%d:%s;", len(k), k, len(merged[k]), merged[k])
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // defaultEgressPublicPorts : ports TCP sortants autorisés vers Internet
@@ -371,16 +396,16 @@ func (a *WorkloadActivities) EnsureSecret(ctx context.Context, nsNam, releaseNam
 	}{nsNam, releaseName, projectID, data}
 
 	_, _, err := idempotency.ExecuteActivity(ctx, a.Idempotency, payload,
-		idempotency.ActivityOptions{ProcessingTTL: 2 * time.Minute},
+		idempotency.ActivityOptions{ProcessingTTL: ensureSecretProcessingTTL},
 		func() (struct{}, error) {
-			secretName := releaseName + "-env"
+			secretName := utils.EnvSecretName(releaseName)
 			_, err := a.K8sClient.CoreV1().Secrets(nsNam).Get(ctx, secretName, metav1.GetOptions{})
 
 			secret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      secretName,
 					Namespace: nsNam,
-					Labels:    map[string]string{"km-project-id": projectID},
+					Labels:    map[string]string{utils.LabelKmProjectID: projectID},
 				},
 				StringData: data,
 			}

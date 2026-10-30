@@ -57,7 +57,7 @@ func (w *GormWriter) Write(ctx context.Context, e *Entry) error {
 	}
 	raw, err := json.Marshal(e.Metadata)
 	if err != nil || e.Metadata == nil {
-		raw = []byte("{}")
+		raw = []byte(emptyMetadata)
 	}
 	e.MetadataDB = raw
 	return w.DB.WithContext(ctx).Create(e).Error
@@ -120,11 +120,17 @@ type Query struct {
 // MaxPageSize : taille maximale d'une page.
 const MaxPageSize = 200
 
+// DefaultPageSize : taille d'une page si non précisée.
+const DefaultPageSize = 50
+
+// emptyMetadata : métadonnées enregistrées quand il n'y en a pas.
+const emptyMetadata = "{}"
+
 // List lit le journal selon q.
 func List(ctx context.Context, db *gorm.DB, q Query) ([]Entry, error) {
 	limit := q.Limit
 	if limit <= 0 || limit > MaxPageSize {
-		limit = 50
+		limit = DefaultPageSize
 	}
 	tx := db.WithContext(ctx).Model(&Entry{})
 	switch {

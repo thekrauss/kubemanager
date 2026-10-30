@@ -1,6 +1,7 @@
 package workloads
 
 import (
+	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 	"github.com/thekrauss/kubemanager/internal/middleware/security"
 	"io"
 	"net/http"
@@ -192,8 +193,8 @@ func (h *WorkloadController) GetWorkloadLogs(c *gin.Context, in *LogsRequest) {
 	}
 	defer stream.Close()
 
-	c.Writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set(httpheader.ContentType, httpheader.MIMETextPlainUTF8)
+	c.Writer.Header().Set(httpheader.CacheControl, httpheader.NoCache)
 	c.Writer.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(c.Writer, stream)
 }

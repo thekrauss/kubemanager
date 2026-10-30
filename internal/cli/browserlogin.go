@@ -15,6 +15,7 @@ import (
 	"github.com/thekrauss/kubemanager/internal/cli/api"
 	"github.com/thekrauss/kubemanager/internal/cli/config"
 	"github.com/thekrauss/kubemanager/internal/cli/i18n"
+	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 )
 
 // Connexion par le navigateur avec retour vers un serveur local éphémère
@@ -28,12 +29,12 @@ var browserLoginTimeout = 5 * time.Minute
 var openURL = openBrowser
 
 func browserLogin(ctx context.Context, cl *api.Client, out io.Writer, stepUp, open bool) (*config.Credentials, error) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := net.Listen("tcp", loopbackListenAddr)
 	if err != nil {
 		return nil, err
 	}
 	defer ln.Close()
-	redirect := fmt.Sprintf("http://127.0.0.1:%d/callback", ln.Addr().(*net.TCPAddr).Port)
+	redirect := fmt.Sprintf(loopbackRedirectFormat, ln.Addr().(*net.TCPAddr).Port)
 
 	link, err := cl.BrowserLoginURL(ctx, redirect, stepUp)
 	if err != nil {
@@ -49,8 +50,8 @@ func browserLogin(ctx context.Context, cl *api.Client, out io.Writer, stepUp, op
 		err         error
 	}
 	done := make(chan result, 1)
-	srv := &http.Server{ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/callback" {
+	srv := &http.Server{ReadHeaderTimeout: loopbackReadHeaderTimeout, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != loopbackCallbackPath {
 			http.NotFound(w, r)
 			return
 		}
@@ -63,7 +64,7 @@ func browserLogin(ctx context.Context, cl *api.Client, out io.Writer, stepUp, op
 			// Un autre onglet ou une autre application ne peut pas injecter un code.
 			res.err = errors.New(i18n.T("login.browser_state"))
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set(httpheader.ContentType, httpheader.MIMETextHTMLUTF8)
 		msg := i18n.T("login.browser_done")
 		if res.err != nil {
 			msg = res.err.Error()
@@ -106,7 +107,7 @@ func browserLogin(ctx context.Context, cl *api.Client, out io.Writer, stepUp, op
 
 // interactive : un humain peut répondre (terminal), pas une CI ni un script.
 func interactive() bool {
-	if os.Getenv("CI") != "" {
+	if os.Getenv(config.EnvCI) != "" {
 		return false
 	}
 	fi, err := os.Stdin.Stat()

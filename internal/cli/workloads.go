@@ -16,11 +16,11 @@ import (
 
 // États d'un conteneur après un déploiement.
 var (
-	workloadReady = map[string]bool{"RUNNING": true, "DEPLOYED": true, "STARTED": true}
+	workloadReady = map[string]bool{statusRunning: true, phaseDeployed: true, phaseStarted: true}
 	// Échecs signalés par le workflow, ou par le watcher pendant le démarrage
 	// (avant : la CLI attendait 10 minutes un conteneur en CrashLoopBackOff).
-	workloadFailed = map[string]bool{"FAILED": true, "HELM_ERROR": true, "IMAGE_PARSE_ERROR": true, "SECRET_CREATION_ERROR": true,
-		"CRASHLOOP": true, "IMAGE_PULL_FAILED": true, "CONFIG_ERROR": true, "OOM_KILLED": true}
+	workloadFailed = map[string]bool{statusFailed: true, phaseHelmError: true, phaseImageParseError: true, phaseSecretCreateError: true,
+		statusCrashLoop: true, statusImagePullFailed: true, statusConfigError: true, statusOOMKilled: true}
 
 	workloadPollEvery = 3 * time.Second
 	workloadTimeout   = 10 * time.Minute
@@ -132,10 +132,10 @@ func newWorkloadsDeploy() *cobra.Command {
 	f := c.Flags()
 	f.StringVarP(&req.Name, "name", "n", "", i18n.T("flag.wl.name"))
 	f.StringVarP(&req.Image, "image", "i", "", i18n.T("flag.wl.image"))
-	f.IntVar(&req.TargetPort, "port", 8080, i18n.T("flag.wl.port"))
+	f.IntVar(&req.TargetPort, "port", defaultTargetPort, i18n.T("flag.wl.port"))
 	f.IntVar(&req.Replicas, "replicas", 1, i18n.T("flag.wl.replicas"))
-	f.StringVar(&req.CPULimit, "cpu", "500m", i18n.T("flag.wl.cpu"))
-	f.StringVar(&req.MemoryLimit, "memory", "512Mi", i18n.T("flag.wl.memory"))
+	f.StringVar(&req.CPULimit, "cpu", defaultCPULimit, i18n.T("flag.wl.cpu"))
+	f.StringVar(&req.MemoryLimit, "memory", defaultMemoryLimit, i18n.T("flag.wl.memory"))
 	f.StringArrayVarP(&env, "env", "e", nil, i18n.T("flag.wl.env"))
 	f.StringVar(&req.ServiceAccount, "service-account", "", i18n.T("flag.wl.sa"))
 	f.BoolVar(&req.TLSEnabled, "tls", false, i18n.T("flag.wl.tls"))
@@ -254,7 +254,7 @@ func newWorkloadsLogs() *cobra.Command {
 	}
 	f := c.Flags()
 	f.BoolVarP(&o.Follow, "follow", "f", false, i18n.T("flag.logs.follow"))
-	f.Int64Var(&o.Tail, "tail", 200, i18n.T("flag.logs.tail"))
+	f.Int64Var(&o.Tail, "tail", defaultLogTail, i18n.T("flag.logs.tail"))
 	f.DurationVar(&since, "since", 0, i18n.T("flag.logs.since"))
 	f.BoolVar(&o.Previous, "previous", false, i18n.T("flag.logs.previous"))
 	f.BoolVar(&o.Timestamps, "timestamps", false, i18n.T("flag.logs.timestamps"))

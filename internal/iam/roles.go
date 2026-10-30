@@ -69,16 +69,16 @@ var (
 )
 
 var predefinedRoles = []Role{
-	{Name: "roles/owner", Title: "Propriétaire",
+	{Name: RoleOwner, Title: "Propriétaire",
 		Description: "Accès complet, y compris les accès, la facturation et la suppression.",
 		Permissions: ownerPerms},
-	{Name: "roles/editor", Title: "Éditeur",
+	{Name: RoleEditor, Title: "Éditeur",
 		Description: "Crée, modifie et supprime les ressources ; ne gère ni les accès ni la facturation.",
 		Permissions: editorPerms},
-	{Name: "roles/developer", Title: "Développeur",
+	{Name: RoleDeveloper, Title: "Développeur",
 		Description: "Déploie et opère les conteneurs et les sites, sans rien supprimer.",
 		Permissions: developerPerms},
-	{Name: "roles/viewer", Title: "Lecteur",
+	{Name: RoleViewer, Title: "Lecteur",
 		Description: "Consulte les ressources, les logs et les métriques.",
 		Permissions: viewerPerms},
 
@@ -124,10 +124,10 @@ var predefinedRoles = []Role{
 		Description: "Lit le journal d'audit.",
 		Permissions: []Permission{AuditLogsRead}},
 
-	{Name: "roles/platform.admin", Title: "Administrateur plateforme",
+	{Name: RolePlatformAdmin, Title: "Administrateur plateforme",
 		Description: "Staff betorun : opère la flotte de clusters.",
 		Permissions: platformAdminPerms, PlatformOnly: true},
-	{Name: "roles/platform.support", Title: "Support plateforme",
+	{Name: RolePlatformSupport, Title: "Support plateforme",
 		Description: "Staff betorun : consulte la flotte.",
 		Permissions: []Permission{PlatformClustersList, PlatformClusterKeysList}, PlatformOnly: true},
 	// Attribué par la plateforme au compte de service système d'un cluster,
@@ -169,7 +169,7 @@ func PredefinedRoles() []Role {
 // IsPredefinedRoleName : "roles/x" sans "/" supplémentaire. Les rôles
 // personnalisés auront la forme "organizations/{o}/roles/{r}".
 func IsPredefinedRoleName(name string) bool {
-	return strings.HasPrefix(name, "roles/") && !strings.Contains(strings.TrimPrefix(name, "roles/"), "/")
+	return strings.HasPrefix(name, RolePrefix) && !strings.Contains(strings.TrimPrefix(name, RolePrefix), "/")
 }
 
 func concat(a, b []Permission) []Permission {

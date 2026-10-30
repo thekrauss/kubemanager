@@ -139,8 +139,11 @@ func (s *minioStore) DeletePrefix(ctx context.Context, prefix string) error {
 	return nil
 }
 
+// s3CodeNoSuchKey : code d'erreur S3 d'un objet absent.
+const s3CodeNoSuchKey = "NoSuchKey"
+
 func mapErr(err error) error {
-	if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+	if minio.ToErrorResponse(err).Code == s3CodeNoSuchKey {
 		return ErrNotFound
 	}
 	return err

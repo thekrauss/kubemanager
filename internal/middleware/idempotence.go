@@ -8,11 +8,11 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 	idempotencyinfra "github.com/thekrauss/kubemanager/internal/infrastructure/idempotence"
 )
 
@@ -25,10 +25,11 @@ var (
 // Limites anti-DoS (fix M10) :
 //   - maxIdempotencyBodySize : plafond pour io.ReadAll du body requête
 //   - maxIdempotencyCacheSize : plafond pour le buffer de réponse cachée
+//
 // Au-delà, la requête passe normalement mais n'est PAS mise en cache idempotent.
 const (
-	maxIdempotencyBodySize  = 1 << 20      // 1 MiB
-	maxIdempotencyCacheSize = 1 << 20      // 1 MiB
+	maxIdempotencyBodySize  = 1 << 20 // 1 MiB
+	maxIdempotencyCacheSize = 1 << 20 // 1 MiB
 )
 
 // SetIdempotencyManager wires the idempotency manager used by the middleware.
@@ -105,7 +106,7 @@ func Idempotency() gin.HandlerFunc {
 			return
 		}
 
-		key := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+		key := strings.TrimSpace(c.GetHeader(httpheader.IdempotencyKey))
 		if key == "" {
 			c.Next()
 			return
@@ -154,24 +155,24 @@ func Idempotency() gin.HandlerFunc {
 		}
 
 		// Scope la clé par user — un user A ne peut pas replay la réponse de B.
-		scopedKey := fmt.Sprintf("idem:%s:%s:%s:%s", userID, c.Request.Method, c.FullPath(), key)
+		scopedKey := fmt.Sprintf(idempotencyKeyFormat, userID, c.Request.Method, c.FullPath(), key)
 
 		ctx := c.Request.Context()
 
 		var cached cachedHTTPResponse
-		beginStatus, err := mgr.Begin(ctx, scopedKey, hash, 2*time.Minute, &cached)
+		beginStatus, err := mgr.Begin(ctx, scopedKey, hash, idempotencyProcessingTTL, &cached)
 		if err != nil {
 			switch {
 			case errors.Is(err, idempotencyinfra.ErrPayloadMismatch):
 				c.AbortWithStatusJSON(http.StatusConflict, gin.H{
 					"error":             "Idempotency-Key already used with a different request payload",
-					"idempotency_error": "payload_mismatch",
+					idempotencyErrorKey: idempotencyErrPayloadMismatch,
 				})
 			case errors.Is(err, idempotencyinfra.ErrInProgress):
-				c.Header("Retry-After", "5")
+				c.Header(httpheader.RetryAfter, idempotencyRetryAfter)
 				c.AbortWithStatusJSON(http.StatusConflict, gin.H{
 					"error":             "Identical request already being processed — retry in a few seconds",
-					"idempotency_error": "in_progress",
+					idempotencyErrorKey: idempotencyErrInProgress,
 				})
 			default:
 				if log != nil {
@@ -186,18 +187,18 @@ func Idempotency() gin.HandlerFunc {
 		case idempotencyinfra.BeginCompleted:
 			ct := cached.ContentType
 			if ct == "" {
-				ct = "application/json; charset=utf-8"
+				ct = httpheader.MIMEJSONUTF8
 			}
-			c.Header("Idempotency-Status", "hit")
+			c.Header(httpheader.IdempotencyStatus, idempotencyStatusHit)
 			c.Data(cached.StatusCode, ct, cached.Body)
 			c.Abort()
 			return
 
 		case idempotencyinfra.BeginInProgress:
-			c.Header("Retry-After", "5")
+			c.Header(httpheader.RetryAfter, idempotencyRetryAfter)
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{
 				"error":             "Identical request already being processed — retry in a few seconds",
-				"idempotency_error": "in_progress",
+				idempotencyErrorKey: idempotencyErrInProgress,
 			})
 			return
 		}
@@ -210,7 +211,7 @@ func Idempotency() gin.HandlerFunc {
 		}
 		c.Writer = cw
 
-		c.Header("Idempotency-Status", "miss")
+		c.Header(httpheader.IdempotencyStatus, idempotencyStatusMiss)
 		c.Next()
 
 		switch {
@@ -228,7 +229,7 @@ func Idempotency() gin.HandlerFunc {
 			resp := cachedHTTPResponse{
 				StatusCode:  cw.status,
 				Body:        cw.buf.Bytes(),
-				ContentType: cw.Header().Get("Content-Type"),
+				ContentType: cw.Header().Get(httpheader.ContentType),
 			}
 			if completeErr := mgr.Complete(ctx, scopedKey, hash, resp); completeErr != nil && log != nil {
 				log.Warnw("idempotency: Complete failed", "key", scopedKey, "error", completeErr)

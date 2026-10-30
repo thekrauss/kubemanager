@@ -49,9 +49,9 @@ func (r *pgProjectRepo) CreateProject(ctx context.Context, project *dauth.Projec
 		}
 		if err := iam.AddBinding(ctx, tx, iam.Binding{
 			Resource:  iam.ProjectName(project.ID),
-			Role:      "roles/owner",
+			Role:      iam.RoleOwner,
 			Principal: iam.UserPrincipal(ownerUUID),
-		}, "user:"+ownerID); err != nil {
+		}, iam.KindUser+iam.PrincipalSeparator+ownerID); err != nil {
 			return err
 		}
 		return nil

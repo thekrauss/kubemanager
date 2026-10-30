@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 )
 
 // SecureHeaders adds defence-in-depth HTTP response headers.
@@ -11,28 +12,28 @@ func SecureHeaders() gin.HandlerFunc {
 		h := c.Writer.Header()
 
 		// Clickjacking protection
-		h.Set("X-Frame-Options", "DENY")
+		h.Set(httpheader.XFrameOptions, secureFrameOptions)
 
 		// MIME-sniffing protection
-		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set(httpheader.XContentTypeOpts, httpheader.NoSniff)
 
 		// XSS reflection filter (legacy browsers)
-		h.Set("X-XSS-Protection", "1; mode=block")
+		h.Set(httpheader.XXSSProtection, secureXSSProtection)
 
 		// HSTS — force HTTPS for 1 year, include subdomains
-		h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+		h.Set(httpheader.StrictTransportSec, secureHSTS)
 
 		// Referrer policy — send origin only on cross-origin, full on same-origin
-		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		h.Set(httpheader.ReferrerPolicy, secureReferrerPolicy)
 
 		// Content Security Policy — API server, block everything except self
-		h.Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		h.Set(httpheader.ContentSecPolicy, secureContentSecurityPolicy)
 
 		// Prevent browsers from caching API responses with auth data
-		h.Set("Cache-Control", "no-store")
+		h.Set(httpheader.CacheControl, httpheader.NoStore)
 
 		// Permissions policy — disable sensitive browser features
-		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+		h.Set(httpheader.PermissionsPolicy, securePermissionsPolicy)
 
 		c.Next()
 	}

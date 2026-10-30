@@ -26,7 +26,7 @@ func NewDBProvider(cfg configs.DBConfig, logLevel string) (*DBProvider, error) {
 
 	migrationsPath := cfg.MigrationsPath
 	if migrationsPath == "" {
-		migrationsPath = "./migrations"
+		migrationsPath = DefaultMigrationsPath
 	}
 	gormDB, err := InitDatabase(dbCfg, migrationsPath)
 	if err != nil {

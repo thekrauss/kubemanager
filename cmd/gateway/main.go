@@ -25,9 +25,9 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cfgPath := os.Getenv("KUBEMANAGER_CONFIG_PATH")
+	cfgPath := os.Getenv(envConfigPath)
 	if cfgPath == "" {
-		cfgPath = "/app/internal/core/configs/config.yaml"
+		cfgPath = defaultConfigPath
 	}
 
 	cfg, err := configs.Load(cfgPath)
