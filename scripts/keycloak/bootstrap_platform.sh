@@ -7,6 +7,7 @@
 #       * kubemanager-api    (confidentiel, audience mapper)
 #       * kubemanager-admin  (confidentiel, service account + rôles realm-management)
 #       * kubemanager-web    (public, PKCE, redirects pour le frontend)
+#       * betorun-cli        (public, OAuth 2.0 Device Authorization Grant : `betorun login`)
 #   - Configure les Identity Providers sociaux (Google, GitHub) selon les env vars
 #   - Affiche le secret admin à mettre dans KUBEMANAGER_KEYCLOAK_ADMIN_CLIENT_SECRET
 #
@@ -36,6 +37,7 @@ KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-admin}"
 API_CLIENT_ID="${API_CLIENT_ID:-kubemanager-api}"
 ADMIN_CLIENT_ID="${ADMIN_CLIENT_ID:-kubemanager-admin}"
 WEB_CLIENT_ID="${WEB_CLIENT_ID:-kubemanager-web}"
+CLI_CLIENT_ID="${CLI_CLIENT_ID:-betorun-cli}"
 
 WEB_FRONTEND_BASE_URL="${WEB_FRONTEND_BASE_URL:-http://127.0.0.1:3000}"
 WEB_FRONTEND_ALT_BASE_URL="${WEB_FRONTEND_ALT_BASE_URL:-http://localhost:3000}"
@@ -327,6 +329,46 @@ ensure_admin_client() {
   echo "$uuid"
 }
 
+# Client de la CLI : flux device (RFC 8628). La personne valide le code dans
+# son navigateur (flow browser du realm, donc MFA compris) ; la CLI reçoit
+# ses jetons. Public (pas de secret dans un binaire distribué), sans aucun
+# autre flux.
+ensure_cli_client() {
+  local realm="$1" clientId="$2"
+  local uuid payload
+  payload="$(
+    jq -n --arg cid "$clientId" '{
+      clientId: $cid,
+      name: "betorun CLI",
+      protocol: "openid-connect",
+      enabled: true,
+      publicClient: true,
+      bearerOnly: false,
+      standardFlowEnabled: false,
+      implicitFlowEnabled: false,
+      directAccessGrantsEnabled: false,
+      serviceAccountsEnabled: false,
+      fullScopeAllowed: true,
+      attributes: {
+        "oauth2.device.authorization.grant.enabled": "true",
+        "oauth2.device.code.lifespan": "600",
+        "oauth2.device.polling.interval": "5"
+      }
+    }'
+  )"
+  uuid="$(get_client_uuid "$realm" "$clientId")"
+  if [ -n "$uuid" ]; then
+    log "Reconciling CLI client ${clientId} (${uuid})"
+    api PUT "/admin/realms/${realm}/clients/${uuid}" "$payload" >/dev/null
+  else
+    log "Creating CLI client ${clientId}"
+    api POST "/admin/realms/${realm}/clients" "$payload" >/dev/null
+    uuid="$(get_client_uuid "$realm" "$clientId")"
+  fi
+  [ -n "$uuid" ] || fail "failed to resolve CLI client uuid"
+  echo "$uuid"
+}
+
 ensure_web_client() {
   local realm="$1" clientId="$2"
   local primary="${3%/}" alternate="${4%/}"
@@ -526,6 +568,12 @@ main() {
   # aud=<API client>, sinon l'AuthMiddleware (strict_audience) les refuse.
   ensure_audience_mapper "$KEYCLOAK_REALM" "$web_uuid" "$API_CLIENT_ID"
 
+  log "Ensuring CLI client ${CLI_CLIENT_ID} (device flow)"
+  local cli_uuid
+  cli_uuid="$(ensure_cli_client "$KEYCLOAK_REALM" "$CLI_CLIENT_ID")"
+  # Comme le client web : aud=<API client>, sinon strict_audience refuse les jetons.
+  ensure_audience_mapper "$KEYCLOAK_REALM" "$cli_uuid" "$API_CLIENT_ID"
+
   log "Configuring social identity providers"
   configure_social_idps "$KEYCLOAK_REALM"
 
@@ -549,6 +597,7 @@ main() {
   echo "Client (API):   ${API_CLIENT_ID}"
   echo "Client (Admin): ${ADMIN_CLIENT_ID}"
   echo "Client (Web):   ${WEB_CLIENT_ID}"
+  echo "Client (CLI):   ${CLI_CLIENT_ID} (device flow)"
   if is_true "$KEYCLOAK_SMTP_ENABLED"; then
     echo "SMTP:           ${KEYCLOAK_SMTP_HOST}:${KEYCLOAK_SMTP_PORT} (from=${KEYCLOAK_SMTP_FROM})"
     if [ "${KEYCLOAK_SMTP_HOST}" = "mailhog" ] || [ "${KEYCLOAK_SMTP_HOST}" = "127.0.0.1" ]; then
@@ -568,6 +617,7 @@ main() {
   echo "  KUBEMANAGER_KEYCLOAK_REALM=${KEYCLOAK_REALM}"
   echo "  KUBEMANAGER_KEYCLOAK_ISSUER_URL=${KEYCLOAK_BASE_URL}/realms/${KEYCLOAK_REALM}"
   echo "  KUBEMANAGER_KEYCLOAK_CLIENT_ID=${API_CLIENT_ID}"
+  echo "  KUBEMANAGER_KEYCLOAK_CLI_CLIENT_ID=${CLI_CLIENT_ID}"
   echo
   echo "Next steps :"
   echo "  1. Créer un user de test :"
