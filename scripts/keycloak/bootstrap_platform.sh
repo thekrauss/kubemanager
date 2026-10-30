@@ -63,6 +63,16 @@ KEYCLOAK_SMTP_PASSWORD="${KEYCLOAK_SMTP_PASSWORD:-}"
 KEYCLOAK_SMTP_STARTTLS="${KEYCLOAK_SMTP_STARTTLS:-false}"
 KEYCLOAK_SMTP_SSL="${KEYCLOAK_SMTP_SSL:-false}"
 
+# Double authentification (docs/architecture/iam.md §9.1) : niveaux
+# silver (mot de passe) et gold (mot de passe + code TOTP), flux de connexion
+# conditionnel lié au realm. Le backend demande acr=gold pour le step-up :
+# KUBEMANAGER_IAM_MFA_ACR_VALUES=gold.
+KEYCLOAK_MFA_ENABLED="${KEYCLOAK_MFA_ENABLED:-true}"
+MFA_FLOW_ALIAS="${MFA_FLOW_ALIAS:-betorun-browser}"
+# Durée (s) pendant laquelle un niveau atteint reste valable dans la session.
+MFA_LOA1_MAX_AGE="${MFA_LOA1_MAX_AGE:-36000}"
+MFA_LOA2_MAX_AGE="${MFA_LOA2_MAX_AGE:-300}"
+
 # Rôles du client API à provisionner.
 API_CLIENT_ROLES=(
   "PLATFORM_ADMIN"
@@ -329,10 +339,11 @@ ensure_admin_client() {
   echo "$uuid"
 }
 
-# Client de la CLI : flux device (RFC 8628). La personne valide le code dans
-# son navigateur (flow browser du realm, donc MFA compris) ; la CLI reçoit
-# ses jetons. Public (pas de secret dans un binaire distribué), sans aucun
-# autre flux.
+# Client de la CLI. Public (pas de secret dans un binaire distribué).
+#   - flux device (RFC 8628) : `betorun login`, code validé dans le navigateur ;
+#   - Authorization Code + PKCE vers un serveur local éphémère (RFC 8252) :
+#     `betorun login --mfa` et step-up des actions sensibles. Keycloak accepte
+#     tout port sur 127.0.0.1 pour cette URI, et seulement ce chemin.
 ensure_cli_client() {
   local realm="$1" clientId="$2"
   local uuid payload
@@ -344,7 +355,9 @@ ensure_cli_client() {
       enabled: true,
       publicClient: true,
       bearerOnly: false,
-      standardFlowEnabled: false,
+      standardFlowEnabled: true,
+      redirectUris: ["http://127.0.0.1/callback"],
+      webOrigins: [],
       implicitFlowEnabled: false,
       directAccessGrantsEnabled: false,
       serviceAccountsEnabled: false,
@@ -352,7 +365,8 @@ ensure_cli_client() {
       attributes: {
         "oauth2.device.authorization.grant.enabled": "true",
         "oauth2.device.code.lifespan": "600",
-        "oauth2.device.polling.interval": "5"
+        "oauth2.device.polling.interval": "5",
+        "pkce.code.challenge.method": "S256"
       }
     }'
   )"
@@ -537,6 +551,86 @@ configure_social_idps() {
 # =====================
 # Main
 # =====================
+# =====================
+# Double authentification (niveaux d'authentification)
+# =====================
+uri() { jq -rn --arg s "$1" '$s|@uri'; }
+
+# Identifiant de l'exécution (ou du sous-flux) nommé $2 parmi les enfants
+# directs du flux $1 (providerId pour une exécution, displayName pour un sous-flux).
+flow_child_id() {
+  local flow="$1" key="$2"
+  api GET "/admin/realms/${KEYCLOAK_REALM}/authentication/flows/$(uri "$flow")/executions" \
+    | jq -r --arg k "$key" '[.[] | select(.level == 0 and (.providerId == $k or .displayName == $k))] | last | .id // empty'
+}
+
+set_requirement() {
+  local flow="$1" id="$2" requirement="$3"
+  api PUT "/admin/realms/${KEYCLOAK_REALM}/authentication/flows/$(uri "$flow")/executions" \
+    "$(jq -n --arg id "$id" --arg r "$requirement" '{id: $id, requirement: $r}')" >/dev/null
+}
+
+add_execution() {
+  local flow="$1" provider="$2" requirement="$3" id
+  api POST "/admin/realms/${KEYCLOAK_REALM}/authentication/flows/$(uri "$flow")/executions/execution" \
+    "$(jq -n --arg p "$provider" '{provider: $p}')" >/dev/null
+  id="$(flow_child_id "$flow" "$provider")"
+  [ -n "$id" ] || fail "execution ${provider} not found in ${flow}"
+  set_requirement "$flow" "$id" "$requirement"
+  echo "$id"
+}
+
+add_subflow() {
+  local parent="$1" alias="$2" requirement="$3" id
+  api POST "/admin/realms/${KEYCLOAK_REALM}/authentication/flows/$(uri "$parent")/executions/flow" \
+    "$(jq -n --arg a "$alias" '{alias: $a, type: "basic-flow", provider: "registration-page-form", description: ""}')" >/dev/null
+  id="$(flow_child_id "$parent" "$alias")"
+  [ -n "$id" ] || fail "subflow ${alias} not found in ${parent}"
+  set_requirement "$parent" "$id" "$requirement"
+}
+
+# Sous-flux conditionnel « niveau $level atteint » : condition puis facteur.
+add_loa_step() {
+  local parent="$1" level="$2" max_age="$3" factor="$4" sub cond_id
+  sub="${MFA_FLOW_ALIAS} loa${level}"
+  add_subflow "$parent" "$sub" "CONDITIONAL"
+  cond_id="$(add_execution "$sub" "conditional-level-of-authentication" "REQUIRED")"
+  api POST "/admin/realms/${KEYCLOAK_REALM}/authentication/executions/${cond_id}/config" \
+    "$(jq -n --arg a "${MFA_FLOW_ALIAS}-loa${level}" --arg l "$level" --arg m "$max_age" \
+      '{alias: $a, config: {"loa-condition-level": $l, "loa-max-age": $m}}')" >/dev/null
+  add_execution "$sub" "$factor" "REQUIRED" >/dev/null
+}
+
+ensure_mfa_loa() {
+  local realm="$1" exists
+  log "Configuring authentication levels (silver=1 password, gold=2 password+TOTP)"
+  api PUT "/admin/realms/${realm}" \
+    "$(jq -n '{attributes: {"acr.loa.map": "{\"silver\":1,\"gold\":2}"}}')" >/dev/null
+
+  exists="$(api GET "/admin/realms/${realm}/authentication/flows" | jq --arg a "$MFA_FLOW_ALIAS" 'any(.[]; .alias == $a)')"
+  if [ "$exists" = "true" ]; then
+    log "Authentication flow ${MFA_FLOW_ALIAS} already exists (left as is)"
+  else
+    log "Creating authentication flow ${MFA_FLOW_ALIAS}"
+    api POST "/admin/realms/${realm}/authentication/flows" \
+      "$(jq -n --arg a "$MFA_FLOW_ALIAS" '{alias: $a, description: "betorun : mot de passe (silver), puis code TOTP à la demande (gold)", providerId: "basic-flow", topLevel: true, builtIn: false}')" >/dev/null
+    # Session existante (cookie) : rien à redemander, sauf niveau supérieur.
+    add_execution "$MFA_FLOW_ALIAS" "auth-cookie" "ALTERNATIVE" >/dev/null
+    add_subflow "$MFA_FLOW_ALIAS" "${MFA_FLOW_ALIAS} forms" "ALTERNATIVE"
+    add_loa_step "${MFA_FLOW_ALIAS} forms" 1 "$MFA_LOA1_MAX_AGE" "auth-username-password-form"
+    # Sans application configurée, l'OTP Form déclenche l'action requise
+    # « Configure OTP » : l'utilisateur enregistre son application à ce moment.
+    add_loa_step "${MFA_FLOW_ALIAS} forms" 2 "$MFA_LOA2_MAX_AGE" "auth-otp-form"
+  fi
+
+  api PUT "/admin/realms/${realm}" "$(jq -n --arg a "$MFA_FLOW_ALIAS" '{browserFlow: $a}')" >/dev/null
+  # Facteurs que l'utilisateur peut enregistrer lui-même.
+  for action in CONFIGURE_TOTP webauthn-register-passwordless; do
+    api PUT "/admin/realms/${realm}/authentication/required-actions/${action}" \
+      "$(api GET "/admin/realms/${realm}/authentication/required-actions/${action}" | jq '.enabled = true')" >/dev/null
+  done
+}
+
 main() {
   require_bin curl
   require_bin jq
@@ -573,6 +667,10 @@ main() {
   cli_uuid="$(ensure_cli_client "$KEYCLOAK_REALM" "$CLI_CLIENT_ID")"
   # Comme le client web : aud=<API client>, sinon strict_audience refuse les jetons.
   ensure_audience_mapper "$KEYCLOAK_REALM" "$cli_uuid" "$API_CLIENT_ID"
+
+  if is_true "$KEYCLOAK_MFA_ENABLED"; then
+    ensure_mfa_loa "$KEYCLOAK_REALM"
+  fi
 
   log "Configuring social identity providers"
   configure_social_idps "$KEYCLOAK_REALM"
@@ -618,6 +716,9 @@ main() {
   echo "  KUBEMANAGER_KEYCLOAK_ISSUER_URL=${KEYCLOAK_BASE_URL}/realms/${KEYCLOAK_REALM}"
   echo "  KUBEMANAGER_KEYCLOAK_CLIENT_ID=${API_CLIENT_ID}"
   echo "  KUBEMANAGER_KEYCLOAK_CLI_CLIENT_ID=${CLI_CLIENT_ID}"
+  if is_true "$KEYCLOAK_MFA_ENABLED"; then
+    echo "  KUBEMANAGER_IAM_MFA_ACR_VALUES=gold"
+  fi
   echo
   echo "Next steps :"
   echo "  1. Créer un user de test :"
