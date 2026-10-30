@@ -56,7 +56,11 @@ type Service struct {
 	DB     *gorm.DB
 	// Federation : émetteurs OIDC externes (nil : fédération désactivée).
 	Federation *Issuers
-	now        func() time.Time
+	// WorkloadClusterID : cluster des workloads betorun (vide : identité des
+	// workloads désactivée).
+	WorkloadClusterID string
+	workloadKeys      workloadKeys
+	now               func() time.Time
 
 	statusMu sync.Mutex
 	status   map[string]statusEntry
@@ -186,6 +190,13 @@ func (s *Service) checkStatus(ctx context.Context, p iam.Principal, keyID string
 	}
 	if keyID == "" {
 		return true, nil
+	}
+	if workloadID, ok := strings.CutPrefix(keyID, workloadRefPrefix); ok {
+		// Jeton de workload : le workload existe et tourne toujours comme ce compte.
+		var n int64
+		err = db.Raw(`SELECT count(*) FROM workloads WHERE id::text = ? AND service_account_id = ?`,
+			workloadID, id).Row().Scan(&n)
+		return n == 1, err
 	}
 	if trustID, ok := strings.CutPrefix(keyID, trustRefPrefix); ok {
 		// Jeton fédéré : la relation de confiance doit toujours exister.

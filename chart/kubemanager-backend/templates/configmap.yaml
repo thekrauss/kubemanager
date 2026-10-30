@@ -31,6 +31,7 @@ data:
   KUBEMANAGER_KEYCLOAK_AUDIENCE: {{ .Values.config.keycloak.audience | quote }}
   KUBEMANAGER_KEYCLOAK_CLI_CLIENT_ID: {{ .Values.config.keycloak.cliClientId | quote }}
 
+  KUBEMANAGER_KUBERNETES_CLUSTER_ID: {{ .Values.config.kubernetes.clusterId | default "" | quote }}
   KUBEMANAGER_IAM_STS_ISSUER: {{ .Values.config.iam.stsIssuer | quote }}
   KUBEMANAGER_IAM_MFA_ACR_VALUES: {{ .Values.config.iam.mfaAcrValues | quote }}
   KUBEMANAGER_IAM_STEP_UP_MAX_AGE: {{ .Values.config.iam.stepUpMaxAge | quote }}

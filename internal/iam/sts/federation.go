@@ -146,14 +146,15 @@ func (s *Service) ExchangeFederated(ctx context.Context, in ExchangeRequest) (*T
 	if in.SubjectToken == "" {
 		return nil, "", &GrantError{Code: "invalid_request", Description: "subject_token is required"}
 	}
-	if s.Federation == nil {
-		return nil, "", &GrantError{Code: "unsupported_grant_type", Description: "federation is not enabled"}
-	}
 
 	// 1. Émetteur annoncé : seulement s'il fait l'objet d'une relation de confiance.
 	var unverified jwt.RegisteredClaims
 	if _, _, err := jwt.NewParser().ParseUnverified(in.SubjectToken, &unverified); err != nil {
 		return nil, "", invalidGrant("malformed subject_token")
+	}
+	// Pods des workloads betorun (jeton Kubernetes projeté).
+	if tok, p, handled, err := s.exchangeWorkload(ctx, in.SubjectToken, unverified.Issuer); handled {
+		return tok, p, err
 	}
 	issuer, err := iam.NormalizeIssuer(unverified.Issuer)
 	if err != nil {
@@ -165,6 +166,10 @@ func (s *Service) ExchangeFederated(ctx context.Context, in ExchangeRequest) (*T
 	}
 	if len(trusts) == 0 {
 		return nil, "", invalidGrant("no federation trust for this issuer")
+	}
+
+	if s.Federation == nil {
+		return nil, "", &GrantError{Code: "unsupported_grant_type", Description: "federation is not enabled"}
 	}
 
 	// 2. Signature et dates, avec les clés de l'émetteur.

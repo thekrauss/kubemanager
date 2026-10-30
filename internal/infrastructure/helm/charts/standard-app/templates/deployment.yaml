@@ -85,11 +85,21 @@ spec:
                 name: {{ .Values.envSecretName }}
           {{- end }}
 
-          {{- if .Values.envVars }}
+          {{- if or .Values.envVars .Values.betorunIdentity.enabled }}
           env:
             {{- range $key, $val := .Values.envVars }}
             - name: {{ $key }}
               value: {{ $val | quote }}
+            {{- end }}
+            {{- if .Values.betorunIdentity.enabled }}
+            # Identité du workload : jeton Kubernetes à échanger auprès du STS
+            # betorun (grant token-exchange) contre un jeton du compte de service.
+            - name: BETORUN_TOKEN_FILE
+              value: /var/run/secrets/betorun/token
+            - name: BETORUN_STS_TOKEN_URI
+              value: {{ .Values.betorunIdentity.tokenURI | quote }}
+            - name: BETORUN_SERVICE_ACCOUNT
+              value: {{ .Values.betorunIdentity.serviceAccount | quote }}
             {{- end }}
           {{- end }}
 
@@ -124,6 +134,12 @@ spec:
               mountPath: {{ .Values.persistence.mountPath | default "/data" }}
             {{- end }}
 
+            {{- if .Values.betorunIdentity.enabled }}
+            - name: betorun-token
+              mountPath: /var/run/secrets/betorun
+              readOnly: true
+            {{- end }}
+
       volumes:
         {{- if .Values.tmpfs.enabled }}
         {{- range .Values.tmpfs.mounts }}
@@ -138,4 +154,15 @@ spec:
         - name: storage
           persistentVolumeClaim:
             claimName: {{ .Release.Name }}-pvc
+        {{- end }}
+
+        {{- if .Values.betorunIdentity.enabled }}
+        # Jeton projeté : audience = STS betorun, renouvelé par le kubelet.
+        - name: betorun-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: {{ required "betorunIdentity.audience" .Values.betorunIdentity.audience | quote }}
+                  expirationSeconds: 3600
         {{- end }}

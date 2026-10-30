@@ -38,5 +38,9 @@
  {
   "fr": "Conteneur introuvable",
   "en": "workload not found"
+ },
+ {
+  "fr": "l'identité des workloads n'est pas activée sur cette plateforme",
+  "en": "workload identity is not enabled on this platform"
  }
 ]

@@ -236,3 +236,26 @@ func TrustsForIssuer(ctx context.Context, db *gorm.DB, issuer string) ([]Federat
 	}
 	return out, err
 }
+
+// AuthorizeRunAs : caller peut-il faire tourner un workload du projet comme
+// ce compte de service ? Même règle qu'une clé : actAs sur le compte, qui
+// doit appartenir au projet. ref : "serviceAccount:<uuid>" ou uuid.
+func (s *ServiceAccountService) AuthorizeRunAs(ctx context.Context, caller Principal, projectID uuid.UUID, ref string) (uuid.UUID, error) {
+	id, err := uuid.Parse(strings.TrimPrefix(strings.TrimSpace(ref), KindServiceAccount+":"))
+	if err != nil {
+		return uuid.Nil, ErrServiceAccountNotFound
+	}
+	sa, err := s.Get(ctx, projectID, id)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	d, err := s.Engine.Check(ctx, caller, ServiceAccountsActAs, sa.Resource)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if !d.Allowed {
+		return uuid.Nil, ErrActAsRequired
+	}
+	audit.Annotate(ctx, "run_as", string(ServiceAccountPrincipal(sa.ID)))
+	return sa.ID, nil
+}

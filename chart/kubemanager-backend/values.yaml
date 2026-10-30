@@ -75,6 +75,10 @@ config:
     audience: "kubemanager-api"
     # Client public de la CLI (Device Authorization Grant activé). Vide : désactivé.
     cliClientId: "betorun-cli"
+  kubernetes:
+    # Identifiant (celui de son watcher) du cluster où tournent les workloads :
+    # active l'identité des workloads. Vide : désactivée.
+    clusterId: ""
   iam:
     # STS : URL publique de l'émetteur des jetons machine (= <API>/kmanager/v1/iam).
     stsIssuer: "https://api.example.com/kmanager/v1/iam"

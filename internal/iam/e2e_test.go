@@ -2,7 +2,10 @@
 //
 //	docker run -d --rm --name iam-e2e-pg -e POSTGRES_PASSWORD=pw -p 127.0.0.1:55433:5432 postgres:15-alpine
 //	for f in migrations/*.up.sql; do docker exec -i iam-e2e-pg psql -U postgres < $f; done
-//	IAM_E2E=1 go test ./internal/iam/ -run TestE2E -v
+//	IAM_E2E=1 go test -p 1 ./internal/iam/... -run TestE2E -v
+//
+// -p 1 : les paquets iam et iam/sts modifient la policy du même projet de
+// test ; en parallèle, l'etag refuse (à raison) l'une des écritures.
 package iam_test
 
 import (

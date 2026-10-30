@@ -3,6 +3,7 @@ package iam
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"sort"
@@ -540,4 +541,28 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(r[:n])
+}
+
+// ── Clés de signature des jetons Kubernetes (identité des workloads) ─────
+
+const maxClusterJWKSSize = 64 << 10
+
+var ErrInvalidClusterJWKS = errors.New("invalid cluster service account keys: issuer and a JWKS with at least one key are required")
+
+// ReportServiceAccountKeys : le watcher publie l'émetteur et les clés
+// publiques qui signent les jetons de comptes Kubernetes de son cluster ;
+// le STS s'en sert pour reconnaître les pods (iam.md §7.2).
+func (a *ClusterAgents) ReportServiceAccountKeys(ctx context.Context, clusterID, issuer string, jwks []byte) error {
+	issuer = strings.TrimSpace(issuer)
+	var parsed struct {
+		Keys []map[string]any `json:"keys"`
+	}
+	if issuer == "" || len(issuer) > 255 || len(jwks) == 0 || len(jwks) > maxClusterJWKSSize ||
+		json.Unmarshal(jwks, &parsed) != nil || len(parsed.Keys) == 0 {
+		return ErrInvalidClusterJWKS
+	}
+	return a.SA.DB.WithContext(ctx).Exec(`INSERT INTO cluster_oidc_keys (cluster_id, issuer, jwks, updated_at)
+		VALUES (?, ?, ?, ?) ON CONFLICT (cluster_id) DO UPDATE
+		SET issuer = EXCLUDED.issuer, jwks = EXCLUDED.jwks, updated_at = EXCLUDED.updated_at`,
+		clusterID, issuer, string(jwks), a.SA.now()).Error
 }

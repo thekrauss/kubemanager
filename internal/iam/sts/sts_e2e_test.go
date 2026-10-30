@@ -1,5 +1,5 @@
-// Tests d'intégration du STS : vrai Postgres (voir internal/iam/e2e_test.go),
-// ignorés sans IAM_E2E.
+// Tests d'intégration du STS : vrai Postgres (voir internal/iam/e2e_test.go,
+// à lancer avec -p 1), ignorés sans IAM_E2E.
 package sts_test
 
 import (

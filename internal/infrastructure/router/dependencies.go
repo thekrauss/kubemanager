@@ -430,6 +430,7 @@ func (a *App) initSTS() error {
 		return fmt.Errorf("iam: sts signing keys: %w", err)
 	}
 	a.STS = sts.NewService(issuer, keys, a.DB)
+	a.STS.WorkloadClusterID = strings.TrimSpace(a.Config.Kubernetes.ClusterID)
 	a.ServiceAccounts.TokenURI = a.STS.TokenURI()
 	a.Security.Middleware.SetTokenVerifier(a.STS)
 

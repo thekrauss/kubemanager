@@ -52,6 +52,10 @@ type Workload struct {
 	StorageClass       string `gorm:"type:varchar(50);default:'local-path'"`
 	AccessMode         string `gorm:"type:varchar(20);default:'ReadWriteOnce'"`
 
+	// ServiceAccountID : le workload s'exécute comme ce compte de service
+	// (jeton Kubernetes projeté, échangé auprès du STS ; iam.md §7.2).
+	ServiceAccountID *uuid.UUID `gorm:"type:uuid"`
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

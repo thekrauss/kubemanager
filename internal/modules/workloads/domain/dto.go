@@ -49,6 +49,11 @@ type CreateWorkloadRequest struct {
 	// Probes paths (par défaut "/" sur targetPort).
 	HealthPath    string `json:"health_path" default:"/"`
 	ReadinessPath string `json:"readiness_path" default:"/"`
+
+	// ServiceAccount : compte de service du projet sous lequel le workload
+	// s'exécute ("serviceAccount:<uuid>" ou uuid). Ses pods obtiennent des
+	// jetons betorun sans aucune clé. actAs exigé sur le compte.
+	ServiceAccount string `json:"service_account,omitempty" desc:"Compte de service sous lequel le workload s'exécute (actAs requis)"`
 }
 
 // AutoscalingConfig : policy HPA simple (CPU + mémoire).
@@ -87,18 +92,18 @@ type UpdateWorkloadRequest struct {
 
 // LiveStatus : snapshot merge DB + K8s runtime pour un workload donné.
 type LiveStatus struct {
-	ID               string      `json:"id"`
-	Name             string      `json:"name"`
-	Namespace        string      `json:"namespace"`
-	Status           string      `json:"status"`            // DB-side : STARTING/RUNNING/FAILED...
-	Phase            string      `json:"phase"`             // DB-side : HELM_PREPARING/DEPLOYED/...
-	ExternalURL      string      `json:"external_url,omitempty"`
-	Image            string      `json:"image"`
-	Replicas         int32       `json:"replicas"`          // desired
-	ReadyReplicas    int32       `json:"ready_replicas"`    // K8s runtime
-	AvailableReplicas int32      `json:"available_replicas"`
-	Pods             []PodStatus `json:"pods,omitempty"`
-	UpdatedAt        time.Time   `json:"updated_at"`
+	ID                string      `json:"id"`
+	Name              string      `json:"name"`
+	Namespace         string      `json:"namespace"`
+	Status            string      `json:"status"` // DB-side : STARTING/RUNNING/FAILED...
+	Phase             string      `json:"phase"`  // DB-side : HELM_PREPARING/DEPLOYED/...
+	ExternalURL       string      `json:"external_url,omitempty"`
+	Image             string      `json:"image"`
+	Replicas          int32       `json:"replicas"`       // desired
+	ReadyReplicas     int32       `json:"ready_replicas"` // K8s runtime
+	AvailableReplicas int32       `json:"available_replicas"`
+	Pods              []PodStatus `json:"pods,omitempty"`
+	UpdatedAt         time.Time   `json:"updated_at"`
 }
 
 // PodStatus : état d'un pod K8s (sous-ensemble pertinent pour l'UI).
@@ -127,10 +132,10 @@ type WorkloadMetrics struct {
 
 // WorkloadEvent : K8s Event filtré sur un workload (via labelSelector).
 type WorkloadEvent struct {
-	Type      string    `json:"type"`    // Normal | Warning
-	Reason    string    `json:"reason"`  // Created, Pulled, FailedMount, ...
+	Type      string    `json:"type"`   // Normal | Warning
+	Reason    string    `json:"reason"` // Created, Pulled, FailedMount, ...
 	Message   string    `json:"message"`
-	Object    string    `json:"object"`  // ex: "Pod/my-app-abc123"
+	Object    string    `json:"object"` // ex: "Pod/my-app-abc123"
 	Count     int32     `json:"count"`
 	FirstSeen time.Time `json:"first_seen"`
 	LastSeen  time.Time `json:"last_seen"`

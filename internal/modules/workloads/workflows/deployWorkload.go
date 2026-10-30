@@ -11,6 +11,9 @@ import (
 )
 
 type DeployWorkloadInput struct {
+	// Identity : identité du workload (nil : aucune).
+	Identity *activities.WorkloadIdentity
+
 	WorkloadID  string
 	ProjectID   string
 	Namespace   string
@@ -136,6 +139,7 @@ func DeployWorkloadWorkflow(ctx workflow.Context, input DeployWorkloadInput) err
 		TLSEnabled:           input.TLSEnabled,
 		HealthPath:           input.HealthPath,
 		ReadinessPath:        input.ReadinessPath,
+		Identity:             input.Identity,
 	}
 	err = workflow.ExecuteActivity(ctx, helmActs.InstallChart, helmInput).Get(ctx, nil)
 	if err != nil {

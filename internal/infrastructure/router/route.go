@@ -48,6 +48,12 @@ func addClusterRoutes(app *App) {
 		"onPodEvent : reçoit un event pod (CrashLoopBackOff, OOMKilled...) → DB + Centrifugo",
 		watcher, tonic.Handler(r.OnPodEvent, http.StatusOK))
 
+	if iamCtl := app.Controllers.IAM; iamCtl != nil {
+		ClustersGroup.AddRoute("/ClusterService/:clusterID/ServiceAccountKeys", http.MethodPost,
+			"Clés publiques des jetons de comptes Kubernetes du cluster (identité des workloads)",
+			watcher, tonic.Handler(iamCtl.ReportServiceAccountKeys, http.StatusNoContent))
+	}
+
 	adminClusters := RootGroup.NewGroup("/admin/clusters", "Admin — registry des clusters enrollés")
 	adminClusters.AddRoute("", http.MethodGet,
 		"Liste les clusters enrollés (ClusterID, Version, LastSeenAt, EnrolledAt)",

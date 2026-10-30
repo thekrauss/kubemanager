@@ -241,6 +241,9 @@ type RolesConfig struct {
 
 type KubernetesConfig struct {
 	KubeConfigPath string `mapstructure:"kubeconfig_path"`
+	// ClusterID : identifiant (celui de son watcher) du cluster où tournent
+	// les workloads. Vide : identité des workloads désactivée.
+	ClusterID string `mapstructure:"cluster_id"`
 }
 
 // EnvPrefix est le préfixe utilisé pour les variables d'environnement (ex: KUBEMANAGER_DATABASE_HOST).

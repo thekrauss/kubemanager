@@ -282,5 +282,9 @@
  {
   "fr": "ce compte de service a déjà 20 relations de confiance",
   "en": "this service account already has 20 federation trusts"
+ },
+ {
+  "fr": "clés de comptes de service du cluster invalides : un émetteur et un JWKS avec au moins une clé sont requis",
+  "en": "invalid cluster service account keys: issuer and a JWKS with at least one key are required"
  }
 ]

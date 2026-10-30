@@ -25,7 +25,17 @@ type WorkloadActivities struct {
 	Idempotency idempotency.AtomicManager
 }
 
+// WorkloadIdentity : le workload s'exécute comme un compte de service ; ses
+// pods reçoivent un jeton Kubernetes projeté (audience = STS) à échanger.
+type WorkloadIdentity struct {
+	ServiceAccount string // "serviceAccount:<uuid>"
+	Audience       string // émetteur du STS
+	TokenURI       string
+}
+
 type InstallWorkloadInput struct {
+	Identity *WorkloadIdentity
+
 	ProjectID   string
 	WorkloadID  string
 	ReleaseName string
@@ -209,21 +219,25 @@ func buildHelmValues(input InstallWorkloadInput) map[string]any {
 			"protocol":   "TCP",
 		},
 		"ingress": map[string]any{
-			"enabled":    true,
-			"className":  "nginx",
-			"host":       input.ExternalURL,
+			"enabled":   true,
+			"className": "nginx",
+			"host":      input.ExternalURL,
 			"tls": map[string]any{
 				"enabled":       input.TLSEnabled,
 				"clusterIssuer": "letsencrypt-prod",
 			},
 		},
-		"resources":              resources,
-		"podSecurityContext":     podSec,
+		"resources":                resources,
+		"podSecurityContext":       podSec,
 		"containerSecurityContext": containerSec,
 		"serviceAccount": map[string]any{
 			"create":                       true,
 			"automountServiceAccountToken": false,
+			// Nom fixe : le STS retrouve le workload par
+			// system:serviceaccount:<namespace>:<release>.
+			"name": input.ReleaseName,
 		},
+		"betorunIdentity": identityValues(input.Identity),
 		"persistence": map[string]any{
 			"enabled":      input.PersistenceEnabled,
 			"size":         input.StorageSize,
@@ -342,4 +356,12 @@ func (a *WorkloadActivities) EnsureSecret(ctx context.Context, nsNam, releaseNam
 		},
 	)
 	return err
+}
+
+func identityValues(id *WorkloadIdentity) map[string]any {
+	if id == nil {
+		return map[string]any{"enabled": false}
+	}
+	return map[string]any{"enabled": true, "serviceAccount": id.ServiceAccount, "audience": id.Audience,
+		"tokenURI": id.TokenURI}
 }

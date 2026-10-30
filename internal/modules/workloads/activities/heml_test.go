@@ -31,3 +31,20 @@ func TestBuildHelmValues_EgressPublicPorts(t *testing.T) {
 	assert.Contains(t, ports, 5432)
 	assert.NotContains(t, ports, 25)
 }
+
+func TestBuildHelmValues_WorkloadIdentity(t *testing.T) {
+	none := buildHelmValues(InstallWorkloadInput{ReleaseName: "api"})
+	if none["betorunIdentity"].(map[string]any)["enabled"] != false {
+		t.Fatal("sans compte de service : pas d'identité")
+	}
+	vals := buildHelmValues(InstallWorkloadInput{ReleaseName: "api", Identity: &WorkloadIdentity{
+		ServiceAccount: "serviceAccount:x", Audience: "https://api/kmanager/v1/iam", TokenURI: "https://api/kmanager/v1/iam/token"}})
+	id := vals["betorunIdentity"].(map[string]any)
+	if id["enabled"] != true || id["audience"] != "https://api/kmanager/v1/iam" || id["serviceAccount"] != "serviceAccount:x" {
+		t.Fatalf("identité : %v", id)
+	}
+	// Le STS retrouve le workload par system:serviceaccount:<ns>:<release>.
+	if vals["serviceAccount"].(map[string]any)["name"] != "api" {
+		t.Fatalf("serviceAccount : %v", vals["serviceAccount"])
+	}
+}

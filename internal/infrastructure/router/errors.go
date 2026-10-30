@@ -2,6 +2,7 @@ package router
 
 import (
 	"errors"
+	workloadsSvc "github.com/thekrauss/kubemanager/internal/modules/workloads/service"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -110,6 +111,8 @@ var sentinelErrors = []sentinelMapping{
 	{iam.ErrInvalidConditions, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
 	{iam.ErrTooManyTrusts, http.StatusConflict, "FAILED_PRECONDITION", false},
 	{iam.ErrTrustNotFound, http.StatusNotFound, betoerrors.CodeNotFound, false},
+	{iam.ErrInvalidClusterJWKS, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{workloadsSvc.ErrWorkloadIdentityDisabled, http.StatusConflict, "FAILED_PRECONDITION", false},
 }
 
 // classifyError : statut, code et message sûr à exposer.

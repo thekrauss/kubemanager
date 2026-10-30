@@ -2,7 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/thekrauss/kubemanager/internal/iam"
+	"github.com/thekrauss/kubemanager/internal/modules/workloads/activities"
 
 	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
 
@@ -32,7 +35,25 @@ func defaultIfEmpty(v, def string) string {
 	return v
 }
 
+// RunAsAuthorizer : contrôle « exécuter comme un compte de service »
+// (implémenté par *iam.ServiceAccountService).
+type RunAsAuthorizer interface {
+	AuthorizeRunAs(ctx context.Context, caller iam.Principal, projectID uuid.UUID, ref string) (uuid.UUID, error)
+}
+
+// IdentitySettings : identité des workloads (iam.md §7.2). nil : désactivée.
+type IdentitySettings struct {
+	Authorizer RunAsAuthorizer
+	Audience   string // émetteur du STS
+	TokenURI   string
+}
+
+// ErrWorkloadIdentityDisabled : pas de cluster ou de STS configuré.
+var ErrWorkloadIdentityDisabled = errors.New("workload identity is not enabled on this platform")
+
 type WorkloadService struct {
+	// Identity : nil si l'identité des workloads est désactivée.
+	Identity    *IdentitySettings
 	Distributor temporal.TaskDistributor
 	Repo        repository.WorkloadRepository
 	ProjectRepo projectRepo.ProjectRepository
@@ -64,6 +85,13 @@ func NewWorkloadService(
 
 type WorkloadServiceRequest struct {
 	domain.CreateWorkloadRequest
+	// Caller : auteur de la demande (contrôle actAs du compte de service).
+	Caller iam.Principal
+}
+
+func (s *WorkloadService) identity(saID uuid.UUID) *activities.WorkloadIdentity {
+	return &activities.WorkloadIdentity{ServiceAccount: string(iam.ServiceAccountPrincipal(saID)),
+		Audience: s.Identity.Audience, TokenURI: s.Identity.TokenURI}
 }
 
 func (s *WorkloadService) Deploy(ctx context.Context, in *WorkloadServiceRequest) (*domain.Workload, error) {
@@ -109,6 +137,19 @@ func (s *WorkloadService) Deploy(ctx context.Context, in *WorkloadServiceRequest
 
 	targetNamespace := fmt.Sprintf("km-%s", project.Name)
 
+	// Identité : vérifiée avant toute création (actAs sur le compte).
+	var runAs *uuid.UUID
+	if in.ServiceAccount != "" {
+		if s.Identity == nil {
+			return nil, ErrWorkloadIdentityDisabled
+		}
+		saID, err := s.Identity.Authorizer.AuthorizeRunAs(ctx, in.Caller, pID, in.ServiceAccount)
+		if err != nil {
+			return nil, err
+		}
+		runAs = &saID
+	}
+
 	workload := &domain.Workload{
 		ID:                 uuid.New(),
 		ProjectID:          pID,
@@ -126,6 +167,7 @@ func (s *WorkloadService) Deploy(ctx context.Context, in *WorkloadServiceRequest
 		StorageClass:       defaultIfEmpty(in.StorageClass, "local-path"),
 		Status:             "STARTING",
 		CurrentPhase:       "HELM_CHART_LOADING",
+		ServiceAccountID:   runAs,
 	}
 
 	if err := s.Repo.Create(ctx, workload); err != nil {
@@ -158,6 +200,9 @@ func (s *WorkloadService) Deploy(ctx context.Context, in *WorkloadServiceRequest
 		TLSEnabled:         in.TLSEnabled,
 		HealthPath:         in.HealthPath,
 		ReadinessPath:      in.ReadinessPath,
+	}
+	if runAs != nil {
+		wfInput.Identity = s.identity(*runAs)
 	}
 	if in.Autoscaling != nil && in.Autoscaling.Enabled {
 		wfInput.AutoscalingEnabled = true
@@ -196,6 +241,7 @@ func (s *WorkloadService) Update(ctx context.Context, id string, req domain.Upda
 			EnvVars:            req.EnvVars,
 			PersistenceEnabled: current.PersistenceEnabled,
 			StorageSize:        req.StorageSize,
+			Identity:           s.currentIdentity(current),
 		})
 
 	return err
@@ -246,4 +292,12 @@ func (s *WorkloadService) validateNetwork(port int) error {
 	}
 
 	return nil
+}
+
+// currentIdentity : identité conservée lors d'une mise à jour.
+func (s *WorkloadService) currentIdentity(w *domain.Workload) *activities.WorkloadIdentity {
+	if w.ServiceAccountID == nil || s.Identity == nil {
+		return nil
+	}
+	return s.identity(*w.ServiceAccountID)
 }

@@ -1,6 +1,7 @@
 package iamapi
 
 import (
+	"encoding/json"
 	"github.com/gin-gonic/gin"
 	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
 
@@ -52,4 +53,16 @@ func (h *Controller) RotateClusterKey(c *gin.Context, in *RotateClusterKeyInput)
 
 func (h *Controller) RevokeClusterKey(c *gin.Context, in *ClusterKeyPath) error {
 	return h.ClusterAgents.Revoke(c.Request.Context(), in.KeyID)
+}
+
+// ReportServiceAccountKeysRequest : clés publiques des jetons Kubernetes du cluster.
+type ReportServiceAccountKeysRequest struct {
+	ClusterID string          `path:"clusterID" binding:"required"`
+	Issuer    string          `json:"issuer" binding:"required" desc:"Émetteur des jetons de comptes Kubernetes (découverte de l'apiserver)"`
+	JWKS      json.RawMessage `json:"jwks" binding:"required" desc:"JWKS de l'apiserver (/openid/v1/jwks)"`
+}
+
+// ReportServiceAccountKeys : appelé par le watcher (garde ClusterAgent).
+func (h *Controller) ReportServiceAccountKeys(c *gin.Context, in *ReportServiceAccountKeysRequest) error {
+	return h.ClusterAgents.ReportServiceAccountKeys(c.Request.Context(), in.ClusterID, in.Issuer, in.JWKS)
 }

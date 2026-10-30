@@ -47,6 +47,11 @@ func (a *App) initDomainLayers() error {
 		a.K8sProvider.Config,
 		a.Logger,
 	)
+	// Identité des workloads : cluster des workloads connu et STS en place.
+	if a.STS != nil && a.STS.WorkloadClusterID != "" && a.ServiceAccounts != nil {
+		workloadService.Identity = &workloadsSvc.IdentitySettings{Authorizer: a.ServiceAccounts,
+			Audience: a.STS.Issuer, TokenURI: a.STS.TokenURI()}
+	}
 
 	// Identity : dépend de Keycloak + AuthCache (state OAuth). Nil si Keycloak disabled.
 	var identityService identitySvc.Service

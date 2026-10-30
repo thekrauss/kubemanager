@@ -66,6 +66,14 @@ persistence:
 # ServiceAccount dédié par release (best-practice multi-tenant).
 # automountServiceAccountToken: false → pas de token K8s exposé dans le pod,
 # évite les leaks via SSRF / compromission container.
+# Identité du workload (posée par betorun) : jeton Kubernetes projeté,
+# échangé auprès du STS contre un jeton du compte de service betorun.
+betorunIdentity:
+  enabled: false
+  serviceAccount: ""
+  audience: ""
+  tokenURI: ""
+
 serviceAccount:
   create: true
   automountServiceAccountToken: false

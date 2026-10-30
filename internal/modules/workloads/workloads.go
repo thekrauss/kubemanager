@@ -1,6 +1,7 @@
 package workloads
 
 import (
+	"github.com/thekrauss/kubemanager/internal/middleware/security"
 	"io"
 	"net/http"
 
@@ -74,8 +75,10 @@ type LogsRequest struct {
 //  CRUD
 
 func (h *WorkloadController) CreateWorkload(c *gin.Context, in *domain.CreateWorkloadRequest) (*domain.WorkloadResponse, error) {
+	caller, _ := security.PrincipalFromContext(c)
 	workload, err := h.WorkloadService.Deploy(c.Request.Context(), &service.WorkloadServiceRequest{
 		CreateWorkloadRequest: *in,
+		Caller:                caller,
 	})
 	if err != nil {
 		return nil, err
