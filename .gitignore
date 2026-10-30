@@ -2,3 +2,5 @@
 .env
 config.yaml
 k3s-config.yaml
+# Binaires de la CLI (scripts/build_cli.sh)
+dist/

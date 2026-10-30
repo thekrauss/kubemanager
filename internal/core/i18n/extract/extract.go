@@ -55,8 +55,12 @@ func Dir(root string) (Result, error) {
 			return err
 		}
 		if d.IsDir() {
-			// Le moteur de traduction lui-même ne renvoie rien au client.
-			if d.Name() == "vendor" || d.Name() == "testdata" || strings.HasSuffix(filepath.ToSlash(path), "core/i18n") {
+			// Le moteur de traduction lui-même ne renvoie rien au client ; la
+			// CLI (internal/cli) a son propre catalogue (internal/cli/i18n).
+			abs, _ := filepath.Abs(path)
+			slash := filepath.ToSlash(abs)
+			if d.Name() == "vendor" || d.Name() == "testdata" || strings.HasSuffix(slash, "core/i18n") ||
+				strings.HasSuffix(slash, "internal/cli") {
 				return filepath.SkipDir
 			}
 			return nil
