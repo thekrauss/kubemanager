@@ -14,7 +14,7 @@ import (
 )
 
 func newLogin() *cobra.Command {
-	var noBrowser bool
+	var noBrowser, mfa bool
 	c := &cobra.Command{
 		Use:   "login",
 		Short: i18n.T("login.short"),
@@ -25,29 +25,35 @@ func newLogin() *cobra.Command {
 				return err
 			}
 			ctx := cmd.Context()
-			cl := client(s)
-			cl.StaticToken = ""
-			dc, err := cl.StartDeviceLogin(ctx)
-			if err != nil {
-				return err
+			cl := api.New(s.APIURL)
+			if mfa {
+				// Double authentification exigée : navigateur + serveur local.
+				if _, err := browserLogin(ctx, cl, cmd.OutOrStdout(), true, !noBrowser); err != nil {
+					return err
+				}
+			} else {
+				dc, err := cl.StartDeviceLogin(ctx)
+				if err != nil {
+					return err
+				}
+				link := dc.VerificationURIComplete
+				if link == "" {
+					link = dc.VerificationURI
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), i18n.T("login.open", link, dc.UserCode))
+				if !noBrowser {
+					openURL(link)
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), i18n.T("login.waiting"))
+				creds, err := cl.WaitDeviceLogin(ctx, dc)
+				if err != nil {
+					return err
+				}
+				if err := config.SaveCredentials(creds); err != nil {
+					return err
+				}
+				cl.UseCredentials(creds)
 			}
-			link := dc.VerificationURIComplete
-			if link == "" {
-				link = dc.VerificationURI
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("login.open", link, dc.UserCode))
-			if !noBrowser {
-				openBrowser(link)
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("login.waiting"))
-			creds, err := cl.WaitDeviceLogin(ctx, dc)
-			if err != nil {
-				return err
-			}
-			if err := config.SaveCredentials(creds); err != nil {
-				return err
-			}
-			cl.UseCredentials(creds)
 
 			// Mémorise l'API utilisée et, faute de mieux, le projet de l'utilisateur.
 			status, err := cl.BootstrapStatus(ctx)
@@ -76,6 +82,7 @@ func newLogin() *cobra.Command {
 		},
 	}
 	c.Flags().BoolVar(&noBrowser, "no-browser", false, i18n.T("flag.no_browser"))
+	c.Flags().BoolVar(&mfa, "mfa", false, i18n.T("flag.mfa"))
 	return c
 }
 
@@ -96,7 +103,7 @@ func newLogout() *cobra.Command {
 			// Révocation côté serveur au mieux ; la session locale est effacée dans tous les cas.
 			if s, err := settings(); err == nil {
 				cl := client(s)
-				cl.StaticToken = ""
+				cl.Source = nil
 				_ = cl.Logout(cmd.Context(), creds.RefreshToken)
 			}
 			if err := config.DeleteCredentials(); err != nil {
@@ -131,6 +138,9 @@ func newWhoami() *cobra.Command {
 				}
 			}
 			fmt.Fprintln(out, i18n.T("whoami.principal", session.Principal))
+			if cl.Source != nil {
+				fmt.Fprintln(out, i18n.T("whoami.credentials", cl.Source.Describe()))
+			}
 			if s.ProjectID != "" {
 				fmt.Fprintln(out, i18n.T("whoami.project", s.ProjectID))
 			}
@@ -142,6 +152,29 @@ func newWhoami() *cobra.Command {
 				}
 			}
 			fmt.Fprintln(out, i18n.T("whoami.api", s.APIURL))
+			return nil
+		},
+	}
+}
+
+// newToken : jeton d'accès courant, quelle que soit sa source (session,
+// fichier de clé, CI) ; pour curl et les outils tiers.
+func newToken() *cobra.Command {
+	return &cobra.Command{
+		Use:     "token",
+		Short:   i18n.T("token.short"),
+		Example: "  curl -H \"Authorization: Bearer $(betorun token)\" $BETORUN_API_URL/iam/session",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			s, err := settings()
+			if err != nil {
+				return err
+			}
+			tok, err := client(s).AccessToken(cmd.Context())
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), tok)
 			return nil
 		},
 	}

@@ -20,6 +20,7 @@ type fakeOps struct {
 	mu         sync.Mutex
 	workloads  []map[string]any
 	created    map[string]any
+	updated    []map[string]any
 	statusGets atomic.Int32
 	logsQuery  string
 	actions    []string
@@ -75,6 +76,11 @@ func newFakeOps(t *testing.T) (*httptest.Server, *fakeOps) {
 		case r.Method == "POST" && strings.HasPrefix(p, "/workloads/"+wlID+"/"):
 			f.actions = append(f.actions, strings.TrimPrefix(p, "/workloads/"+wlID+"/"))
 			write(w, 200, map[string]string{})
+		case r.Method == "PATCH" && p == "/workloads/"+wlID:
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			f.updated = append(f.updated, body)
+			write(w, 202, map[string]string{})
 		case r.Method == "DELETE" && p == "/workloads/"+wlID:
 			f.deleted = true
 			write(w, 202, map[string]string{})
@@ -117,8 +123,13 @@ func newFakeOps(t *testing.T) (*httptest.Server, *fakeOps) {
 			body.Policy["etag"] = "e" + uuid.NewString()[:4]
 			f.policy = body.Policy
 			write(w, 200, map[string]any{"policy": f.policy})
+		case r.Method == "GET" && p == "/iam/ancestry":
+			write(w, 200, map[string]any{"ancestors": []string{"projects/" + projectID, "organizations/org-1", "platform"}})
+		case r.Method == "GET" && p == "/iam/customRoles":
+			write(w, 200, []any{})
 		case r.Method == "GET" && p == "/iam/roles":
-			write(w, 200, []any{map[string]any{"name": "roles/viewer", "description": "Lecture"}})
+			write(w, 200, []any{map[string]any{"name": "roles/viewer", "description": "Lecture"},
+				map[string]any{"name": "roles/developer", "description": "Développement"}})
 		default:
 			t.Errorf("route inattendue %s %s", r.Method, p)
 			w.WriteHeader(404)
@@ -146,13 +157,13 @@ func TestCLI_WorkloadsDomainsAccess(t *testing.T) {
 	assert.Contains(t, describe(err), "CLE=valeur")
 
 	out, err = run(t, "wl", "deploy", "-n", "api", "-i", "ghcr.io/sunupay/api:1.2", "--port", "3000", "--replicas", "2",
-		"-e", "NODE_ENV=production", "-e", "URL=postgres://x?a=b", "--service-account", uuid.Nil.String())
+		"-e", "NODE_ENV=production", "-e", "URL=postgres://x?a=b", "--service-account", "api-runner")
 	require.NoError(t, err, out)
 	assert.Contains(t, out, "En service : https://api.betorun.app")
 	assert.Equal(t, projectID, f.created["project_id"])
 	assert.Equal(t, float64(3000), f.created["target_port"])
 	assert.Equal(t, map[string]any{"NODE_ENV": "production", "URL": "postgres://x?a=b"}, f.created["env_vars"], "« = » dans la valeur conservé")
-	assert.Equal(t, "serviceAccount:"+uuid.Nil.String(), f.created["service_account"])
+	assert.Equal(t, "api-runner", f.created["service_account"], "identifiant de compte transmis tel quel")
 
 	out, err = run(t, "workloads", "list")
 	require.NoError(t, err)
@@ -177,6 +188,21 @@ func TestCLI_WorkloadsDomainsAccess(t *testing.T) {
 	out, err = run(t, "workloads", "status", "api")
 	require.NoError(t, err)
 	assert.Contains(t, out, "RUNNING (READY)")
+
+	// Nouvelle version : image seule (variables conservées côté API : null),
+	// puis variables seules (remplacent l'ensemble).
+	_, err = run(t, "workloads", "update", "api")
+	assert.Contains(t, describe(err), "--image")
+	out, err = run(t, "workloads", "update", "api", "-i", "ghcr.io/sunupay/api:1.3")
+	require.NoError(t, err, out)
+	assert.Contains(t, out, "En service : https://api.betorun.app")
+	_, err = run(t, "workloads", "update", "api", "-e", "NODE_ENV=staging", "--no-wait")
+	require.NoError(t, err)
+	require.Len(t, f.updated, 2)
+	assert.Equal(t, "ghcr.io/sunupay/api:1.3", f.updated[0]["image"])
+	assert.Nil(t, f.updated[0]["env_vars"], "sans --env : variables en place conservées")
+	assert.Equal(t, "", f.updated[1]["image"])
+	assert.Equal(t, map[string]any{"NODE_ENV": "staging"}, f.updated[1]["env_vars"])
 
 	// Suppression : confirmation exigée (nom retapé), sauf --yes.
 	root := newRoot("betorun")

@@ -44,9 +44,14 @@ var (
 type Client struct {
 	BaseURL string
 	HTTP    *http.Client
-	// StaticToken : jeton fourni tel quel (BETORUN_TOKEN), sans session.
-	StaticToken string
-	now         func() time.Time
+	// Source : identifiants machine (jeton fixe, fichier de clé, CI, pod) ;
+	// nil : la session de « betorun login ».
+	Source TokenSource
+	// OnStepUp : appelé quand l'API exige une double authentification
+	// récente (STEP_UP_REQUIRED) ; s'il réussit, la requête est rejouée une
+	// fois. nil : l'erreur est renvoyée (terminal non interactif, CI).
+	OnStepUp func(ctx context.Context) error
+	now      func() time.Time
 
 	mu    sync.Mutex
 	creds *config.Credentials
@@ -58,8 +63,8 @@ func New(baseURL string) *Client {
 
 // token : jeton d'accès valide, renouvelé 30 s avant son expiration.
 func (c *Client) token(ctx context.Context) (string, error) {
-	if c.StaticToken != "" {
-		return c.StaticToken, nil
+	if c.Source != nil {
+		return c.Source.Token(ctx)
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -99,8 +104,32 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 	if err != nil {
 		return err
 	}
+	err = c.do(ctx, method, path, tok, body, out)
+	var apiErr *Error
+	if c.Source != nil && errors.As(err, &apiErr) && apiErr.Status == http.StatusUnauthorized {
+		// Jeton machine refusé (clé tournée, relation de confiance modifiée) :
+		// un nouveau jeton, une seule fois.
+		c.Source.Invalidate()
+		if tok, err = c.token(ctx); err != nil {
+			return err
+		}
+		err = c.do(ctx, method, path, tok, body, out)
+	}
+	if c.OnStepUp == nil || !errors.As(err, &apiErr) || apiErr.Code != "STEP_UP_REQUIRED" {
+		return err
+	}
+	// Confirmation d'identité, puis la même requête avec la nouvelle session.
+	if serr := c.OnStepUp(ctx); serr != nil {
+		return serr
+	}
+	if tok, err = c.token(ctx); err != nil {
+		return err
+	}
 	return c.do(ctx, method, path, tok, body, out)
 }
+
+// AccessToken : jeton d'accès courant (scripts : curl, outils tiers).
+func (c *Client) AccessToken(ctx context.Context) (string, error) { return c.token(ctx) }
 
 // DoPublic : appel sans authentification (connexion).
 func (c *Client) DoPublic(ctx context.Context, method, path string, body, out any) error {

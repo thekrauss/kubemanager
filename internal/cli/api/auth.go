@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/thekrauss/kubemanager/internal/cli/config"
@@ -80,4 +81,30 @@ func (c *Client) UseCredentials(creds *config.Credentials) {
 // Logout : révoque la session côté serveur.
 func (c *Client) Logout(ctx context.Context, refreshToken string) error {
 	return c.Do(ctx, http.MethodPost, "/identity/logout", identitytypes.LogoutRequest{RefreshToken: refreshToken}, nil)
+}
+
+// BrowserLoginURL : URL Keycloak pour une connexion de la CLI redirigée vers
+// son serveur local (RFC 8252) ; stepUp exige une double authentification
+// récente (réponse à STEP_UP_REQUIRED).
+func (c *Client) BrowserLoginURL(ctx context.Context, redirectURI string, stepUp bool) (string, error) {
+	q := url.Values{"redirect_uri": {redirectURI}, "client": {"cli"}}
+	if stepUp {
+		q.Set("step_up", "true")
+	}
+	var out struct {
+		URL string `json:"url"`
+	}
+	err := c.DoPublic(ctx, http.MethodGet, "/identity/oidc/authorize?"+q.Encode(), nil, &out)
+	return out.URL, err
+}
+
+// BrowserLoginCallback : échange du code reçu par le serveur local.
+func (c *Client) BrowserLoginCallback(ctx context.Context, code, state, redirectURI string) (*config.Credentials, error) {
+	q := url.Values{"code": {code}, "state": {state}, "redirect_uri": {redirectURI}}
+	var out identitytypes.LoginResponse
+	if err := c.DoPublic(ctx, http.MethodGet, "/identity/oidc/callback?"+q.Encode(), nil, &out); err != nil {
+		return nil, err
+	}
+	return &config.Credentials{AccessToken: out.AccessToken, RefreshToken: out.RefreshToken,
+		ExpiresAt: c.now().Add(time.Duration(out.ExpiresIn) * time.Second)}, nil
 }

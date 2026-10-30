@@ -15,6 +15,7 @@ type (
 	Workload              = workloadsdomain.Workload
 	CreateWorkloadRequest = workloadsdomain.CreateWorkloadRequest
 	WorkloadResponse      = workloadsdomain.WorkloadResponse
+	UpdateWorkloadRequest = workloadsdomain.UpdateWorkloadRequest
 )
 
 func (c *Client) ListWorkloads(ctx context.Context, project string) ([]Workload, error) {
@@ -30,6 +31,11 @@ func (c *Client) GetWorkload(ctx context.Context, id string) (*Workload, error) 
 func (c *Client) CreateWorkload(ctx context.Context, req CreateWorkloadRequest) (*WorkloadResponse, error) {
 	var out WorkloadResponse
 	return &out, c.Do(ctx, http.MethodPost, "/workloads", req, &out)
+}
+
+// UpdateWorkload : nouvelle version (image, variables).
+func (c *Client) UpdateWorkload(ctx context.Context, id string, req UpdateWorkloadRequest) error {
+	return c.Do(ctx, http.MethodPatch, "/workloads/"+url.PathEscape(id), req, nil)
 }
 
 // WorkloadAction : stop, start, restart (corps vide).

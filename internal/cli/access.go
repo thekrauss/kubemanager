@@ -19,7 +19,8 @@ var dateRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 
 func newAccess() *cobra.Command {
 	c := &cobra.Command{Use: "access", Aliases: []string{"iam"}, Short: i18n.T("acc.short")}
-	c.AddCommand(newAccessList(), newAccessGrant(), newAccessRevoke(), newAccessRoles())
+	c.AddCommand(newAccessList(), newAccessGrant(), newAccessRevoke(), newRoles(), newPermissions(),
+		newGroups(), newServiceAccounts())
 	return c
 }
 
@@ -51,6 +52,22 @@ func roleRef(raw string) string {
 		return "roles/" + raw
 	}
 	return raw
+}
+
+// roleLabel : nom court d'un rôle pour l'affichage (roles/viewer → viewer,
+// projects/<id>/roles/ciDeployer → ciDeployer, organizations/<id>/roles/x → x (organisation)).
+func roleLabel(name string) string {
+	if short, ok := strings.CutPrefix(name, "roles/"); ok {
+		return short
+	}
+	if i := strings.Index(name, "/roles/"); i >= 0 {
+		short := name[i+len("/roles/"):]
+		if strings.HasPrefix(name, "organizations/") {
+			return short + " (" + i18n.T("roles.scope.org") + ")"
+		}
+		return short
+	}
+	return name
 }
 
 // resolvePrincipal : principal de la policy qui correspond à ref (email compris).
@@ -98,7 +115,7 @@ func newAccessList() *cobra.Command {
 					if n := names[m]; n != "" {
 						label = n + " (" + m + ")"
 					}
-					rows = append(rows, row{label, b.Role, until})
+					rows = append(rows, row{label, roleLabel(b.Role), until})
 				}
 			}
 			sort.Slice(rows, func(i, j int) bool { return rows[i].member < rows[j].member })
@@ -116,18 +133,27 @@ func newAccessGrant() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "grant " + i18n.T("arg.member") + " " + i18n.T("arg.role"),
 		Short: i18n.T("acc.grant.short"),
-		Example: "  betorun access grant awa@ex.sn developer\n" +
-			"  betorun access grant group:<uuid> viewer --until 2026-12-31",
+		Example: "  betorun iam grant awa@ex.sn developer\n" +
+			"  betorun iam grant group:equipe-paiement viewer --until 2026-12-31\n" +
+			"  betorun iam grant serviceAccount:ci-deployer ciDeployer",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if until != "" && !dateRe.MatchString(until) {
 				return errors.New(i18n.T("acc.until.invalid"))
 			}
-			cl, resource, err := projectResource()
+			x, err := newIAMCtx(cmd)
 			if err != nil {
 				return err
 			}
-			member, role := memberRef(args[0]), roleRef(args[1])
+			cl, resource := x.cl, "projects/"+x.project
+			member, err := x.member(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			role, err := x.role(cmd.Context(), args[1])
+			if err != nil {
+				return err
+			}
 			var condition json.RawMessage
 			if until != "" {
 				condition, _ = json.Marshal(map[string]string{
@@ -154,7 +180,7 @@ func newAccessGrant() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("acc.grant.ok", role, args[0]))
+			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("acc.grant.ok", roleLabel(role), args[0]))
 			return nil
 		},
 	}
@@ -169,13 +195,19 @@ func newAccessRevoke() *cobra.Command {
 		Short: i18n.T("acc.revoke.short"),
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl, resource, err := projectResource()
+			x, err := newIAMCtx(cmd)
 			if err != nil {
 				return err
 			}
-			member := memberRef(args[0])
+			cl, resource := x.cl, "projects/"+x.project
+			member, err := x.member(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
 			if role != "" {
-				role = roleRef(role)
+				if role, err = x.role(cmd.Context(), role); err != nil {
+					return err
+				}
 			}
 			removed := 0
 			_, err = cl.UpdatePolicy(cmd.Context(), resource, func(v *api.PolicyView) error {
@@ -213,27 +245,4 @@ func newAccessRevoke() *cobra.Command {
 	}
 	c.Flags().StringVar(&role, "role", "", i18n.T("flag.role"))
 	return c
-}
-
-func newAccessRoles() *cobra.Command {
-	return &cobra.Command{
-		Use:   "roles",
-		Short: i18n.T("acc.roles.short"),
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			s, err := settings()
-			if err != nil {
-				return err
-			}
-			roles, err := client(s).ListRoles(cmd.Context())
-			if err != nil {
-				return err
-			}
-			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			for _, r := range roles {
-				fmt.Fprintf(tw, "%s\t%s\n", strings.TrimPrefix(r.Name, "roles/"), r.Description)
-			}
-			return tw.Flush()
-		},
-	}
 }

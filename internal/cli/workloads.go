@@ -16,8 +16,11 @@ import (
 
 // États d'un conteneur après un déploiement.
 var (
-	workloadReady  = map[string]bool{"RUNNING": true, "DEPLOYED": true, "STARTED": true}
-	workloadFailed = map[string]bool{"FAILED": true, "HELM_ERROR": true, "IMAGE_PARSE_ERROR": true, "SECRET_CREATION_ERROR": true}
+	workloadReady = map[string]bool{"RUNNING": true, "DEPLOYED": true, "STARTED": true}
+	// Échecs signalés par le workflow, ou par le watcher pendant le démarrage
+	// (avant : la CLI attendait 10 minutes un conteneur en CrashLoopBackOff).
+	workloadFailed = map[string]bool{"FAILED": true, "HELM_ERROR": true, "IMAGE_PARSE_ERROR": true, "SECRET_CREATION_ERROR": true,
+		"CRASHLOOP": true, "IMAGE_PULL_FAILED": true, "CONFIG_ERROR": true, "OOM_KILLED": true}
 
 	workloadPollEvery = 3 * time.Second
 	workloadTimeout   = 10 * time.Minute
@@ -25,7 +28,7 @@ var (
 
 func newWorkloads() *cobra.Command {
 	c := &cobra.Command{Use: "workloads", Aliases: []string{"wl", "containers"}, Short: i18n.T("wl.short")}
-	c.AddCommand(newWorkloadsList(), newWorkloadsDeploy(), newWorkloadsLogs(), newWorkloadsStatus(),
+	c.AddCommand(newWorkloadsList(), newWorkloadsDeploy(), newWorkloadsUpdate(), newWorkloadsLogs(), newWorkloadsStatus(),
 		newWorkloadAction("restart"), newWorkloadAction("stop"), newWorkloadAction("start"), newWorkloadsDelete())
 	return c
 }
@@ -111,9 +114,8 @@ func newWorkloadsDeploy() *cobra.Command {
 				return err
 			}
 			req.ProjectID, req.EnvVars = project, vars
-			if req.ServiceAccount != "" && !strings.Contains(req.ServiceAccount, ":") {
-				req.ServiceAccount = "serviceAccount:" + req.ServiceAccount
-			}
+			// Compte transmis tel que tapé : l'API accepte son identifiant
+			// (api-runner), son UUID ou serviceAccount:<UUID>.
 			ctx, out, cl := cmd.Context(), cmd.OutOrStdout(), client(s)
 			fmt.Fprintln(out, i18n.T("wl.deploy.sending", req.Name, req.Image))
 			res, err := cl.CreateWorkload(ctx, req)
@@ -124,37 +126,7 @@ func newWorkloadsDeploy() *cobra.Command {
 				fmt.Fprintln(out, i18n.T("wl.deploy.started", res.WorkloadID))
 				return nil
 			}
-			fmt.Fprintln(out, i18n.T("wl.deploy.waiting"))
-			deadline := time.Now().Add(workloadTimeout)
-			last := ""
-			for {
-				w, err := cl.GetWorkload(ctx, res.WorkloadID)
-				if err != nil {
-					return err
-				}
-				if w.CurrentPhase != last && w.CurrentPhase != "" {
-					fmt.Fprintln(out, "  · "+w.CurrentPhase)
-					last = w.CurrentPhase
-				}
-				switch {
-				case workloadReady[w.Status]:
-					if w.ExternalURL != "" {
-						fmt.Fprintln(out, i18n.T("wl.deploy.ok_url", w.ExternalURL))
-					} else {
-						fmt.Fprintln(out, i18n.T("wl.deploy.ok"))
-					}
-					return nil
-				case workloadFailed[w.Status]:
-					return errors.New(i18n.T("wl.deploy.failed", w.Status, w.CurrentPhase, req.Name))
-				case time.Now().After(deadline):
-					return errors.New(i18n.T("wl.deploy.timeout", req.Name))
-				}
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-time.After(workloadPollEvery):
-				}
-			}
+			return waitWorkload(cmd, cl, res.WorkloadID, req.Name)
 		},
 	}
 	f := c.Flags()
@@ -167,6 +139,87 @@ func newWorkloadsDeploy() *cobra.Command {
 	f.StringArrayVarP(&env, "env", "e", nil, i18n.T("flag.wl.env"))
 	f.StringVar(&req.ServiceAccount, "service-account", "", i18n.T("flag.wl.sa"))
 	f.BoolVar(&req.TLSEnabled, "tls", false, i18n.T("flag.wl.tls"))
+	f.BoolVar(&noWait, "no-wait", false, i18n.T("flag.no_wait"))
+	return c
+}
+
+// waitWorkload : suit les étapes jusqu'au démarrage (ou l'échec) du conteneur.
+func waitWorkload(cmd *cobra.Command, cl *api.Client, id, name string) error {
+	ctx, out := cmd.Context(), cmd.OutOrStdout()
+	fmt.Fprintln(out, i18n.T("wl.deploy.waiting"))
+	deadline := time.Now().Add(workloadTimeout)
+	last := ""
+	for {
+		w, err := cl.GetWorkload(ctx, id)
+		if err != nil {
+			return err
+		}
+		if w.CurrentPhase != last && w.CurrentPhase != "" {
+			fmt.Fprintln(out, "  · "+w.CurrentPhase)
+			last = w.CurrentPhase
+		}
+		switch {
+		case workloadReady[w.Status]:
+			if w.ExternalURL != "" {
+				fmt.Fprintln(out, i18n.T("wl.deploy.ok_url", w.ExternalURL))
+			} else {
+				fmt.Fprintln(out, i18n.T("wl.deploy.ok"))
+			}
+			return nil
+		case workloadFailed[w.Status]:
+			return errors.New(i18n.T("wl.deploy.failed", w.Status, w.CurrentPhase, name))
+		case time.Now().After(deadline):
+			return errors.New(i18n.T("wl.deploy.timeout", name))
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(workloadPollEvery):
+		}
+	}
+}
+
+// newWorkloadsUpdate : nouvelle version d'un conteneur existant (image,
+// variables) ; le reste de sa configuration est conservé.
+func newWorkloadsUpdate() *cobra.Command {
+	var image string
+	var env []string
+	var noWait bool
+	c := &cobra.Command{
+		Use:   "update " + i18n.T("arg.name"),
+		Short: i18n.T("wl.update.short"),
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if image == "" && len(env) == 0 {
+				return errors.New(i18n.T("wl.update.need"))
+			}
+			var req api.UpdateWorkloadRequest
+			req.Image = image
+			if len(env) > 0 {
+				vars, err := parseEnv(env)
+				if err != nil {
+					return err
+				}
+				req.EnvVars = vars // remplace l'ensemble des variables
+			}
+			cl, w, err := workloadByName(cmd, args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("wl.update.sending", w.Name))
+			if err := cl.UpdateWorkload(cmd.Context(), w.ID.String(), req); err != nil {
+				return err
+			}
+			if noWait {
+				fmt.Fprintln(cmd.OutOrStdout(), i18n.T("wl.deploy.started", w.ID))
+				return nil
+			}
+			return waitWorkload(cmd, cl, w.ID.String(), w.Name)
+		},
+	}
+	f := c.Flags()
+	f.StringVarP(&image, "image", "i", "", i18n.T("flag.wl.image"))
+	f.StringArrayVarP(&env, "env", "e", nil, i18n.T("flag.wl.env_replace"))
 	f.BoolVar(&noWait, "no-wait", false, i18n.T("flag.no_wait"))
 	return c
 }

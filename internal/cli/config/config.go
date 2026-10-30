@@ -6,8 +6,14 @@
 //
 //	BETORUN_API_URL  URL de l'API (…/kmanager/v1)
 //	BETORUN_PROJECT  projet par défaut
-//	BETORUN_TOKEN    jeton d'accès à utiliser tel quel (ex. obtenu par
-//	                 fédération OIDC) : aucune session n'est lue ni écrite
+//	BETORUN_TOKEN    jeton d'accès à utiliser tel quel
+//	BETORUN_KEY_FILE fichier de clé d'un compte de service (jetons courts)
+//	BETORUN_SERVICE_ACCOUNT  compte de service visé par la fédération OIDC
+//	                 (GitHub Actions, GitLab : BETORUN_ID_TOKEN) ou par
+//	                 l'identité d'un conteneur (BETORUN_TOKEN_FILE)
+//
+// Ordre des identifiants : voir cli.credentialSource. Avec des identifiants
+// machine, aucune session n'est lue ni écrite.
 package config
 
 import (
