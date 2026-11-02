@@ -71,7 +71,10 @@ func (p *TemporalProcessor) Start() (<-chan error, error) {
 		return p.errCh, fmt.Errorf("temporal processor already started")
 	}
 
-	w := worker.New(p.cfg.Client, p.cfg.Config.Temporal.TaskQueue, worker.Options{})
+	tc := p.cfg.Config.Temporal.WithWorkerDefaults()
+	// Réglage global du SDK, à poser avant le premier worker.
+	worker.SetStickyWorkflowCacheSize(tc.StickyCacheSize)
+	w := worker.New(p.cfg.Client, tc.TaskQueue, workerOptions(tc))
 
 	metricsClient, err := metricsv1.NewForConfig(p.cfg.K8sConfig)
 	if err != nil {
@@ -151,6 +154,17 @@ func (p *TemporalProcessor) Start() (<-chan error, error) {
 	}()
 
 	return p.errCh, nil
+}
+
+// workerOptions : bornes du worker sur une petite machine ; à l'arrêt, les
+// activités en cours ont WorkerStopTimeout pour finir (à garder sous le délai
+// d'arrêt du conteneur, stop_grace_period).
+func workerOptions(tc configs.TemporalConfig) worker.Options {
+	return worker.Options{
+		MaxConcurrentActivityExecutionSize:     tc.MaxConcurrentActivities,
+		MaxConcurrentWorkflowTaskExecutionSize: tc.MaxConcurrentWorkflowTasks,
+		WorkerStopTimeout:                      tc.WorkerStopTimeout,
+	}
 }
 
 func (p *TemporalProcessor) Shutdown() {

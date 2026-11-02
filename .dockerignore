@@ -1,0 +1,18 @@
+# Liste blanche : un nouveau fichier (secret compris) n'entre jamais par défaut
+# dans le contexte de build.
+*
+!go.mod
+!go.sum
+!cmd/
+!internal/
+!migrations/
+
+# Exclusions dans ce qui reste autorisé.
+internal/core/configs/config.yaml
+**/config.yaml
+**/.env*
+**/*.pem
+**/*.key
+**/*.crt
+**/*_test.go
+**/*.md

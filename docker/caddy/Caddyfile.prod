@@ -1,0 +1,91 @@
+# Entrée HTTPS de la production (docker-compose.prod.yaml). Hôtes par variables,
+# voir .env.prod.example. Keycloak, Temporal, Postgres, Redis et le stockage
+# objet n'ont volontairement aucune route ici.
+{
+	email {$ACME_EMAIL}
+
+	# Domaines de sites : certificat à la demande, seulement si static-edge
+	# répond 200 (domaine vérifié et site existant).
+	on_demand_tls {
+		ask http://static-edge:8091/check
+	}
+
+	servers {
+		# Seule la console (BFF, IP fixe) peut transmettre l'adresse de son
+		# client. Tout autre X-Forwarded-For entrant est écrasé par Caddy.
+		trusted_proxies static {$CONSOLE_INTERNAL_IP}/32
+	}
+}
+
+(compress) {
+	encode zstd gzip
+}
+
+(hsts) {
+	header Strict-Transport-Security "max-age=31536000"
+}
+
+# Console
+{$CONSOLE_HOST} {
+	import compress
+	import hsts
+	reverse_proxy console:3000
+}
+
+# API
+{$API_HOST} {
+	import hsts
+
+	# Sondes et métriques : jamais publiques.
+	@private path /metrics /metrics/* /api/v1/ready /healthz /readyz
+	handle @private {
+		respond 404
+	}
+
+	# Flux de journaux (HTTP chunked) : ni compressés, ni retenus. La
+	# compression les ferait attendre sur une connexion lente.
+	@stream path_regexp ^/kmanager/v1/.*/logs$
+	handle @stream {
+		reverse_proxy api:8080 {
+			flush_interval -1
+		}
+	}
+
+	handle {
+		import compress
+		reverse_proxy api:8080
+	}
+}
+
+# Registre d'images : pas de compression (couches déjà compressées), pas de
+# plafond ici, envois longs.
+{$REGISTRY_HOST} {
+	import hsts
+	reverse_proxy registry:5000 {
+		flush_interval -1
+	}
+}
+
+# Temps réel : uniquement le WebSocket client. L'API HTTP de Centrifugo reste
+# interne. Centrifugo gère sa propre compression.
+{$REALTIME_HOST} {
+	import hsts
+	handle /connection/* {
+		reverse_proxy centrifugo:8000
+	}
+	handle {
+		respond 404
+	}
+}
+
+# Sites statiques : sous-domaines de SITES_BASE_DOMAIN et domaines des clients.
+# Un certificat par hôte. Quand le nombre de sites grandira, passer à un
+# certificat joker (voir Caddyfile.prod.example : image Caddy avec module DNS)
+# pour rester sous la limite Let's Encrypt de 50 certificats par semaine.
+https:// {
+	tls {
+		on_demand
+	}
+	import compress
+	reverse_proxy static-edge:8090
+}

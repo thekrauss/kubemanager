@@ -97,19 +97,23 @@ func RegisterSchema(router *fizz.Fizz, title, desc string, l *logrus.Entry) erro
 	router.GET(openAPIPath, nil, publicSpec)
 	publicRoutes[openAPIPath] = true
 
-	// Swagger UI interne : spec complet (routes internes comprises).
-	swaggerHandler := http.StripPrefix("/swagger/", swaggerui.SwaggerURLHandler("/swagger/openapi.json"))
-	fullSpec := router.OpenAPI(info, "json")
-	authMiddleware := gin.BasicAuth(gin.Accounts{
-		configs.AppConfig.Swagger.User: configs.AppConfig.Swagger.Password,
-	})
-	router.GET("/swagger/*any", nil, authMiddleware, func(c *gin.Context) {
-		if c.Param("any") == "/openapi.json" {
-			fullSpec(c)
-			return
-		}
-		swaggerHandler.ServeHTTP(c.Writer, c.Request)
-	})
+	// Swagger UI interne : spec complet (routes internes comprises). Sans
+	// identifiants complets, pas de route : gin.BasicAuth panique sur un
+	// utilisateur vide et accepterait un mot de passe vide.
+	if swaggerConfigured(configs.AppConfig.Swagger) {
+		swaggerHandler := http.StripPrefix("/swagger/", swaggerui.SwaggerURLHandler("/swagger/openapi.json"))
+		fullSpec := router.OpenAPI(info, "json")
+		authMiddleware := gin.BasicAuth(gin.Accounts{
+			configs.AppConfig.Swagger.User: configs.AppConfig.Swagger.Password,
+		})
+		router.GET("/swagger/*any", nil, authMiddleware, func(c *gin.Context) {
+			if c.Param("any") == "/openapi.json" {
+				fullSpec(c)
+				return
+			}
+			swaggerHandler.ServeHTTP(c.Writer, c.Request)
+		})
+	}
 
 	// La documentation se lit dans la console.
 	router.GET("/docs", nil, func(c *gin.Context) {
@@ -295,4 +299,9 @@ func wrapRawHandler(fn interface{}) gin.HandlerFunc {
 		}
 		v.Call([]reflect.Value{reflect.ValueOf(c), reflect.ValueOf(input)})
 	}
+}
+
+// swaggerConfigured : Swagger n'est servi qu'avec un utilisateur et un mot de passe.
+func swaggerConfigured(cfg configs.SwaggerConfig) bool {
+	return strings.TrimSpace(cfg.User) != "" && strings.TrimSpace(cfg.Password) != ""
 }

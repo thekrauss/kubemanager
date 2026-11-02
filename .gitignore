@@ -1,5 +1,6 @@
 *.md
 .env
+.env.prod
 config.yaml
 k3s-config.yaml
 # Binaires de la CLI (scripts/build_cli.sh)

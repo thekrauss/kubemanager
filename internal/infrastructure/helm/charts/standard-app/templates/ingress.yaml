@@ -7,8 +7,7 @@ metadata:
   labels:
     {{- include "standard-app.labels" . | nindent 4 }}
   annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
-    nginx.ingress.kubernetes.io/ssl-redirect: {{ .Values.ingress.tls.enabled | quote }}
+    {{- include "standard-app.ingressClassAnnotations" (dict "root" . "tls" .Values.ingress.tls.enabled) | nindent 4 }}
     {{- if and .Values.ingress.tls.enabled .Values.ingress.tls.clusterIssuer }}
     # cert-manager auto-provisionne le cert Let's Encrypt depuis ce ClusterIssuer.
     cert-manager.io/cluster-issuer: {{ .Values.ingress.tls.clusterIssuer | quote }}

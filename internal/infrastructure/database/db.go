@@ -9,6 +9,8 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
+// InitDatabase ouvre la base et applique les migrations ; migrationsPath vide :
+// aucune migration (un autre processus s'en charge).
 func InitDatabase(cfg sharedDB.Config, migrationsPath string) (*gorm.DB, error) {
 	gormDB, err := sharedDB.OpenDatabase(cfg)
 	if err != nil {
@@ -18,6 +20,10 @@ func InitDatabase(cfg sharedDB.Config, migrationsPath string) (*gorm.DB, error) 
 	_, err = gormDB.DB()
 	if err != nil {
 		return nil, err
+	}
+
+	if migrationsPath == "" {
+		return gormDB, nil
 	}
 
 	if err := sharedDB.RunMigrationsWithURL(cfg.ToURL(), migrationsPath); err != nil {

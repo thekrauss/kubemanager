@@ -56,7 +56,7 @@ services:
       - POSTGRES_SEEDS=k8sdb
       # - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development_sql.yaml
     ports:
-      - "7233:7233" 
+      - "127.0.0.1:7233:7233"
     depends_on:
       k8sdb:
         condition: service_healthy
@@ -70,7 +70,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
     ports:
-      - "8233:8080"
+      - "127.0.0.1:8233:8080"
     depends_on:
       - temporal
     networks:
@@ -161,7 +161,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     env_file:
       - .env
     environment:
@@ -190,14 +190,40 @@ services:
     networks:
       - backend
 
+  # Worker Temporal : même image que l'API, sans port publié.
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    env_file:
+      - .env
+    environment:
+      - GODEBUG=netdns=go
+      - APP_MODE=worker
+    volumes:
+      - ./internal/core/configs:/app/internal/core/configs:ro
+      - ./k3s-config.yaml:/app/k3s-config.yaml:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      k8sdb:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+      seaweedfs:
+        condition: service_started
+    restart: always
+    networks:
+      - backend
+
   jaeger:
     image: jaegertracing/all-in-one:1.50
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
       LOG_LEVEL: warn
     ports:
-      - "16686:16686"
-      - "4319:4317"
+      - "127.0.0.1:16686:16686"
+      - "127.0.0.1:4319:4317"
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:16686"]
       interval: 5s
@@ -220,14 +246,14 @@ services:
         - '--storage.tsdb.path=/prometheus'
         - '--web.enable-lifecycle'  # permet le reload via POST /-/reload
       ports:
-        - "9090:9090"
+        - "127.0.0.1:9090:9090"
       networks:
         - backend
 
   loki:
       image: grafana/loki:2.9.0
       ports:
-        - "3100:3100"
+        - "127.0.0.1:3100:3100"
       volumes:
         - ./docker/loki/loki-config.yml:/etc/loki/loki-config.yml
         - lokidata:/loki
@@ -248,7 +274,7 @@ services:
   grafana:
       image: grafana/grafana:latest
       ports:
-        - "3000:3000"
+        - "127.0.0.1:3000:3000"
       environment:
         - GF_SECURITY_ADMIN_PASSWORD=admin
         - GF_AUTH_ANONYMOUS_ENABLED=true

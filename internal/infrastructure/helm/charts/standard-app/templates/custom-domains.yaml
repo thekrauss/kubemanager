@@ -13,8 +13,7 @@ metadata:
   labels:
     {{- include "standard-app.labels" $ | nindent 4 }}
   annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
-    nginx.ingress.kubernetes.io/ssl-redirect: {{ $.Values.customDomainTLS | quote }}
+    {{- include "standard-app.ingressClassAnnotations" (dict "root" $ "tls" $.Values.customDomainTLS) | nindent 4 }}
     {{- if $.Values.customDomainTLS }}
     cert-manager.io/cluster-issuer: {{ $.Values.customDomainIssuer | quote }}
     {{- end }}

@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	workloadsRepo "github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
 	"net/http"
@@ -148,12 +149,15 @@ func (a *App) RunWorker(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Une panne du worker doit sortir en erreur : sinon le code 0 ne déclenche
+	// aucun redémarrage selon la politique du conteneur, et rien ne la signale.
+	var workerErr error
 	select {
 	case <-ctx.Done():
 		a.Logger.Infow("worker shutdown signal received")
-	case err := <-errCh:
-		if err != nil {
-			a.Logger.Errorw("temporal worker failed", "error", err)
+	case workerErr = <-errCh:
+		if workerErr != nil {
+			a.Logger.Errorw("temporal worker failed", "error", workerErr)
 		}
 	}
 
@@ -162,6 +166,9 @@ func (a *App) RunWorker(ctx context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), a.Config.Server.ShutdownTimeout)
 		defer cancel()
 		_ = healthSrv.Shutdown(shutdownCtx)
+	}
+	if workerErr != nil {
+		return fmt.Errorf("temporal worker: %w", workerErr)
 	}
 	a.Logger.Infow("worker stopped gracefully")
 	return nil
@@ -172,6 +179,12 @@ func (a *App) startHealthServer() *http.Server {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"UP","role":"worker"}`))
+	})
+	mux.HandleFunc(workerReadyPath, func(w http.ResponseWriter, r *http.Request) {
+		status, body := runReadiness(r.Context(), a.readinessChecks(), a.Logger)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(body)
 	})
 	addr := fmt.Sprintf(":%d", a.Config.Server.HTTPPort)
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}

@@ -1,0 +1,20 @@
+{
+  "admin": false,
+  "health": true,
+
+  "allow_subscribe_for_client": false,
+  "allow_publish_for_client": false,
+  "allow_history_for_client": false,
+  "allow_presence_for_client": false,
+
+  "namespaces": [
+    {
+      "name": "project",
+      "history_size": 50,
+      "history_ttl": "1h",
+      "presence": true
+    }
+  ],
+
+  "log_level": "info"
+}

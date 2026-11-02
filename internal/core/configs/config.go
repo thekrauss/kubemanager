@@ -1,7 +1,9 @@
 package configs
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"reflect"
 	"strings"
 	"time"
@@ -11,6 +13,9 @@ import (
 )
 
 type GlobalConfig struct {
+	// Env : "production" active les réglages par défaut et le refus de démarrer
+	// d'une configuration incomplète (production.go). Variable KUBEMANAGER_ENV.
+	Env         string         `mapstructure:"env"`
 	ServiceName string         `mapstructure:"service_name"`
 	ProjectID   string         `mapstructure:"project_id"`
 	Logger      logger.Config  `mapstructure:"logger"`
@@ -266,7 +271,10 @@ type ServerConfig struct {
 	// TrustedProxies : adresses ou CIDR des proxies dont les en-têtes
 	// X-Forwarded-For sont crus (ingress, BFF de la console). Vide : boucle
 	// locale seulement. Sinon un client choisirait son IP et contournerait
-	// les limites de tentatives.
+	// les limites de tentatives. Derrière Caddy en conteneur : les IP fixes de
+	// Caddy et de la console sur le réseau interne (docker-compose.prod.yaml),
+	// jamais 0.0.0.0/0. Le rate limit et les limites de connexion en dépendent :
+	// sans cette liste, tous les clients partagent l'IP de Caddy.
 	TrustedProxies []string `mapstructure:"trusted_proxies"`
 }
 
@@ -278,9 +286,16 @@ type DBConfig struct {
 	Password       string `mapstructure:"password"`
 	Name           string `mapstructure:"name"`
 	SSLMode        string `mapstructure:"sslmode"`
-	MaxOpenConns   int    `mapstructure:"max_open_conns"`
-	MaxIdleConns   int    `mapstructure:"max_idle_conns"`
-	MigrationsPath string `mapstructure:"migrations_path"`
+	// Pool par processus (0 : défauts de database.PoolDefaults). La somme des
+	// processus doit rester sous max_connections de Postgres.
+	MaxOpenConns    int           `mapstructure:"max_open_conns"`
+	MaxIdleConns    int           `mapstructure:"max_idle_conns"`
+	ConnMaxLifetime time.Duration `mapstructure:"conn_max_lifetime"`
+	ConnMaxIdleTime time.Duration `mapstructure:"conn_max_idle_time"`
+	MigrationsPath  string        `mapstructure:"migrations_path"`
+	// SkipMigrations : ce processus n'applique pas les migrations. En
+	// production, seule l'API les lance et le worker démarre après elle.
+	SkipMigrations bool `mapstructure:"skip_migrations"`
 }
 
 type CentrifugoConfig struct {
@@ -324,6 +339,38 @@ type TemporalConfig struct {
 	Namespace         string        `mapstructure:"namespace"`
 	TaskQueue         string        `mapstructure:"task_queue"`
 	ConnectionTimeout time.Duration `mapstructure:"connection_timeout"`
+	// Bornes du worker (0 : défauts ci-dessous). Sans borne, le SDK accepte
+	// 1000 activités simultanées et garde 10 000 workflows en cache.
+	MaxConcurrentActivities    int           `mapstructure:"max_concurrent_activities"`
+	MaxConcurrentWorkflowTasks int           `mapstructure:"max_concurrent_workflow_tasks"`
+	StickyCacheSize            int           `mapstructure:"sticky_cache_size"`
+	WorkerStopTimeout          time.Duration `mapstructure:"worker_stop_timeout"`
+}
+
+// Défauts du worker Temporal, prévus pour une petite machine.
+const (
+	DefaultMaxConcurrentActivities    = 6
+	DefaultMaxConcurrentWorkflowTasks = 8
+	DefaultStickyCacheSize            = 256
+	DefaultWorkerStopTimeout          = 30 * time.Second
+)
+
+// WithWorkerDefaults : réglages du worker non renseignés remplacés par leur
+// valeur par défaut.
+func (c TemporalConfig) WithWorkerDefaults() TemporalConfig {
+	if c.MaxConcurrentActivities <= 0 {
+		c.MaxConcurrentActivities = DefaultMaxConcurrentActivities
+	}
+	if c.MaxConcurrentWorkflowTasks <= 0 {
+		c.MaxConcurrentWorkflowTasks = DefaultMaxConcurrentWorkflowTasks
+	}
+	if c.StickyCacheSize <= 0 {
+		c.StickyCacheSize = DefaultStickyCacheSize
+	}
+	if c.WorkerStopTimeout <= 0 {
+		c.WorkerStopTimeout = DefaultWorkerStopTimeout
+	}
+	return c
 }
 
 type MetricsConfig struct {
@@ -389,7 +436,7 @@ type KubernetesConfig struct {
 	// les workloads. Vide : identité des workloads désactivée.
 	ClusterID string `mapstructure:"cluster_id"`
 	// IngressClass : classe d'ingress des conteneurs exposés (défaut nginx ;
-	// traefik sur un k3s/k3d nu).
+	// traefik sur un k3s/k3d nu, obligatoire en production sous k3s).
 	IngressClass string `mapstructure:"ingress_class"`
 	// IngressNamespace : espace de noms du contrôleur d'ingress, seul autorisé
 	// par la NetworkPolicy à joindre les conteneurs (défaut ingress-nginx ;
@@ -399,6 +446,10 @@ type KubernetesConfig struct {
 
 // EnvPrefix est le préfixe utilisé pour les variables d'environnement (ex: KUBEMANAGER_DATABASE_HOST).
 const EnvPrefix = "KUBEMANAGER"
+
+// DefaultShutdownTimeout : arrêt gracieux si server.shutdown_timeout est absent
+// (sans cela, les requêtes en cours étaient coupées immédiatement).
+const DefaultShutdownTimeout = 15 * time.Second
 
 var AppConfig GlobalConfig
 
@@ -428,7 +479,12 @@ func Load(path string) (*GlobalConfig, error) {
 	}
 
 	if err := v.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("erreur de chargement du fichier de configuration: %w", err)
+		// En production, tout peut venir de l'environnement : l'image n'embarque
+		// aucun fichier et ValidateProduction signale ce qui manque. En
+		// développement, un fichier absent reste une erreur.
+		if !isProductionEnv(v.GetString(envKey)) || !isConfigFileMissing(err) {
+			return nil, fmt.Errorf("erreur de chargement du fichier de configuration: %w", err)
+		}
 	}
 
 	var config GlobalConfig
@@ -436,8 +492,26 @@ func Load(path string) (*GlobalConfig, error) {
 		return nil, fmt.Errorf("erreur d'analyse du fichier de configuration: %w", err)
 	}
 
+	if config.Server.ShutdownTimeout <= 0 {
+		config.Server.ShutdownTimeout = DefaultShutdownTimeout
+	}
+
+	if config.IsProduction() {
+		config.applyProductionDefaults()
+		if err := config.ValidateProduction(); err != nil {
+			return nil, err
+		}
+	}
+
 	AppConfig = config
 	return &AppConfig, nil
+}
+
+// isConfigFileMissing : fichier introuvable, recherché (nom + répertoires) ou
+// désigné par son chemin.
+func isConfigFileMissing(err error) bool {
+	var notFound viper.ConfigFileNotFoundError
+	return errors.As(err, &notFound) || errors.Is(err, fs.ErrNotExist)
 }
 
 // bindEnvs lie chaque clé de la configuration (tags mapstructure, récursif) à

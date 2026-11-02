@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/thekrauss/kubemanager/internal/audit"
@@ -50,9 +51,60 @@ type Observability struct {
 	TemporalMetricsCloser io.Closer
 }
 
+// Délais du serveur HTTP. Pas de WriteTimeout global : il couperait les flux
+// de journaux et les téléchargements longs ; pas de ReadTimeout : il couperait
+// les envois d'archives sur connexion lente. ReadHeaderTimeout protège des
+// connexions qui n'envoient jamais leurs en-têtes.
+const (
+	httpReadHeaderTimeout = 10 * time.Second
+	httpIdleTimeout       = 120 * time.Second
+	// maxMultipartMemory : au-delà, les parties d'un formulaire vont sur disque.
+	maxMultipartMemory = 1 << 20
+	// defaultMaxBodyBytes : plafond des corps de requête, routes publiques
+	// comprises (POST /identity/device/token lit PostForm sans limite propre).
+	defaultMaxBodyBytes = 1 << 20
+)
+
+// routesWithOwnBodyLimit : routes qui posent leur propre limite (archives,
+// webhooks de GitHub jusqu'à 25 Mio). Un plafond global plus bas la masquerait.
+var routesWithOwnBodyLimit = []string{
+	"/:siteID/deployments",
+	"/builds/upload",
+	"/github/webhook",
+}
+
+// limitRequestBody : plafond des corps par défaut, avant l'authentification.
+func limitRequestBody(limit int64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		path := c.FullPath()
+		for _, suffix := range routesWithOwnBodyLimit {
+			if strings.HasSuffix(path, suffix) {
+				c.Next()
+				return
+			}
+		}
+		if c.Request.ContentLength > limit {
+			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{
+				"code":    "REQUEST_TOO_LARGE",
+				"error":   "REQUEST_TOO_LARGE",
+				"message": "request body too large",
+			})
+			return
+		}
+		if c.Request.Body != nil {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
+		}
+		c.Next()
+	}
+}
+
 func (a *App) startHTTPServer() {
+	if a.Config.IsProduction() {
+		gin.SetMode(gin.ReleaseMode)
+	}
 
 	engine := gin.New()
+	engine.MaxMultipartMemory = maxMultipartMemory
 	if err := engine.SetTrustedProxies(trustedProxies(a.Config.Server.TrustedProxies)); err != nil {
 		a.Logger.Fatalw("invalid server.trusted_proxies", "error", err)
 	}
@@ -65,6 +117,8 @@ func (a *App) startHTTPServer() {
 		}
 		return "UNKNOWN"
 	}
+	// Adresse dédiée, non publiée : sans elle, /metrics est servi sur le port de
+	// l'API, sans authentification (imposée en production, voir configs).
 	if addr := a.Config.Metrics.ListenAddr; addr != "" {
 		p.SetListenAddress(addr)
 	}
@@ -104,6 +158,25 @@ func (a *App) startHTTPServer() {
 	// et du rate limit compris (internal/core/i18n).
 	engine.Use(middleware.Locale())
 	engine.Use(middleware.TranslateMessages())
+
+	// Santé avant le rate limit et l'authentification : les sondes viennent de
+	// la boucle locale et ne doivent ni consommer de quota ni dépendre de Redis.
+	engine.GET("/api/v1/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "UP",
+			"service": a.Config.ServiceName,
+			"role":    "server",
+		})
+	})
+	engine.GET(readinessPath, func(c *gin.Context) {
+		status, body := runReadiness(c.Request.Context(), a.readinessChecks(), a.Logger)
+		c.JSON(status, body)
+	})
+
+	engine.Use(limitRequestBody(defaultMaxBodyBytes))
+
+	// Le rate limit compte par ClientIP() : il suppose SetTrustedProxies plus
+	// haut correct, sinon tous les clients partagent l'adresse du proxy.
 	engine.Use(middleware.RateLimitMiddleware(middleware.RateLimitConfig{
 		Enabled: a.Config.RateLimit.Enabled,
 		Limit:   a.Config.RateLimit.Limit,
@@ -114,14 +187,6 @@ func (a *App) startHTTPServer() {
 	// Journal d'audit immuable : écritures et refus (docs/architecture/iam.md §11).
 	engine.Use(a.Security.Middleware.AuditMiddleware(&audit.GormWriter{DB: a.DB}))
 	engine.Use(middleware.Idempotency())
-
-	engine.GET("/api/v1/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "UP",
-			"service": a.Config.ServiceName,
-			"role":    "server",
-		})
-	})
 
 	// Erreurs des handlers tonic : statut selon le type d'erreur (voir errors.go)
 	// au lieu du 400 + message brut par défaut.
@@ -140,7 +205,12 @@ func (a *App) startHTTPServer() {
 	a.Security.Middleware.SetPublicRoutes(PublicRoutes())
 
 	addr := fmt.Sprintf(":%d", a.Config.Server.HTTPPort)
-	a.Servers.HTTP = &http.Server{Addr: addr, Handler: engine}
+	a.Servers.HTTP = &http.Server{
+		Addr:              addr,
+		Handler:           engine,
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+		IdleTimeout:       httpIdleTimeout,
+	}
 
 	go func() {
 		a.Logger.Infof("HTTP server listening on %s", addr)

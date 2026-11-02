@@ -140,6 +140,10 @@
   "en": "too many requests, please slow down"
  },
  {
+  "fr": "Corps de requête trop volumineux",
+  "en": "request body too large"
+ },
+ {
   "fr": "Champ « %[1]s » invalide : %[3]s",
   "en": "binding error on field '%s' of type '%s': %s"
  },

@@ -1,0 +1,680 @@
+# Production, serveur 1 : voir deploy/README.txt. Toujours lancer via
+# deploy/compose.sh, qui charge les fichiers d'environnement hors dépôt.
+#
+# RÉSEAU
+#   Seul Caddy publie des ports (80, 443 tcp/udp). Docker contourne ufw : un port
+#   publié ici est ouvert au monde, d'où aucun autre `ports:` hors profils.
+#   - backend  : interne, sans accès à Internet, sous-réseau fixe. Tous les services.
+#   - public   : Caddy seul (ports publiés, ACME).
+#   - outbound : sortie vers Internet de l'API et du worker (SMTP, GitHub, API
+#                Kubernetes du serveur 2).
+#   Le serveur 2 n'a besoin d'aucun port supplémentaire : pods et nœuds joignent
+#   l'API et le registre par leurs noms publics, en HTTPS, sur le 443 de Caddy.
+#
+# ADRESSE DES CLIENTS
+#   L'API ne croit X-Forwarded-For que depuis Caddy et la console (IP fixes
+#   ci-dessous, server.trusted_proxies). Caddy ne le croit que depuis la console,
+#   dont le BFF transmet l'adresse du navigateur. La console joint l'API par
+#   Caddy sur le réseau interne (extra_hosts) : en passant par l'IP publique, sa
+#   propre adresse remplacerait celle de tous les clients dans les limites de
+#   connexion.
+#
+# CONNEXIONS POSTGRES (max_connections=100, au maximum par processus)
+#   api 15 + worker 15 + static-edge 10 + keycloak 10
+#   + temporal 32 (4 services x (6 + 2 visibilité)) = 82 ; marge pour migrations,
+#   sauvegardes et administration.
+#
+# TEMPORAL : image `server` et non `auto-setup`
+#   auto-setup est prévue pour le développement : elle crée le schéma à chaque
+#   démarrage, avec des droits étendus, et mélange serveur et administration.
+#   Ici le schéma est une étape séparée (temporal-schema) rejouable, et le rôle
+#   SQL ne possède que ses deux bases. Coût : deux conteneurs éphémères.
+
+name: betorun
+
+x-service: &service
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+x-oneshot: &oneshot
+  restart: "no"
+  security_opt:
+    - no-new-privileges:true
+
+# Une seule source par secret : .env.prod alimente KUBEMANAGER_* ici, car
+# l'application ne lit que ces variables (pas DB_PASSWORD).
+x-app-env: &app-env
+  KUBEMANAGER_ENV: production
+  GIN_MODE: release
+  KUBEMANAGER_SERVICE_NAME: kubemanager
+  KUBEMANAGER_LOGGER_LEVEL: ${LOG_LEVEL:-info}
+  KUBEMANAGER_LOGGER_FORMAT: json
+  KUBEMANAGER_SERVER_HTTP_PORT: "8080"
+  KUBEMANAGER_SERVER_SHUTDOWN_TIMEOUT: 20s
+  KUBEMANAGER_SERVER_ALLOWED_ORIGINS: https://${CONSOLE_HOST:?}
+  KUBEMANAGER_SERVER_TRUSTED_PROXIES: 172.30.0.10,172.30.0.11
+  KUBEMANAGER_FRONTEND_URL: https://${CONSOLE_HOST:?}
+  KUBEMANAGER_RATE_LIMIT_ENABLED: "true"
+  KUBEMANAGER_RATE_LIMIT_LIMIT: ${RATE_LIMIT_PER_MINUTE:-600}
+  KUBEMANAGER_RATE_LIMIT_WINDOW: 1m
+  KUBEMANAGER_METRICS_LISTEN_ADDR: ":9100"
+  KUBEMANAGER_TRACING_JAEGER_ENDPOINT: ${TRACING_JAEGER_ENDPOINT:-}
+  KUBEMANAGER_TRACING_SAMPLE_RATIO: "0.01"
+  KUBEMANAGER_DATABASE_DRIVER: postgres
+  KUBEMANAGER_DATABASE_HOST: k8sdb
+  KUBEMANAGER_DATABASE_PORT: "5432"
+  KUBEMANAGER_DATABASE_USER: ${DB_USER:?}
+  KUBEMANAGER_DATABASE_PASSWORD: ${DB_PASSWORD:?}
+  KUBEMANAGER_DATABASE_NAME: ${DB_NAME:?}
+  KUBEMANAGER_DATABASE_SSLMODE: disable
+  KUBEMANAGER_DATABASE_MAX_OPEN_CONNS: "15"
+  KUBEMANAGER_DATABASE_MAX_IDLE_CONNS: "5"
+  KUBEMANAGER_DATABASE_CONN_MAX_IDLE_TIME: 5m
+  KUBEMANAGER_REDIS_ENABLED: "true"
+  KUBEMANAGER_REDIS_HOST: redis
+  KUBEMANAGER_REDIS_PORT: "6379"
+  KUBEMANAGER_REDIS_PASSWORD: ${REDIS_PASSWORD:?}
+  KUBEMANAGER_TEMPORAL_HOST: temporal:7233
+  KUBEMANAGER_TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+  KUBEMANAGER_TEMPORAL_TASK_QUEUE: kubemanager
+  KUBEMANAGER_KEYCLOAK_ENABLED: "true"
+  KUBEMANAGER_KEYCLOAK_ISSUER_URL: http://keycloak:8080/realms/kubemanager
+  KUBEMANAGER_KEYCLOAK_REALM: kubemanager
+  KUBEMANAGER_KEYCLOAK_ADMIN_BASE_URL: http://keycloak:8080
+  KUBEMANAGER_KEYCLOAK_ADMIN_REALM: kubemanager
+  KUBEMANAGER_KEYCLOAK_CLIENT_ID: kubemanager-api
+  KUBEMANAGER_KEYCLOAK_AUDIENCE: kubemanager-api
+  KUBEMANAGER_KEYCLOAK_STRICT_AUDIENCE: "true"
+  KUBEMANAGER_KEYCLOAK_WEB_CLIENT_ID: kubemanager-web
+  KUBEMANAGER_KEYCLOAK_CLI_CLIENT_ID: betorun-cli
+  KUBEMANAGER_KEYCLOAK_ADMIN_CLIENT_ID: kubemanager-admin
+  KUBEMANAGER_KEYCLOAK_AUTH_CLIENT_ID: betorun-auth
+  # Écrits par keycloak-bootstrap dans keycloak.env.
+  KUBEMANAGER_KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
+  KUBEMANAGER_KEYCLOAK_AUTH_CLIENT_SECRET: ${KEYCLOAK_AUTH_CLIENT_SECRET:-}
+  KUBEMANAGER_IAM_STS_ISSUER: https://${API_HOST:?}/kmanager/v1/iam
+  # DÉFINITIFS dès le premier démarrage : les changer invalide les données.
+  KUBEMANAGER_IAM_API_KEY_PEPPER: ${IAM_API_KEY_PEPPER:?}
+  KUBEMANAGER_IAM_STS_KEY_ENCRYPTION_KEY: ${IAM_STS_KEY_ENCRYPTION_KEY:?}
+  KUBEMANAGER_IAM_PLATFORM_ADMINS: ${PLATFORM_ADMINS:?}
+  KUBEMANAGER_MAIL_ENABLED: "true"
+  KUBEMANAGER_MAIL_SMTP_HOST: ${SMTP_HOST:?}
+  KUBEMANAGER_MAIL_SMTP_PORT: ${SMTP_PORT:?}
+  KUBEMANAGER_MAIL_SMTP_USER: ${SMTP_USER:-}
+  KUBEMANAGER_MAIL_SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  KUBEMANAGER_MAIL_FROM_EMAIL: ${MAIL_FROM_EMAIL:?}
+  KUBEMANAGER_MAIL_FROM_NAME: ${MAIL_FROM_NAME:-betorun}
+  KUBEMANAGER_CENTRIFUGO_ENABLED: "true"
+  KUBEMANAGER_CENTRIFUGO_URL: https://${REALTIME_HOST:?}
+  KUBEMANAGER_CENTRIFUGO_API_URL: http://centrifugo:8000
+  KUBEMANAGER_CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY:?}
+  KUBEMANAGER_CENTRIFUGO_TOKEN_HMAC_SECRET: ${CENTRIFUGO_TOKEN_HMAC_SECRET:?}
+  KUBEMANAGER_CENTRIFUGO_ADMIN_ENABLED: "false"
+  KUBEMANAGER_OBJECT_STORE_ENDPOINT: seaweedfs:8333
+  KUBEMANAGER_OBJECT_STORE_ACCESS_KEY: platform
+  KUBEMANAGER_OBJECT_STORE_SECRET_KEY: ${S3_PLATFORM_SECRET_KEY:?}
+  KUBEMANAGER_OBJECT_STORE_BUCKET: betorun-sites
+  KUBEMANAGER_OBJECT_STORE_REGION: us-east-1
+  KUBEMANAGER_OBJECT_STORE_USE_SSL: "false"
+  KUBEMANAGER_SITES_ENABLED: "true"
+  KUBEMANAGER_SITES_BASE_DOMAIN: ${SITES_BASE_DOMAIN:?}
+  KUBEMANAGER_SITES_EDGE_TARGET: ${SITES_EDGE_TARGET:?}
+  KUBEMANAGER_BUILDS_ENABLED: "true"
+  KUBEMANAGER_BUILDS_REGISTRY_HOST: ${REGISTRY_HOST:?}
+  KUBEMANAGER_BUILDS_PUBLIC_API_URL: https://${API_HOST:?}/kmanager/v1
+  KUBEMANAGER_BUILDS_SECRET: ${BUILDS_SECRET:?}
+  KUBEMANAGER_BUILDS_TOKEN_CERT_FILE: /etc/betorun/registry/token.crt
+  KUBEMANAGER_BUILDS_TOKEN_KEY_FILE: /etc/betorun/registry/token.key
+  KUBEMANAGER_BUILDS_MAX_CONCURRENT: ${BUILDS_MAX_CONCURRENT:-1}
+  KUBEMANAGER_BUILDS_MEMORY_LIMIT: ${BUILDS_MEMORY_LIMIT:-2Gi}
+  KUBEMANAGER_BUILDS_EGRESS_ALLOW_CIDRS: ${BUILDS_EGRESS_ALLOW_CIDRS:-}
+  KUBEMANAGER_KUBERNETES_KUBECONFIG_PATH: /etc/betorun/kubeconfig
+  # Traefik de k3s. Sans ces deux valeurs, le code retombe sur nginx.
+  KUBEMANAGER_KUBERNETES_INGRESS_CLASS: traefik
+  KUBEMANAGER_KUBERNETES_INGRESS_NAMESPACE: kube-system
+  KUBEMANAGER_KUBERNETES_INGRESS_TARGET: ${SERVER2_IP:?}
+  KUBEMANAGER_KUBERNETES_CLUSTER_ID: ${CLUSTER_ID:-}
+  KUBEMANAGER_VPS_VPS_IP: ${SERVER2_IP:?}
+  # Facultatifs : Swagger désactivé et fournisseurs absents si vides.
+  KUBEMANAGER_SWAGGER_USER: ${SWAGGER_USER:-}
+  KUBEMANAGER_SWAGGER_PASSWORD: ${SWAGGER_PASSWORD:-}
+  KUBEMANAGER_SOCIAL_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  KUBEMANAGER_SOCIAL_GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  KUBEMANAGER_SOCIAL_GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+  KUBEMANAGER_SOCIAL_GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+
+x-app-volumes: &app-volumes
+  - ${BETORUN_SECRETS_DIR:?}/registry/token.crt:/etc/betorun/registry/token.crt:ro
+  - ${BETORUN_SECRETS_DIR:?}/registry/token.key:/etc/betorun/registry/token.key:ro
+  - ${BETORUN_SECRETS_DIR:?}/kubeconfig:/etc/betorun/kubeconfig:ro
+
+services:
+  k8sdb:
+    <<: *service
+    image: postgres:15.19-alpine3.23
+    command:
+      - postgres
+      - -c
+      - max_connections=100
+      - -c
+      - shared_buffers=192MB
+      - -c
+      - effective_cache_size=512MB
+      - -c
+      - work_mem=4MB
+    environment:
+      POSTGRES_USER: ${DB_USER:?}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?}
+      POSTGRES_DB: ${DB_NAME:?}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?}
+      TEMPORAL_DB_PASSWORD: ${TEMPORAL_DB_PASSWORD:?}
+      EDGE_DB_PASSWORD: ${EDGE_DB_PASSWORD:?}
+    volumes:
+      - k8sdbdata:/var/lib/postgresql/data
+      - ./docker/postgres/init-prod.sh:/docker-entrypoint-initdb.d/10-init-prod.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    stop_grace_period: 60s
+    mem_limit: 768m
+    networks: [backend]
+
+  redis:
+    <<: *service
+    image: redis:7.4.12-alpine3.21
+    # Mot de passe par l'environnement : hors des arguments visibles dans `docker inspect`.
+    command:
+      - sh
+      - -c
+      - exec redis-server --appendonly yes --maxmemory 192mb --maxmemory-policy volatile-lru --requirepass "$$REDIS_PASSWORD"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?}
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    mem_limit: 256m
+    networks: [backend]
+
+  temporal-schema:
+    <<: *oneshot
+    image: temporalio/admin-tools:1.29.7-tctl-1.18.4-cli-1.7.2
+    entrypoint: ["sh", "/setup-schema.sh"]
+    environment:
+      POSTGRES_SEEDS: k8sdb
+      DB_PORT: "5432"
+      POSTGRES_USER: temporal
+      SQL_PASSWORD: ${TEMPORAL_DB_PASSWORD:?}
+    volumes:
+      - ./docker/temporal/setup-schema.sh:/setup-schema.sh:ro
+    depends_on:
+      k8sdb:
+        condition: service_healthy
+    mem_limit: 128m
+    networks: [backend]
+
+  temporal:
+    <<: *service
+    image: temporalio/server:1.29.7
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+      POSTGRES_SEEDS: k8sdb
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: ${TEMPORAL_DB_PASSWORD:?}
+      # Définitif : le nombre de shards ne change plus après le premier démarrage.
+      NUM_HISTORY_SHARDS: "4"
+      SQL_MAX_CONNS: "6"
+      SQL_MAX_IDLE_CONNS: "2"
+      SQL_VIS_MAX_CONNS: "2"
+      SQL_VIS_MAX_IDLE_CONNS: "1"
+      GOMEMLIMIT: 600MiB
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/docker.yaml
+    healthcheck:
+      test: ["CMD-SHELL", "temporal operator cluster health --address \"$$(hostname -i | cut -d' ' -f1):7233\" | grep -q SERVING"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    depends_on:
+      temporal-schema:
+        condition: service_completed_successfully
+    mem_limit: 768m
+    networks: [backend]
+
+  temporal-namespace:
+    <<: *oneshot
+    image: temporalio/admin-tools:1.29.7-tctl-1.18.4-cli-1.7.2
+    entrypoint: ["sh", "/setup-namespace.sh"]
+    environment:
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+    volumes:
+      - ./docker/temporal/setup-namespace.sh:/setup-namespace.sh:ro
+    depends_on:
+      temporal:
+        condition: service_healthy
+    mem_limit: 128m
+    networks: [backend]
+
+  # Annuaire privé : aucun port publié, aucune route dans Caddy. L'URL interne
+  # est aussi l'émetteur des jetons, qui ne sortent jamais du backend.
+  keycloak:
+    <<: *service
+    image: quay.io/keycloak/keycloak:25.0.6
+    command: ["start"]
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER:?}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://k8sdb:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?}
+      KC_DB_POOL_INITIAL_SIZE: "2"
+      KC_DB_POOL_MIN_SIZE: "2"
+      KC_DB_POOL_MAX_SIZE: "10"
+      KC_HTTP_ENABLED: "true"
+      KC_HTTP_PORT: "8080"
+      KC_HOSTNAME: http://keycloak:8080
+      KC_HEALTH_ENABLED: "true"
+      KC_CACHE: local
+      KC_LOG_LEVEL: INFO
+      JAVA_OPTS_KC_HEAP: -XX:MaxRAMPercentage=65 -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30
+    healthcheck:
+      # L'image n'a ni curl ni wget : requête à la main sur le port de gestion.
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"UP"' <&3
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+    depends_on:
+      k8sdb:
+        condition: service_healthy
+    mem_limit: 1g
+    networks: [backend]
+
+  keycloak-bootstrap:
+    <<: *oneshot
+    profiles: [bootstrap]
+    image: alpine:3.23.7
+    entrypoint: ["sh", "/bootstrap/bootstrap.sh"]
+    environment:
+      KEYCLOAK_BASE_URL: http://keycloak:8080
+      KEYCLOAK_ADMIN_USER: ${KEYCLOAK_ADMIN_USER:?}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?}
+      WEB_FRONTEND_BASE_URL: https://${CONSOLE_HOST:?}
+      WEB_FRONTEND_ALT_BASE_URL: https://${CONSOLE_HOST:?}
+      # Les emails partent du backend (docs/architecture/auth.md), jamais de Keycloak.
+      KEYCLOAK_SMTP_ENABLED: "false"
+      OPERATOR_UID: ${OPERATOR_UID:-0}
+    volumes:
+      - ./docker/keycloak/bootstrap.sh:/bootstrap/bootstrap.sh:ro
+      - ./scripts/keycloak/bootstrap_platform.sh:/bootstrap/bootstrap_platform.sh:ro
+      - ${BETORUN_SECRETS_DIR:?}:/out
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    networks: [backend, outbound]
+
+  centrifugo:
+    <<: *service
+    image: centrifugo/centrifugo:v5.4.9
+    command: ["centrifugo", "-c", "/etc/centrifugo/config.json"]
+    environment:
+      CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY:?}
+      CENTRIFUGO_TOKEN_HMAC_SECRET_KEY: ${CENTRIFUGO_TOKEN_HMAC_SECRET:?}
+      CENTRIFUGO_ALLOWED_ORIGINS: https://${CONSOLE_HOST:?}
+    volumes:
+      - ./docker/centrifugo/config.prod.json:/etc/centrifugo/config.json:ro
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    mem_limit: 192m
+    networks: [backend]
+
+  seaweedfs:
+    <<: *service
+    image: chrislusf/seaweedfs:4.50
+    command:
+      - server
+      - -dir=/data
+      - -s3
+      - -s3.port=8333
+      - -s3.config=/etc/seaweedfs/s3.json
+      - -master.volumeSizeLimitMB=1024
+      - -volume.max=50
+    volumes:
+      - s3data:/data
+      - ${BETORUN_SECRETS_DIR:?}/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    healthcheck:
+      # Le port S3 répond 403 sans signature : on contrôle qu'il écoute et que le maître répond.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9333/cluster/status && nc -z 127.0.0.1 8333"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+    mem_limit: 512m
+    networks: [backend]
+
+  registry:
+    <<: *service
+    image: registry:3.0.0
+    environment:
+      REGISTRY_HTTP_HOST: https://${REGISTRY_HOST:?}
+      REGISTRY_HTTP_SECRET: ${REGISTRY_HTTP_SECRET:?}
+      REGISTRY_AUTH_TOKEN_REALM: https://${API_HOST:?}/kmanager/v1/registry/token
+      REGISTRY_AUTH_TOKEN_SERVICE: betorun-registry
+      REGISTRY_AUTH_TOKEN_ISSUER: betorun
+      REGISTRY_AUTH_TOKEN_ROOTCERTBUNDLE: /certs/token.crt
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+      OTEL_TRACES_EXPORTER: none
+    volumes:
+      - registry-data:/var/lib/registry
+      - ${BETORUN_SECRETS_DIR:?}/registry/token.crt:/certs/token.crt:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:5000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    mem_limit: 256m
+    networks: [backend]
+
+  # Seul processus à appliquer les migrations (le worker a skip_migrations et
+  # démarre après elle).
+  api:
+    <<: *service
+    image: ${KUBEMANAGER_IMAGE:?}
+    environment:
+      <<: *app-env
+      GOMEMLIMIT: 410MiB
+    volumes: *app-volumes
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/v1/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 90s
+    depends_on:
+      k8sdb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      temporal-namespace:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+      centrifugo:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+    cap_drop: [ALL]
+    stop_grace_period: 30s
+    mem_limit: 512m
+    networks:
+      backend:
+      outbound:
+
+  worker:
+    <<: *service
+    image: ${KUBEMANAGER_IMAGE:?}
+    environment:
+      <<: *app-env
+      APP_MODE: worker
+      KUBEMANAGER_DATABASE_SKIP_MIGRATIONS: "true"
+      KUBEMANAGER_TEMPORAL_MAX_CONCURRENT_ACTIVITIES: ${WORKER_MAX_CONCURRENT_ACTIVITIES:-6}
+      KUBEMANAGER_TEMPORAL_STICKY_CACHE_SIZE: "256"
+      KUBEMANAGER_TEMPORAL_WORKER_STOP_TIMEOUT: 30s
+      GOMEMLIMIT: 614MiB
+    volumes: *app-volumes
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
+    depends_on:
+      api:
+        condition: service_healthy
+    cap_drop: [ALL]
+    # Supérieur à WORKER_STOP_TIMEOUT : les activités en cours peuvent finir.
+    stop_grace_period: 45s
+    mem_limit: 768m
+    networks:
+      backend:
+      outbound:
+
+  # Droits de lecture de static-edge, sur les seules tables qu'il lit. Après les
+  # migrations ; rejoué à chaque `up`, sans effet s'ils existent.
+  edge-db-grants:
+    <<: *oneshot
+    image: postgres:15.19-alpine3.23
+    entrypoint:
+      - sh
+      - -c
+      - psql -v ON_ERROR_STOP=1 -h k8sdb -U "$$PGUSER" -d "$$PGDATABASE" -c 'GRANT SELECT ON sites, site_domains TO edge_ro'
+    environment:
+      PGUSER: ${DB_USER:?}
+      PGPASSWORD: ${DB_PASSWORD:?}
+      PGDATABASE: ${DB_NAME:?}
+    depends_on:
+      api:
+        condition: service_healthy
+    mem_limit: 64m
+    networks: [backend]
+
+  static-edge:
+    <<: *service
+    image: ${STATIC_EDGE_IMAGE:?}
+    environment:
+      EDGE_DATABASE_URL: postgres://edge_ro:${EDGE_DB_PASSWORD:?}@k8sdb:5432/${DB_NAME:?}?sslmode=disable
+      EDGE_BASE_DOMAIN: ${SITES_BASE_DOMAIN:?}
+      EDGE_S3_ENDPOINT: seaweedfs:8333
+      EDGE_S3_ACCESS_KEY: edge
+      EDGE_S3_SECRET_KEY: ${S3_EDGE_SECRET_KEY:?}
+      EDGE_S3_BUCKET: betorun-sites
+      EDGE_S3_REGION: us-east-1
+      GOMEMLIMIT: 100MiB
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8091/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      edge-db-grants:
+        condition: service_completed_successfully
+      seaweedfs:
+        condition: service_healthy
+    cap_drop: [ALL]
+    mem_limit: 128m
+    networks: [backend]
+
+  console:
+    <<: *service
+    image: ${CONSOLE_IMAGE:?}
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      NODE_OPTIONS: --max-old-space-size=256
+    # Le BFF appelle l'API par son nom public : via Caddy, sur le réseau interne.
+    extra_hosts:
+      - ${API_HOST:?}:172.30.0.10
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/robots.txt').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    cap_drop: [ALL]
+    mem_limit: 384m
+    networks:
+      backend:
+        ipv4_address: 172.30.0.11
+
+  caddy:
+    <<: *service
+    image: caddy:2.10.2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?}
+      CONSOLE_HOST: ${CONSOLE_HOST:?}
+      API_HOST: ${API_HOST:?}
+      REGISTRY_HOST: ${REGISTRY_HOST:?}
+      REALTIME_HOST: ${REALTIME_HOST:?}
+      CONSOLE_INTERNAL_IP: 172.30.0.11
+    volumes:
+      - ./docker/caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      static-edge:
+        condition: service_started
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    mem_limit: 256m
+    networks:
+      public:
+      backend:
+        ipv4_address: 172.30.0.10
+
+  # ── Profil tools (désactivé par défaut) ─────────────────────────────────
+  # Lecture par tunnel SSH : ports limités à la boucle locale du serveur.
+  mailhog:
+    <<: *service
+    profiles: [tools]
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "127.0.0.1:8025:8025"
+    mem_limit: 64m
+    networks: [backend]
+
+  temporal-ui:
+    <<: *service
+    profiles: [tools]
+    image: temporalio/ui:2.57.0
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports:
+      - "127.0.0.1:8233:8080"
+    mem_limit: 128m
+    networks: [backend]
+
+  # ── Profil observability (désactivé par défaut, environ 1,5 Go) ─────────
+  jaeger:
+    <<: *service
+    profiles: [observability]
+    image: jaegertracing/all-in-one:1.76.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      LOG_LEVEL: warn
+    ports:
+      - "127.0.0.1:16686:16686"
+    mem_limit: 256m
+    networks: [backend]
+
+  prometheus:
+    <<: *service
+    profiles: [observability]
+    image: prom/prometheus:v3.15.1
+    # Sans --web.enable-lifecycle : pas de rechargement ni d'arrêt par HTTP.
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=2GB
+      - --storage.tsdb.path=/prometheus
+    volumes:
+      - ./docker/prometheus/prometheus.prod.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheusdata:/prometheus
+    mem_limit: 384m
+    networks: [backend]
+
+  loki:
+    <<: *service
+    profiles: [observability]
+    image: grafana/loki:2.9.17
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./docker/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - lokidata:/loki
+    mem_limit: 384m
+    networks: [backend]
+
+  promtail:
+    <<: *service
+    profiles: [observability]
+    image: grafana/promtail:2.9.17
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./docker/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+    mem_limit: 128m
+    networks: [backend]
+
+  grafana:
+    <<: *service
+    profiles: [observability]
+    image: grafana/grafana:12.4.14
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafanadata:/var/lib/grafana
+    mem_limit: 256m
+    networks: [backend]
+
+volumes:
+  k8sdbdata:
+  redisdata:
+  s3data:
+  registry-data:
+  caddy-data:
+  caddy-config:
+  grafanadata:
+  prometheusdata:
+  lokidata:
+
+networks:
+  backend:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+  public:
+  outbound:

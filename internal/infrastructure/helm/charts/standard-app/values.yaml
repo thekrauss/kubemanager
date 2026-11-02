@@ -47,6 +47,15 @@ ingress:
     clusterIssuer: "letsencrypt-prod"
     # secretName : si fourni, utilise un Secret TLS existant (pas de cert-manager).
     secretName: ""
+  # Sous Traefik uniquement (className: traefik). Plafond des corps de requête,
+  # équivalent du proxy-body-size de nginx, par le middleware buffering ; 0 : pas
+  # de plafond ni de middleware.
+  # Désactivé par défaut : buffering retient aussi les RÉPONSES jusqu'à leur fin
+  # (mesuré sur k3s 1.36 et Traefik 3.7 : un flux SSE arrive d'un bloc à la fin,
+  # et un flux sans fin n'arriverait jamais). Il casserait le streaming des
+  # conteneurs des clients et remplirait le disque de Traefik.
+  traefik:
+    maxBodyBytes: 0
 
 # Domaines personnalisés vérifiés (voir templates/custom-domains.yaml).
 customDomains: []
