@@ -3,6 +3,7 @@ package activities
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -39,9 +40,49 @@ func TestRunBuild_HeartbeatsDuringSetup(t *testing.T) {
 	assert.Positive(t, beats.Load())
 }
 
-func TestSavedLogOptions_Bounded(t *testing.T) {
+// LimitBytes garderait le début du journal, sans l'erreur finale.
+func TestSavedLogOptions_ReadsWholeLog(t *testing.T) {
 	opts := savedLogOptions()
-	require.NotNil(t, opts.LimitBytes)
-	assert.EqualValues(t, maxSavedLogBytes, *opts.LimitBytes)
+	assert.Nil(t, opts.LimitBytes)
+	assert.Nil(t, opts.TailLines)
 	assert.Equal(t, containerName, opts.Container)
+}
+
+func TestLogTail(t *testing.T) {
+	write := func(limit int, chunks ...string) string {
+		tail := &logTail{limit: limit}
+		for _, c := range chunks {
+			n, err := tail.Write([]byte(c))
+			require.NoError(t, err)
+			require.Equal(t, len(c), n)
+		}
+		return string(tail.Bytes())
+	}
+
+	t.Run("sous la limite : intact", func(t *testing.T) {
+		assert.Equal(t, "un\ndeux\n", write(32, "un\n", "deux\n"))
+		assert.Equal(t, "", write(32))
+	})
+	t.Run("exactement la limite : intact", func(t *testing.T) {
+		assert.Equal(t, "un\ndeux\n", write(8, "un\n", "deux\n"))
+	})
+	t.Run("au-dessus : la fin, à partir d'une ligne entière", func(t *testing.T) {
+		assert.Equal(t, savedLogCutMarker+"erreur\n", write(10, "début\n", "milieu\n", "erreur\n"))
+	})
+	t.Run("un seul envoi plus grand que la limite", func(t *testing.T) {
+		assert.Equal(t, savedLogCutMarker+"erreur\n", write(10, "début\nmilieu\nerreur\n"))
+	})
+	t.Run("aucun retour à la ligne", func(t *testing.T) {
+		assert.Equal(t, savedLogCutMarker+"6789", write(4, "0123456789"))
+	})
+	t.Run("mémoire bornée", func(t *testing.T) {
+		tail := &logTail{limit: 80}
+		line := []byte("ligne de journal\n")
+		for range 10000 {
+			_, _ = tail.Write(line)
+			assert.LessOrEqual(t, len(tail.buf), 90)
+		}
+		assert.True(t, strings.HasSuffix(string(tail.Bytes()), string(line)))
+		assert.LessOrEqual(t, len(tail.Bytes()), 80+len(savedLogCutMarker))
+	})
 }

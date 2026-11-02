@@ -33,6 +33,9 @@ const pollEvery = 3 * time.Second
 // maxSavedLogBytes : taille maximale du journal conservé d'un build.
 const maxSavedLogBytes = 32 << 20
 
+// savedLogCutMarker : première ligne d'un journal dont le début a été retiré.
+const savedLogCutMarker = "[…]\n"
+
 var (
 	digestRe   = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 	detectedRe = regexp.MustCompile(`^[a-z-]{1,30}$`)
@@ -454,10 +457,50 @@ func (a *Activities) Finish(ctx context.Context, in FinishInput) error {
 	return nil
 }
 
-// savedLogOptions : journal conservé, borné : il est lu en mémoire par le worker.
+// savedLogOptions : le journal est lu en entier : logTail n'en garde que la fin.
 func savedLogOptions() *corev1.PodLogOptions {
-	limit := int64(maxSavedLogBytes)
-	return &corev1.PodLogOptions{Container: containerName, LimitBytes: &limit}
+	return &corev1.PodLogOptions{Container: containerName}
+}
+
+// logTail garde la fin du journal, où se trouve souvent l'erreur. Il est tenu en
+// mémoire par le worker : au plus limit + limit/8 octets.
+type logTail struct {
+	buf   []byte
+	limit int
+	cut   bool
+}
+
+func (t *logTail) Write(p []byte) (int, error) {
+	n := len(p)
+	if n > t.limit {
+		p = p[n-t.limit:]
+		t.buf = t.buf[:0]
+		t.cut = true
+	}
+	t.buf = append(t.buf, p...)
+	if len(t.buf) > t.limit+t.limit/8 {
+		t.buf = t.buf[:copy(t.buf, t.buf[len(t.buf)-t.limit:])]
+		t.cut = true
+	}
+	return n, nil
+}
+
+// Bytes : journal conservé. S'il a été coupé, il commence par savedLogCutMarker,
+// puis à la première ligne entière.
+func (t *logTail) Bytes() []byte {
+	tail := t.buf
+	cut := t.cut
+	if len(tail) > t.limit {
+		tail = tail[len(tail)-t.limit:]
+		cut = true
+	}
+	if !cut {
+		return tail
+	}
+	if i := bytes.IndexByte(tail, '\n'); i >= 0 {
+		tail = tail[i+1:]
+	}
+	return append([]byte(savedLogCutMarker), tail...)
 }
 
 func (a *Activities) saveLog(ctx context.Context, ref BuildRef) {
@@ -471,11 +514,12 @@ func (a *Activities) saveLog(ctx context.Context, ref BuildRef) {
 		return
 	}
 	defer stream.Close()
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, stream); err != nil && !errors.Is(err, io.EOF) {
+	tail := logTail{limit: maxSavedLogBytes}
+	if _, err := io.Copy(&tail, stream); err != nil && !errors.Is(err, io.EOF) {
 		a.Logger.Warnw("build log truncated", "build", ref.BuildID, "error", err)
 	}
-	if err := a.Store.Put(ctx, LogKey(ref.ProjectID, ref.BuildID), &buf, int64(buf.Len()), "text/plain; charset=utf-8"); err != nil {
+	saved := tail.Bytes()
+	if err := a.Store.Put(ctx, LogKey(ref.ProjectID, ref.BuildID), bytes.NewReader(saved), int64(len(saved)), "text/plain; charset=utf-8"); err != nil {
 		a.Logger.Warnw("build log not saved", "build", ref.BuildID, "error", err)
 	}
 }
