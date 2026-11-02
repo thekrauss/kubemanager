@@ -1,5 +1,7 @@
 package domain
 
+import "github.com/thekrauss/kubemanager/internal/iam"
+
 func RoleHasPermission(role RoleType, perm PermissionType) bool {
 
 	switch role {
@@ -29,6 +31,27 @@ func RoleHasPermission(role RoleType, perm PermissionType) bool {
 	return false
 }
 
+func RolePermissions(role RoleType) []PermissionType {
+	switch role {
+	case RoleTypes.Owner:
+		return PermissionTypes.All()
+	case RoleTypes.Developer:
+		return []PermissionType{
+			PermissionTypes.ProjectView,
+			PermissionTypes.ProjectEdit,
+			PermissionTypes.WorkloadCreate,
+			PermissionTypes.LogsView,
+		}
+	case RoleTypes.Viewer:
+		return []PermissionType{
+			PermissionTypes.ProjectView,
+			PermissionTypes.LogsView,
+		}
+	default:
+		return nil
+	}
+}
+
 func containsPermission(slice []PermissionType, item PermissionType) bool {
 	for _, p := range slice {
 		if p == item {
@@ -36,4 +59,20 @@ func containsPermission(slice []PermissionType, item PermissionType) bool {
 		}
 	}
 	return false
+}
+
+// LegacyRoleToIAM : rôle projet legacy (OWNER, DEVELOPER, VIEWER) → rôle IAM
+// équivalent (docs/architecture/iam.md §6.3). Un nom déjà IAM ("roles/…") est
+// renvoyé tel quel.
+func LegacyRoleToIAM(name string) string {
+	switch name {
+	case RoleTypes.Owner.String():
+		return iam.RoleOwner
+	case RoleTypes.Developer.String():
+		return iam.RoleDeveloper
+	case RoleTypes.Viewer.String():
+		return iam.RoleViewer
+	default:
+		return name
+	}
 }

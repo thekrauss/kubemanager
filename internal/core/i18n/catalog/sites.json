@@ -1,0 +1,118 @@
+[
+ {
+  "fr": "archive trop volumineuse (maximum %d Mo)",
+  "en": "archive too large (maximum %d MB)"
+ },
+ {
+  "fr": "archive vide",
+  "en": "empty archive"
+ },
+ {
+  "fr": "ce domaine est déjà rattaché à un site",
+  "en": "this domain is already attached to a site"
+ },
+ {
+  "fr": "ce nom ou ce sous-domaine est déjà utilisé",
+  "en": "this name or subdomain is already taken"
+ },
+ {
+  "fr": "champ \"archive\" (.zip) manquant",
+  "en": "missing \"archive\" field (.zip)"
+ },
+ {
+  "fr": "chemin interdit dans l'archive : %q",
+  "en": "forbidden path in the archive: %q"
+ },
+ {
+  "fr": "domaine introuvable",
+  "en": "domain not found"
+ },
+ {
+  "fr": "déploiement introuvable",
+  "en": "deployment not found"
+ },
+ {
+  "fr": "fichier corrompu dans l'archive : %s",
+  "en": "corrupted file in the archive: %s"
+ },
+ {
+  "fr": "fichier illisible dans l'archive : %s",
+  "en": "unreadable file in the archive: %s"
+ },
+ {
+  "fr": "Les noms sous le domaine de la plateforme ne peuvent pas être ajoutés comme domaines personnalisés",
+  "en": "hostnames under the platform domain cannot be added as custom domains"
+ },
+ {
+  "fr": "identifiant invalide",
+  "en": "invalid identifier"
+ },
+ {
+  "fr": "index.html introuvable à la racine de l'archive",
+  "en": "index.html not found at the root of the archive"
+ },
+ {
+  "fr": "Nom de domaine invalide",
+  "en": "invalid hostname"
+ },
+ {
+  "fr": "l'archive est vide",
+  "en": "the archive is empty"
+ },
+ {
+  "fr": "l'envoi de l'archive a échoué, réessayez",
+  "en": "the archive upload failed, please retry"
+ },
+ {
+  "fr": "le déploiement a échoué, réessayez",
+  "en": "the deployment failed, please retry"
+ },
+ {
+  "fr": "le déploiement n'a pas pu démarrer, réessayez",
+  "en": "the deployment could not start, please retry"
+ },
+ {
+  "fr": "Le nom doit faire 3 à 63 caractères : minuscules, chiffres et tirets, sans tiret au début ni à la fin",
+  "en": "name must be 3-63 chars: lowercase letters, digits and hyphens, not starting or ending with a hyphen"
+ },
+ {
+  "fr": "seul un déploiement réussi peut être activé",
+  "en": "only a successful deployment can be activated"
+ },
+ {
+  "fr": "site en cours de suppression",
+  "en": "the site is being deleted"
+ },
+ {
+  "fr": "site introuvable",
+  "en": "site not found"
+ },
+ {
+  "fr": "site trop volumineux une fois décompressé",
+  "en": "site too large once extracted"
+ },
+ {
+  "fr": "site trop volumineux une fois décompressé (maximum %d Mo)",
+  "en": "site too large once extracted (maximum %d MB)"
+ },
+ {
+  "fr": "Ce sous-domaine est réservé",
+  "en": "this subdomain is reserved"
+ },
+ {
+  "fr": "trop de fichiers : %d (maximum %d)",
+  "en": "too many files: %d (maximum %d)"
+ },
+ {
+  "fr": "ce domaine est déjà rattaché à ce site",
+  "en": "this domain is already attached to this site"
+ },
+ {
+  "fr": "l'archive n'est pas un fichier .zip valide",
+  "en": "the archive is not a valid .zip file"
+ },
+ {
+  "fr": "archive introuvable",
+  "en": "archive not found"
+ }
+]

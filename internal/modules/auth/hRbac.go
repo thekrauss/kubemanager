@@ -2,6 +2,8 @@ package controller
 
 import (
 	"github.com/gin-gonic/gin"
+	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
+	"github.com/thekrauss/kubemanager/internal/middleware/security"
 
 	"github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/auth/service"
@@ -36,7 +38,11 @@ func (ctrl *RBACController) ListAllRoles(c *gin.Context) ([]domain.RoleDTO, erro
 }
 
 func (ctrl *RBACController) AssignRole(c *gin.Context, in *domain.AssignRoleRequest) error {
-	return ctrl.RBACService.AssignProjectRole(c.Request.Context(), in)
+	caller, ok := security.PrincipalFromContext(c)
+	if !ok {
+		return betoerrors.New(betoerrors.CodeUnauthorized, "authentication required")
+	}
+	return ctrl.RBACService.AssignProjectRole(c.Request.Context(), caller, in)
 }
 
 func (ctrl *RBACController) ListProjectMembers(c *gin.Context, in *ListMembersInput) ([]domain.ProjectMemberDTO, error) {
@@ -44,5 +50,9 @@ func (ctrl *RBACController) ListProjectMembers(c *gin.Context, in *ListMembersIn
 }
 
 func (ctrl *RBACController) RevokeProjectAccess(c *gin.Context, in *RevokeAccessInput) error {
-	return ctrl.RBACService.RevokeProjectAccess(c.Request.Context(), in.ProjectID, in.UserID)
+	caller, ok := security.PrincipalFromContext(c)
+	if !ok {
+		return betoerrors.New(betoerrors.CodeUnauthorized, "authentication required")
+	}
+	return ctrl.RBACService.RevokeProjectAccess(c.Request.Context(), caller, in.ProjectID, in.UserID)
 }

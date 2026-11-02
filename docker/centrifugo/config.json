@@ -1,0 +1,25 @@
+{
+  "admin": true,
+
+  "allowed_origins": [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000"
+  ],
+
+  "allow_subscribe_for_client": false,
+  "allow_publish_for_client": false,
+  "allow_history_for_client": false,
+  "allow_presence_for_client": false,
+
+  "namespaces": [
+    {
+      "name": "project",
+      "history_size": 50,
+      "history_ttl": "1h",
+      "presence": true
+    }
+  ],
+
+  "log_level": "info"
+}

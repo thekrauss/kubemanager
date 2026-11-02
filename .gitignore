@@ -1,4 +1,9 @@
 *.md
 .env
+.env.prod
 config.yaml
 k3s-config.yaml
+# Binaires de la CLI (scripts/build_cli.sh)
+dist/
+# Clé et certificat des jetons du registre (scripts/registry_dev_certs.sh)
+docker/registry/certs/

@@ -2,16 +2,102 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ .Release.Name }}-isolation
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "standard-app.labels" . | nindent 4 }}
 spec:
-  podSelector: {}
+  podSelector:
+    matchLabels:
+      {{- include "standard-app.selectorLabels" . | nindent 6 }}
   policyTypes:
-  - Ingress
+    - Ingress
+    {{- if .Values.networkPolicy.egress.enabled }}
+    - Egress
+    {{- end }}
+
+  # ── INGRESS ──────────────────────────────────────────────────────────
+  # Deny-by-default : uniquement les sources listées peuvent contacter le pod.
   ingress:
-  - from:
-    - podSelector: {}
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          {{ .Values.networkPolicy.ingressNSLabelKey }}: {{ .Values.networkPolicy.ingressNSLabelValue }}
+    # 1. Pods du MÊME workload (health checks inter-replicas, cache sharing).
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "standard-app.selectorLabels" . | nindent 14 }}
+    # 2. Ingress controller (namespace ingress-nginx par défaut).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              {{ .Values.networkPolicy.ingressNSLabelKey }}: {{ .Values.networkPolicy.ingressNSLabelValue }}
+      ports:
+        - protocol: {{ .Values.service.protocol | default "TCP" }}
+          port: {{ .Values.service.targetPort | default 8080 }}
+
+  {{- if .Values.networkPolicy.egress.enabled }}
+  # ── EGRESS ───────────────────────────────────────────────────────────
+  # Deny ALL par défaut ; on allowlist DNS + HTTPS + CIDRs/ports extras.
+  # Empêche un workload compromis de callback un C2 arbitraire.
+  egress:
+    {{- if .Values.networkPolicy.egress.allowDNS }}
+    # DNS vers kube-dns (UDP + TCP 53).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- end }}
+
+    {{- with .Values.networkPolicy.egress.publicPorts }}
+    # Sortant vers Internet (HTTP(S), SMTP submission, bases managées…).
+    # Exclut les subnets privés classiques pour ne pas ouvrir l'intra-cluster.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16 # cloud metadata
+              - 100.64.0.0/10  # CGNAT
+      ports:
+        {{- range . }}
+        - protocol: TCP
+          port: {{ . }}
+        {{- end }}
+    {{- end }}
+
+    {{- range .Values.networkPolicy.egress.extraAllowedCIDRs }}
+    # CIDRs supplémentaires configurés par l'utilisateur.
+    - to:
+        - ipBlock:
+            cidr: {{ . }}
+    {{- end }}
+
+    {{- with .Values.networkPolicy.egress.extraAllowedPorts }}
+    # Ports supplémentaires, vers Internet uniquement : sans `to`, la règle
+    # ouvrirait aussi ces ports vers l'intra-cluster (DB de la plateforme…).
+    # Pour une cible privée, passer par extraAllowedCIDRs.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 100.64.0.0/10
+      ports:
+        {{- range . }}
+        - protocol: {{ .protocol | default "TCP" }}
+          port: {{ .port }}
+        {{- end }}
+    {{- end }}
+  {{- end }}
 {{- end }}

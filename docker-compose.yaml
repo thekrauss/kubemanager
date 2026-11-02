@@ -6,11 +6,17 @@ services:
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME} 
+      POSTGRES_DB: ${DB_NAME}
     ports:
-      - "127.0.0.1:5432:5432"
+      # 5433 host → 5432 container — évite les conflits avec un Postgres local.
+      # Les autres services docker (Keycloak, Temporal, kubemanager) utilisent
+      # le service name "k8sdb:5432" via le réseau backend, pas le port host.
+      - "127.0.0.1:5433:5432"
     volumes:
       - k8sdbdata:/var/lib/postgresql/data
+      # Init script : crée la database 'keycloak' au premier boot.
+      # Ne s'exécute qu'une seule fois, sur volume vierge.
+      - ./docker/postgres/init-keycloak-db.sh:/docker-entrypoint-initdb.d/10-init-keycloak-db.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 10s
@@ -50,7 +56,7 @@ services:
       - POSTGRES_SEEDS=k8sdb
       # - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development_sql.yaml
     ports:
-      - "7233:7233" 
+      - "127.0.0.1:7233:7233"
     depends_on:
       k8sdb:
         condition: service_healthy
@@ -64,9 +70,89 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
     ports:
-      - "8233:8080" 
+      - "127.0.0.1:8233:8080"
     depends_on:
       - temporal
+    networks:
+      - backend
+
+  # Mailhog — capture les emails Keycloak (VERIFY_EMAIL, UPDATE_PASSWORD) en dev.
+  # UI web : http://localhost:8025 pour lire les mails envoyés.
+  # SMTP   : mailhog:1025 (depuis le réseau docker) / 127.0.0.1:1025 (depuis le host).
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "127.0.0.1:1025:1025" # SMTP
+      - "127.0.0.1:8025:8025" # Web UI
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # Centrifugo — broker realtime (WebSocket/SSE) pour les deployment events.
+  # Admin UI : http://localhost:8000 (password depuis .env CENTRIFUGO_ADMIN_PASSWORD)
+  # API HTTP : http://centrifugo:8000/api (depuis le réseau docker)
+  # WebSocket client : ws://localhost:8000/connection/websocket
+  centrifugo:
+    image: centrifugo/centrifugo:v5
+    # "-c" charge le fichier de config. Les {{env "..."}} dans config.json
+    # sont résolus par Centrifugo via les env vars passées ci-dessous.
+    command: ["centrifugo", "-c", "/etc/centrifugo/config.json"]
+    environment:
+      # Centrifugo v5 env schema (flat, préfix CENTRIFUGO_).
+      # Chaque env var override la clé équivalente dans config.json.
+      CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY}
+      CENTRIFUGO_TOKEN_HMAC_SECRET_KEY: ${CENTRIFUGO_TOKEN_HMAC_SECRET}
+      CENTRIFUGO_ADMIN_PASSWORD: ${CENTRIFUGO_ADMIN_PASSWORD}
+      CENTRIFUGO_ADMIN_SECRET: ${CENTRIFUGO_ADMIN_SECRET}
+    volumes:
+      - ./docker/centrifugo/config.json:/etc/centrifugo/config.json:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+    # Centrifugo a besoin de cette ulimit pour bien scaler les connections WS.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # Keycloak — identity provider (dev mode, Postgres persistant).
+  # Admin console : http://localhost:18081/admin (admin / admin)
+  # Issuer URL    : http://localhost:18081/realms/kubemanager (après bootstrap)
+  #
+  # Persistance : database 'keycloak' sur k8sdb (Postgres), initialisée par
+  # docker/postgres/init-keycloak-db.sh au premier boot du volume.
+  # Les realms/users/clients survivent donc à `docker compose restart`.
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    command: ["start-dev"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+
+      # Backend DB : Postgres partagé avec kubemanager (database 'keycloak' séparée).
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://k8sdb:5432/keycloak
+      KC_DB_USERNAME: ${DB_USER}
+      KC_DB_PASSWORD: ${DB_PASSWORD}
+
+      # HTTP + observabilité dev.
+      KC_HTTP_PORT: 8080
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+      KC_LOG_LEVEL: INFO
+    ports:
+      - "127.0.0.1:18081:8080"
+    depends_on:
+      k8sdb:
+        condition: service_healthy
+    # Pas de healthcheck : quay.io/keycloak n'inclut ni curl ni wget.
+    # Les dépendants utilisent service_started + start_period applicatif.
+    restart: unless-stopped
     networks:
       - backend
 
@@ -75,7 +161,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     env_file:
       - .env
     environment:
@@ -90,7 +176,41 @@ services:
         condition: service_healthy
       jaeger:
         condition: service_healthy
-      temporal: 
+      temporal:
+        condition: service_started
+      keycloak:
+        condition: service_started
+      mailhog:
+        condition: service_started
+      centrifugo:
+        condition: service_started
+      seaweedfs:
+        condition: service_started
+    restart: always
+    networks:
+      - backend
+
+  # Worker Temporal : même image que l'API, sans port publié.
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    env_file:
+      - .env
+    environment:
+      - GODEBUG=netdns=go
+      - APP_MODE=worker
+    volumes:
+      - ./internal/core/configs:/app/internal/core/configs:ro
+      - ./k3s-config.yaml:/app/k3s-config.yaml:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      k8sdb:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+      seaweedfs:
         condition: service_started
     restart: always
     networks:
@@ -102,8 +222,8 @@ services:
       COLLECTOR_OTLP_ENABLED: "true"
       LOG_LEVEL: warn
     ports:
-      - "16686:16686"
-      - "4319:4317"
+      - "127.0.0.1:16686:16686"
+      - "127.0.0.1:4319:4317"
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:16686"]
       interval: 5s
@@ -117,18 +237,27 @@ services:
       image: prom/prometheus:latest
       volumes:
         - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+        - prometheusdata:/prometheus
       command:
         - '--config.file=/etc/prometheus/prometheus.yml'
+        # Retention : 30j de données OU 10Go de disque, selon ce qui arrive en premier.
+        - '--storage.tsdb.retention.time=30d'
+        - '--storage.tsdb.retention.size=10GB'
+        - '--storage.tsdb.path=/prometheus'
+        - '--web.enable-lifecycle'  # permet le reload via POST /-/reload
       ports:
-        - "9090:9090"
+        - "127.0.0.1:9090:9090"
       networks:
         - backend
 
   loki:
       image: grafana/loki:2.9.0
       ports:
-        - "3100:3100"
-      command: -config.file=/etc/loki/local-config.yaml
+        - "127.0.0.1:3100:3100"
+      volumes:
+        - ./docker/loki/loki-config.yml:/etc/loki/loki-config.yml
+        - lokidata:/loki
+      command: -config.file=/etc/loki/loki-config.yml
       networks:
         - backend
 
@@ -136,6 +265,7 @@ services:
       image: grafana/promtail:2.9.0
       volumes:
         - /var/lib/docker/containers:/var/lib/docker/containers:ro
+        - /var/run/docker.sock:/var/run/docker.sock:ro
         - ./docker/promtail/promtail-config.yml:/etc/promtail/config.yml
       command: -config.file=/etc/promtail/config.yml
       networks:
@@ -144,19 +274,101 @@ services:
   grafana:
       image: grafana/grafana:latest
       ports:
-        - "3000:3000"
+        - "127.0.0.1:3000:3000"
       environment:
         - GF_SECURITY_ADMIN_PASSWORD=admin
         - GF_AUTH_ANONYMOUS_ENABLED=true
+        - GF_USERS_DEFAULT_THEME=light
+      volumes:
+        - ./docker/grafana/provisioning:/etc/grafana/provisioning
+        - grafanadata:/var/lib/grafana
       depends_on:
         - prometheus
         - loki
       networks:
         - backend
 
+  # ── Sites statiques ─────────────────────────────────────────────────────
+  # Stockage S3-compatible (MinIO ne publie plus d'images publiques).
+  # Identités dans docker/seaweedfs/s3.json : "platform" (admin) pour
+  # l'API/worker, "edge" en lecture seule pour static-edge.
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.50
+    command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-s3.config=/etc/seaweedfs/s3.json"]
+    ports:
+      - "127.0.0.1:8333:8333"   # API S3
+    volumes:
+      - s3data:/data
+      - ./docker/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # ── Registre d'images (builds) ──────────────────────────────────────────
+  # Authentification déléguée à l'API (jetons signés, voir
+  # internal/modules/builds/registry). Certificats : scripts/registry_dev_certs.sh.
+  # REGISTRY_BIND : passerelle du réseau k3d pour que pods et nœuds l'atteignent.
+  registry:
+    image: registry:3.0.0
+    ports:
+      - "${REGISTRY_BIND:-127.0.0.1}:5000:5000"
+    environment:
+      REGISTRY_AUTH_TOKEN_REALM: ${REGISTRY_TOKEN_REALM:-http://127.0.0.1:18080/kmanager/v1/registry/token}
+      REGISTRY_AUTH_TOKEN_SERVICE: betorun-registry
+      REGISTRY_AUTH_TOKEN_ISSUER: betorun
+      REGISTRY_AUTH_TOKEN_ROOTCERTBUNDLE: /certs/token.crt
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+      OTEL_TRACES_EXPORTER: none
+    volumes:
+      - registry-data:/var/lib/registry
+      - ./docker/registry/certs/token.crt:/certs/token.crt:ro
+    restart: unless-stopped
+    networks:
+      - backend
+
+  static-edge:
+    build:
+      context: .
+      dockerfile: docker/static-edge.Dockerfile
+    environment:
+      # Dev : utilisateur DB principal. Prod : rôle en lecture seule
+      # (SELECT sur sites, site_domains uniquement).
+      EDGE_DATABASE_URL: postgres://${DB_USER}:${DB_PASSWORD}@k8sdb:5432/${DB_NAME}?sslmode=disable
+      EDGE_BASE_DOMAIN: sites.localhost
+      EDGE_S3_ENDPOINT: seaweedfs:8333
+      EDGE_S3_ACCESS_KEY: edge
+      EDGE_S3_SECRET_KEY: edge-dev-secret
+      EDGE_S3_BUCKET: betorun-sites
+      EDGE_S3_REGION: us-east-1
+    depends_on:
+      k8sdb:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - backend
+
+  caddy:
+    image: caddy:2.10-alpine
+    ports:
+      - "127.0.0.1:8088:80"
+    volumes:
+      - ./docker/caddy/Caddyfile.dev:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - static-edge
+    restart: unless-stopped
+    networks:
+      - backend
+
 volumes:
+  s3data:
+  registry-data:
   redisdata:
   k8sdbdata:
+  grafanadata:
+  prometheusdata:
+  lokidata:
 
 networks:
   backend:

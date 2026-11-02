@@ -1,0 +1,126 @@
+[
+ {
+  "fr": "Vous n'avez pas accès à tous les dépôts de cette installation GitHub : demandez à un propriétaire du compte de connecter betorun",
+  "en": "you do not have access to every repository of this GitHub installation: ask an owner of the account to connect betorun"
+ },
+ {
+  "fr": "GitHub n'a pas confirmé votre identité : recommencez et acceptez l'autorisation",
+  "en": "GitHub did not confirm your identity: start again and accept the authorization"
+ },
+ {
+  "fr": "GitHub est indisponible pour le moment : réessayez dans un instant",
+  "en": "GitHub is unavailable right now: try again in a moment"
+ },
+ {
+  "fr": "L'accès à ce dépôt a été retiré : reconnectez-le depuis la console",
+  "en": "access to this repository was removed: reconnect it from the console"
+ },
+ {
+  "fr": "La connexion GitHub n'est pas activée sur cette plateforme",
+  "en": "the GitHub connection is not enabled on this platform"
+ },
+ {
+  "fr": "Ce compte GitHub n'est pas relié à ce projet",
+  "en": "this GitHub account is not connected to this project"
+ },
+ {
+  "fr": "Ce lien de connexion GitHub est invalide ou a expiré : recommencez depuis la console",
+  "en": "this GitHub connection link is invalid or has expired: start again from the console"
+ },
+ {
+  "fr": "Cette branche n'existe pas dans le dépôt",
+  "en": "this branch does not exist in the repository"
+ },
+ {
+  "fr": "Ce conteneur n'est lié à aucun dépôt",
+  "en": "this container is not linked to a repository"
+ },
+ {
+  "fr": "Ce dépôt n'est pas accessible à l'installation GitHub",
+  "en": "this repository is not accessible to the GitHub installation"
+ },
+ {
+  "fr": "Votre compte GitHub n'a pas accès à cette installation",
+  "en": "your GitHub account does not have access to this installation"
+ },
+ {
+  "fr": "Un déploiement est déjà en cours sur ce conteneur",
+  "en": "a deployment is already in progress on this container"
+ },
+ {
+  "fr": "betorun n'a plus accès à ce dépôt",
+  "en": "betorun no longer has access to this repository"
+ },
+ {
+  "fr": "Ce conteneur n'est pas encore déployé : sa première image est en construction",
+  "en": "this container is not deployed yet: its first image is still being built"
+ },
+ {
+  "fr": "Ce conteneur est arrêté",
+  "en": "this container is stopped"
+ },
+ {
+  "fr": "Ce conteneur n'existe plus",
+  "en": "this container no longer exists"
+ },
+ {
+  "fr": "Erreur interne",
+  "en": "internal error"
+ },
+ {
+  "fr": "Signature invalide",
+  "en": "invalid signature"
+ },
+ {
+  "fr": "En-têtes de livraison manquants",
+  "en": "missing delivery headers"
+ },
+ {
+  "fr": "github : accès refusé",
+  "en": "github: not accessible"
+ },
+ {
+  "fr": "github : indisponible",
+  "en": "github: unavailable"
+ },
+ {
+  "fr": "github : code d'autorisation refusé",
+  "en": "github: authorization code refused"
+ },
+ {
+  "fr": "%w : %s %s : %d",
+  "en": "%w: %s %s: %d"
+ },
+ {
+  "fr": "%w : %s %s : connexion impossible",
+  "en": "%w: %s %s: connection failed"
+ },
+ {
+  "fr": "%w : %s %s : réponse invalide",
+  "en": "%w: %s %s: invalid response"
+ },
+ {
+  "fr": "%w : %s %s : limite de débit atteinte",
+  "en": "%w: %s %s: rate limited"
+ },
+ {
+  "fr": "%w : %s %s : lecture impossible",
+  "en": "%w: %s %s: read failed"
+ },
+ {
+  "fr": "%w : échange du code : %d",
+  "en": "%w: code exchange: %d"
+ },
+ {
+  "fr": "%w : échange du code : connexion impossible",
+  "en": "%w: code exchange: connection failed"
+ },
+ {
+  "fr": "%w : jeton vide",
+  "en": "%w: empty token"
+ },
+ {
+  "fr": "%w : nom de dépôt inattendu",
+  "en": "%w: unexpected repository name"
+ }
+]

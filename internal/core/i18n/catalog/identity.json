@@ -1,0 +1,174 @@
+[
+ {
+  "fr": "Adresse e-mail non vérifiée : consultez votre boîte de réception",
+  "en": "email address not verified — check your inbox"
+ },
+ {
+  "fr": "Service d'identité momentanément indisponible",
+  "en": "identity service unavailable"
+ },
+ {
+  "fr": "Données d'initialisation invalides",
+  "en": "invalid bootstrap payload"
+ },
+ {
+  "fr": "Identifiants invalides",
+  "en": "invalid credentials"
+ },
+ {
+  "fr": "Lien de connexion invalide ou expiré",
+  "en": "invalid or expired oauth state token"
+ },
+ {
+  "fr": "Données d'inscription invalides",
+  "en": "invalid register payload"
+ },
+ {
+  "fr": "Un compte existe déjà avec cette adresse",
+  "en": "keycloak user already exists"
+ },
+ {
+  "fr": "Identifiant de compte manquant ou invalide",
+  "en": "keycloak user id (sub) is missing or invalid"
+ },
+ {
+  "fr": "Compte introuvable",
+  "en": "keycloak user not found"
+ },
+ {
+  "fr": "Le nom du projet est obligatoire pour la première connexion",
+  "en": "project_name is required for initial bootstrap"
+ },
+ {
+  "fr": "L'adresse de retour (redirect_uri) est obligatoire",
+  "en": "redirect_uri is required"
+ },
+ {
+  "fr": "Fournisseur inconnu : google ou github",
+  "en": "unknown social provider — accepted: google, github"
+ },
+ {
+  "fr": "la connexion de la CLI (flux device) n'est pas activée sur cette plateforme",
+  "en": "CLI login (device flow) is not enabled on this platform"
+ },
+ {
+  "fr": "device_code est obligatoire",
+  "en": "device_code is required"
+ },
+ {
+  "fr": "pour la CLI, redirect_uri doit être http://127.0.0.1:<port>/callback",
+  "en": "CLI redirect_uri must be http://127.0.0.1:<port>/callback"
+ },
+ {
+  "fr": "compte désactivé",
+  "en": "account disabled"
+ },
+ {
+  "fr": "auth : la clé de chiffrement doit faire 32 octets, encodée en base64",
+  "en": "auth: key encryption key must be 32 bytes, base64-encoded"
+ },
+ {
+  "fr": "Confirmez d'abord votre identité avec un code de vérification",
+  "en": "confirm your identity with a verification code first"
+ },
+ {
+  "fr": "Email ou mot de passe incorrect",
+  "en": "email or password is incorrect"
+ },
+ {
+  "fr": "Code de vérification invalide",
+  "en": "invalid verification code"
+ },
+ {
+  "fr": "Mot de passe refusé par la politique de sécurité",
+  "en": "password rejected by policy"
+ },
+ {
+  "fr": "La vérification des mots de passe n'est pas configurée",
+  "en": "password verification is not configured"
+ },
+ {
+  "fr": "Session introuvable",
+  "en": "session not found"
+ },
+ {
+  "fr": "Reconnectez-vous pour gérer vos paramètres de sécurité",
+  "en": "sign in again to manage your security settings"
+ },
+ {
+  "fr": "La connexion est momentanément indisponible",
+  "en": "sign-in is temporarily unavailable"
+ },
+ {
+  "fr": "La connexion a expiré, recommencez",
+  "en": "the sign-in has expired, start again"
+ },
+ {
+  "fr": "Ce lien est invalide ou a expiré",
+  "en": "this link is invalid or has expired"
+ },
+ {
+  "fr": "Ce mot de passe ne respecte pas les règles de sécurité",
+  "en": "this password does not meet the security requirements"
+ },
+ {
+  "fr": "Cette session a été fermée pour votre sécurité, reconnectez-vous",
+  "en": "this session was closed for your security, sign in again"
+ },
+ {
+  "fr": "Trop de tentatives, réessayez plus tard",
+  "en": "too many attempts, try again later"
+ },
+ {
+  "fr": "La double authentification est déjà activée",
+  "en": "two-factor authentication is already set up"
+ },
+ {
+  "fr": "La double authentification n'est pas activée",
+  "en": "two-factor authentication is not set up"
+ },
+ {
+  "fr": "Votre mot de passe actuel est incorrect",
+  "en": "your current password is incorrect"
+ },
+ {
+  "fr": "Votre session a expiré, reconnectez-vous",
+  "en": "your session has expired, sign in again"
+ },
+ {
+  "fr": "Code de vérification PKCE invalide",
+  "en": "invalid code challenge"
+ },
+ {
+  "fr": "Cette autorisation a expiré, relancez betorun login",
+  "en": "this authorization has expired, run betorun login again"
+ },
+ {
+  "fr": "Code inconnu ou expiré : vérifiez le code affiché dans votre terminal",
+  "en": "unknown or expired code, check the code shown in your terminal"
+ },
+ {
+  "fr": "Ce mode de connexion n'est pas disponible",
+  "en": "this sign-in method is not available"
+ },
+ {
+  "fr": "Gardez au moins un moyen de vous connecter : définissez d'abord un mot de passe",
+  "en": "keep at least one way to sign in: set a password first"
+ },
+ {
+  "fr": "Aucun compte lié pour ce fournisseur",
+  "en": "no linked account for this provider"
+ },
+ {
+  "fr": "Fournisseur de connexion inconnu",
+  "en": "unknown sign-in provider"
+ },
+ {
+  "fr": "Le fournisseur n'a pas confirmé votre identité",
+  "en": "the provider did not confirm your identity"
+ },
+ {
+  "fr": "Votre adresse email n'est pas vérifiée chez ce fournisseur",
+  "en": "your email address is not verified with this provider"
+ }
+]

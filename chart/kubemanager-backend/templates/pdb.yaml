@@ -1,0 +1,15 @@
+{{- if .Values.server.pdb.enabled -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kubemanager.fullname" . }}-server
+  labels:
+    {{- include "kubemanager.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  minAvailable: {{ .Values.server.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "kubemanager.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+{{- end }}

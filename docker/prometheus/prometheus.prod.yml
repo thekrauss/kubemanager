@@ -1,0 +1,8 @@
+# Profil observability. Métriques de l'API sur leur port privé (metrics.listen_addr).
+global:
+  scrape_interval: 30s
+
+scrape_configs:
+  - job_name: kubemanager-api
+    static_configs:
+      - targets: ["api:9100"]

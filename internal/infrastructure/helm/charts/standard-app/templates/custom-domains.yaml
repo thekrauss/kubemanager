@@ -1,0 +1,39 @@
+{{- /*
+Un Ingress et un certificat par domaine personnalisé : un domaine qui ne pointe
+plus vers nous n'empêche pas de renouveler le certificat des autres.
+*/ -}}
+{{- range .Values.customDomains }}
+{{- $name := printf "%s-d-%s" $.Release.Name (sha256sum . | trunc 10) }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "standard-app.labels" $ | nindent 4 }}
+  annotations:
+    {{- include "standard-app.ingressClassAnnotations" (dict "root" $ "tls" $.Values.customDomainTLS) | nindent 4 }}
+    {{- if $.Values.customDomainTLS }}
+    cert-manager.io/cluster-issuer: {{ $.Values.customDomainIssuer | quote }}
+    {{- end }}
+spec:
+  ingressClassName: {{ $.Values.ingress.className | default "nginx" }}
+  {{- if $.Values.customDomainTLS }}
+  tls:
+    - hosts:
+        - {{ . | quote }}
+      secretName: {{ $name }}
+  {{- end }}
+  rules:
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $.Release.Name }}
+                port:
+                  number: {{ $.Values.service.port }}
+{{- end }}

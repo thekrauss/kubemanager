@@ -1,0 +1,32 @@
+{{- /*
+Sous Traefik, la redirection HTTPS et le plafond des corps passent par des
+middlewares (CRD traefik.io/v1alpha1, installée avec le Traefik de k3s).
+*/ -}}
+{{- if and (eq (.Values.ingress.className | default "nginx") "traefik") (or .Values.ingress.enabled .Values.customDomains) }}
+{{- if or (and .Values.ingress.enabled .Values.ingress.tls.enabled) (and .Values.customDomains .Values.customDomainTLS) }}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ .Release.Name }}-https-redirect
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "standard-app.labels" . | nindent 4 }}
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+{{- end }}
+{{- if gt (int .Values.ingress.traefik.maxBodyBytes) 0 }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ .Release.Name }}-body-limit
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "standard-app.labels" . | nindent 4 }}
+spec:
+  buffering:
+    maxRequestBodyBytes: {{ int .Values.ingress.traefik.maxBodyBytes }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,25 @@
+{{- /*
+PodDisruptionBudget : garantit que N-1 pods restent dispos pendant
+les maintenances K8s (node drain, rolling update, upgrade cluster).
+
+Activé uniquement si pdb.enabled ET replicaCount >= 2 OU autoscaling actif
+(un PDB sur 1 replica bloquerait toute maintenance).
+*/ -}}
+{{- $minReplicas := int .Values.replicaCount -}}
+{{- if .Values.autoscaling.enabled }}
+{{- $minReplicas = int .Values.autoscaling.minReplicas -}}
+{{- end }}
+{{- if and .Values.pdb.enabled (ge $minReplicas 2) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "standard-app.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "standard-app.selectorLabels" . | nindent 6 }}
+{{- end }}

@@ -1,0 +1,83 @@
+# Compte de la plateforme (API et worker) sur le cluster k3s du serveur 2.
+#
+# Droits à l'échelle du cluster : chaque projet crée son espace de noms à la
+# volée, une liaison par espace n'existe donc pas encore quand il faut y écrire.
+# Le compte peut lire tous les Secrets, mais n'a aucun droit sur le RBAC, les
+# nœuds, les CRD ni exec/port-forward : une fuite du kubeconfig coûte moins cher
+# qu'avec le kubeconfig admin de k3s.
+#
+# Appliqué et testé sur k3s avec helm et le chart (voir README.txt, « Vérifié »).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: betorun-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: betorun-platform
+  namespace: betorun-system
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: betorun-platform-token
+  namespace: betorun-system
+  annotations:
+    kubernetes.io/service-account.name: betorun-platform
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: betorun-platform
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, resourcequotas, secrets, services, serviceaccounts, persistentvolumeclaims]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch, delete]
+  - apiGroups: [""]
+    resources: [pods/log, events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, networkpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # Middlewares du chart (redirection HTTPS, plafond).
+  - apiGroups: [traefik.io]
+    resources: [middlewares]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # Consommation des conteneurs (metrics-server de k3s).
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: betorun-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: betorun-platform
+subjects:
+  - kind: ServiceAccount
+    name: betorun-platform
+    namespace: betorun-system

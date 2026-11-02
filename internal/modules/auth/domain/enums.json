@@ -22,6 +22,7 @@
         "project:view": "ProjectView",
         "project:edit": "ProjectEdit",
         "project:delete": "ProjectDelete",
+        "project:members:manage": "MembersManage",
         "k8s:workload:create": "WorkloadCreate",
         "k8s:workload:delete": "WorkloadDelete",
         "k8s:logs:view": "LogsView",

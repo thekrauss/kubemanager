@@ -8,11 +8,33 @@ positions:
 clients:
   - url: http://loki:3100/loki/api/v1/push
 
+# Ingests all Docker container logs via the docker JSON file driver, then
+# reshapes them into a Loki stream keyed by compose service.
 scrape_configs:
-- job_name: kubemanager-app
-  static_configs:
-  - targets:
-      - localhost
-    labels:
-      job: kubemanager 
-      __path__: /var/lib/docker/containers/<kubemanager-kubemanager-1>/*.log
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(.*)"
+        target_label: container
+      - source_labels: ["__meta_docker_container_label_com_docker_compose_service"]
+        target_label: service
+      - target_label: job
+        replacement: kubemanager
+    pipeline_stages:
+      # Try to parse the container stdout line as structured JSON (zap)
+      - json:
+          expressions:
+            level: level
+            msg: msg
+            ts: ts
+            trace_id: trace_id
+            request_id: request_id
+            workflow_id: workflow_id
+      - labels:
+          level:
+      - timestamp:
+          source: ts
+          format: RFC3339Nano

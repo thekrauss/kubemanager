@@ -42,3 +42,9 @@ type UsageDTO struct {
 	Memory  string `json:"memory"`
 	Storage string `json:"storage"`
 }
+
+type AssignRoleRequest struct {
+	UserID    string `json:"user_id" validate:"required,uuid"`
+	ProjectID string `json:"project_id" validate:"required,uuid"`
+	RoleName  string `json:"role_name" validate:"required"`
+}

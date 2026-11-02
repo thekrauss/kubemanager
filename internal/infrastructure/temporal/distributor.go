@@ -1,0 +1,150 @@
+package temporal
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"go.temporal.io/api/enums/v1"
+	"go.temporal.io/api/serviceerror"
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
+)
+
+// TaskDistributor : interface exposée aux services métier.
+type TaskDistributor interface {
+	// ExecuteWorkflow démarre un workflow et retourne le WorkflowID + RunID.
+	ExecuteWorkflow(ctx context.Context, opts ExecuteOptions, workflow any, args ...any) (WorkflowHandle, error)
+
+	// SignalWorkflow envoie un signal à un workflow en cours.
+	SignalWorkflow(ctx context.Context, workflowID, runID, signalName string, payload any) error
+
+	// QueryWorkflow interroge l'état d'un workflow (synchrone).
+	QueryWorkflow(ctx context.Context, workflowID, runID, queryType string, args ...any) (converter.EncodedValue, error)
+
+	// CancelWorkflow annule un workflow en cours (graceful).
+	CancelWorkflow(ctx context.Context, workflowID, runID string) error
+
+	// IsRunning : une exécution de ce workflow est en cours.
+	IsRunning(ctx context.Context, workflowID string) (bool, error)
+
+	// TerminateWorkflow arrête immédiatement un workflow (hard kill).
+	TerminateWorkflow(ctx context.Context, workflowID, runID, reason string) error
+}
+
+// ExecuteOptions : paramètres par invocation (override les defaults).
+type ExecuteOptions struct {
+	WorkflowID          string        // défaut = auto-généré si vide
+	TaskQueue           string        // défaut = config.Temporal.TaskQueue
+	WorkflowRunTimeout  time.Duration // défaut = 0 (pas de timeout)
+	WorkflowTaskTimeout time.Duration // défaut = 0 (SDK default)
+}
+
+// WorkflowHandle : identifiants retournés après ExecuteWorkflow.
+type WorkflowHandle struct {
+	WorkflowID string
+	RunID      string
+}
+
+// TemporalDistributor : implémentation concrète.
+type TemporalDistributor struct {
+	client           client.Client
+	defaultTaskQueue string
+}
+
+// NewDistributor construit un distributor qui délègue au client Temporal.
+func NewDistributor(c client.Client, defaultTaskQueue string) *TemporalDistributor {
+	return &TemporalDistributor{
+		client:           c,
+		defaultTaskQueue: defaultTaskQueue,
+	}
+}
+
+func (d *TemporalDistributor) ExecuteWorkflow(
+	ctx context.Context,
+	opts ExecuteOptions,
+	workflow any,
+	args ...any,
+) (WorkflowHandle, error) {
+	if d == nil || d.client == nil {
+		return WorkflowHandle{}, fmt.Errorf("temporal distributor not initialized")
+	}
+
+	queue := opts.TaskQueue
+	if queue == "" {
+		queue = d.defaultTaskQueue
+	}
+
+	startOpts := client.StartWorkflowOptions{
+		ID:                       opts.WorkflowID,
+		TaskQueue:                queue,
+		WorkflowExecutionTimeout: opts.WorkflowRunTimeout,
+		WorkflowTaskTimeout:      opts.WorkflowTaskTimeout,
+		// Sans cela, une demande se rattache en silence à l'exécution en cours
+		// du même identifiant : l'appelant croit avoir lancé son travail.
+		WorkflowExecutionErrorWhenAlreadyStarted: true,
+	}
+
+	run, err := d.client.ExecuteWorkflow(ctx, startOpts, workflow, args...)
+	if err != nil {
+		return WorkflowHandle{}, fmt.Errorf("execute workflow: %w", err)
+	}
+	return WorkflowHandle{WorkflowID: run.GetID(), RunID: run.GetRunID()}, nil
+}
+
+// IsAlreadyStarted : ExecuteWorkflow a refusé car une exécution de ce workflow
+// est déjà en cours.
+func IsAlreadyStarted(err error) bool {
+	var started *serviceerror.WorkflowExecutionAlreadyStarted
+	return errors.As(err, &started)
+}
+
+func (d *TemporalDistributor) SignalWorkflow(
+	ctx context.Context,
+	workflowID, runID, signalName string,
+	payload any,
+) error {
+	if d == nil || d.client == nil {
+		return fmt.Errorf("temporal distributor not initialized")
+	}
+	return d.client.SignalWorkflow(ctx, workflowID, runID, signalName, payload)
+}
+
+func (d *TemporalDistributor) QueryWorkflow(
+	ctx context.Context,
+	workflowID, runID, queryType string,
+	args ...any,
+) (converter.EncodedValue, error) {
+	if d == nil || d.client == nil {
+		return nil, fmt.Errorf("temporal distributor not initialized")
+	}
+	return d.client.QueryWorkflow(ctx, workflowID, runID, queryType, args...)
+}
+
+func (d *TemporalDistributor) CancelWorkflow(ctx context.Context, workflowID, runID string) error {
+	if d == nil || d.client == nil {
+		return fmt.Errorf("temporal distributor not initialized")
+	}
+	return d.client.CancelWorkflow(ctx, workflowID, runID)
+}
+
+func (d *TemporalDistributor) TerminateWorkflow(ctx context.Context, workflowID, runID, reason string) error {
+	if d == nil || d.client == nil {
+		return fmt.Errorf("temporal distributor not initialized")
+	}
+	return d.client.TerminateWorkflow(ctx, workflowID, runID, reason)
+}
+
+// IsRunning : sans exécution connue, la réponse est non.
+func (d *TemporalDistributor) IsRunning(ctx context.Context, workflowID string) (bool, error) {
+	res, err := d.client.DescribeWorkflowExecution(ctx, workflowID, "")
+	if err != nil {
+		var notFound *serviceerror.NotFound
+		if errors.As(err, &notFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return res.GetWorkflowExecutionInfo().GetStatus() == enums.WORKFLOW_EXECUTION_STATUS_RUNNING, nil
+}

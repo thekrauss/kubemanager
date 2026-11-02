@@ -2,6 +2,9 @@ package service
 
 import (
 	"context"
+	"strings"
+
+	"github.com/thekrauss/kubemanager/internal/iam"
 
 	"github.com/google/uuid"
 	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
@@ -12,8 +15,10 @@ import (
 )
 
 type RBACService struct {
-	Repo   repository.AuthRepository
-	Logger *zap.SugaredLogger
+	// Policies : écritures des membres via setIamPolicy (contrôles IAM).
+	Policies *iam.PolicyService
+	Repo     repository.AuthRepository
+	Logger   *zap.SugaredLogger
 }
 
 func NewRBACService(repo repository.AuthRepository, logger *zap.SugaredLogger) *RBACService {
@@ -23,23 +28,17 @@ func NewRBACService(repo repository.AuthRepository, logger *zap.SugaredLogger) *
 	}
 }
 
+// ListAllRoles : rôles projet legacy (OWNER, DEVELOPER, VIEWER), définis dans
+// le code. Les rôles IAM complets sont sur GET /iam/roles.
 func (s *RBACService) ListAllRoles(ctx context.Context) ([]domain.RoleDTO, error) {
-	roles, err := s.Repo.ListRoles(ctx)
-	if err != nil {
-		return nil, betoerrors.Wrap(err, betoerrors.CodeInternal, "failed to list roles")
-	}
-
 	var result []domain.RoleDTO
-	for _, r := range roles {
-		perms := make([]string, len(r.Permissions))
-		for i, p := range r.Permissions {
-			perms[i] = p.Slug
+	for _, role := range []domain.RoleType{domain.RoleTypes.Owner, domain.RoleTypes.Developer, domain.RoleTypes.Viewer} {
+		perms := domain.RolePermissions(role)
+		slugs := make([]string, len(perms))
+		for i, p := range perms {
+			slugs[i] = p.String()
 		}
-		result = append(result, domain.RoleDTO{
-			ID:          r.ID.String(),
-			Name:        r.Name,
-			Permissions: perms,
-		})
+		result = append(result, domain.RoleDTO{ID: role.String(), Name: role.String(), Permissions: slugs})
 	}
 	return result, nil
 }
@@ -70,7 +69,9 @@ func (s *RBACService) ListProjectMembers(ctx context.Context, projectIDStr strin
 	return result, nil
 }
 
-func (s *RBACService) RevokeProjectAccess(ctx context.Context, projectIDStr, userIDStr string) error {
+// RevokeProjectAccess retire tous les rôles de l'utilisateur sur le projet.
+// Passe par setIamPolicy : le dernier owner humain est protégé.
+func (s *RBACService) RevokeProjectAccess(ctx context.Context, caller iam.Principal, projectIDStr, userIDStr string) error {
 	pID, err := uuid.Parse(projectIDStr)
 	if err != nil {
 		return betoerrors.New(betoerrors.CodeInvalidInput, "invalid project id")
@@ -79,22 +80,21 @@ func (s *RBACService) RevokeProjectAccess(ctx context.Context, projectIDStr, use
 	if err != nil {
 		return betoerrors.New(betoerrors.CodeInvalidInput, "invalid user id")
 	}
-
-	_, err = s.Repo.GetProjectMember(ctx, pID, uID)
-	if err != nil {
+	if _, err := s.Repo.GetProjectMember(ctx, pID, uID); err != nil {
 		return betoerrors.New(betoerrors.CodeNotFound, "member not found in this project")
 	}
-
-	if err := s.Repo.RemoveProjectMember(ctx, pID, uID); err != nil {
-		s.Logger.Errorw("failed to revoke access", "project", pID, "user", uID, "error", err)
-		return betoerrors.Wrap(err, betoerrors.CodeInternal, "failed to remove member")
+	if err := s.setMemberRole(ctx, caller, pID, uID, ""); err != nil {
+		return err
 	}
-
-	s.Logger.Infow("Project access revoked", "project", pID, "user", uID)
+	s.Logger.Infow("Project access revoked", "project", pID, "user", uID, "by", caller)
 	return nil
 }
 
-func (s *RBACService) AssignProjectRole(ctx context.Context, req *domain.AssignRoleRequest) error {
+// AssignProjectRole donne à l'utilisateur un rôle sur le projet, à la place
+// de ses rôles précédents. Rôle legacy (OWNER, DEVELOPER, VIEWER) ou rôle IAM
+// prédéfini ("roles/…"). Passe par setIamPolicy : mêmes contrôles qu'à
+// travers l'API IAM (anti-escalade, dernier owner, membre existant).
+func (s *RBACService) AssignProjectRole(ctx context.Context, caller iam.Principal, req *domain.AssignRoleRequest) error {
 	uID, err := uuid.Parse(req.UserID)
 	if err != nil {
 		return betoerrors.New(betoerrors.CodeInvalidInput, "invalid user id")
@@ -103,25 +103,52 @@ func (s *RBACService) AssignProjectRole(ctx context.Context, req *domain.AssignR
 	if err != nil {
 		return betoerrors.New(betoerrors.CodeInvalidInput, "invalid project id")
 	}
-
-	role, err := s.Repo.GetRoleByName(ctx, req.RoleName)
-	if err != nil {
+	iamRole := domain.LegacyRoleToIAM(strings.TrimSpace(req.RoleName))
+	if role, ok := iam.LookupRole(iamRole); !ok || role.PlatformOnly {
 		return betoerrors.New(betoerrors.CodeNotFound, "role not found")
 	}
-
-	member := &domain.ProjectMember{
-		ProjectID: pID,
-		UserID:    uID,
-		RoleID:    role.ID,
+	if err := s.setMemberRole(ctx, caller, pID, uID, iamRole); err != nil {
+		return err
 	}
-
-	if err := s.Repo.AddProjectMember(ctx, member); err != nil {
-		s.Logger.Errorw("failed to assign role", "error", err)
-		return betoerrors.New(betoerrors.CodeInternal, "failed to assign role")
-	}
-
-	s.Logger.Infow("Role assigned successfully", "user", req.UserID, "project", req.ProjectID, "role", req.RoleName)
+	s.Logger.Infow("Role assigned", "user", uID, "project", pID, "role", iamRole, "by", caller)
 	return nil
+}
+
+// setMemberRole : read-modify-write de la policy du projet. role vide = retrait.
+func (s *RBACService) setMemberRole(ctx context.Context, caller iam.Principal, projectID, userID uuid.UUID, role string) error {
+	if s.Policies == nil {
+		return betoerrors.New(betoerrors.CodeInternal, "iam policies not configured")
+	}
+	project, member := iam.ProjectName(projectID), iam.UserPrincipal(userID)
+	view, err := s.Policies.Get(ctx, project)
+	if err != nil {
+		return err
+	}
+	policy := view.Policy
+	var bindings []iam.PolicyBinding
+	placed := false
+	for _, b := range policy.Bindings {
+		var members []iam.Principal
+		for _, m := range b.Members {
+			if m != member {
+				members = append(members, m)
+			}
+		}
+		if role != "" && !placed && b.Role == role && b.Condition == nil {
+			members = append(members, member)
+			placed = true
+		}
+		if len(members) > 0 {
+			b.Members = members
+			bindings = append(bindings, b)
+		}
+	}
+	if role != "" && !placed {
+		bindings = append(bindings, iam.PolicyBinding{Role: role, Members: []iam.Principal{member}})
+	}
+	policy.Bindings = bindings
+	_, err = s.Policies.Set(ctx, caller, project, policy)
+	return err
 }
 
 func (s *RBACService) CheckPermission(ctx context.Context, req *domain.CheckPermissionRequest) (bool, error) {

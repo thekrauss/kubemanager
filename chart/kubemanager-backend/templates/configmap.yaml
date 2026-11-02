@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubemanager.fullname" . }}-env
+  labels: {{- include "kubemanager.labels" . | nindent 4 }}
+data:
+  KUBEMANAGER_SERVICE_NAME: {{ .Values.config.serviceName | quote }}
+  KUBEMANAGER_SERVER_HTTP_PORT: {{ .Values.config.httpPort | quote }}
+  KUBEMANAGER_SERVER_ALLOWED_ORIGINS: {{ join "," .Values.config.server.allowedOrigins | quote }}
+  KUBEMANAGER_SERVER_TRUSTED_PROXIES: {{ join "," .Values.config.server.trustedProxies | quote }}
+
+  KUBEMANAGER_RATE_LIMIT_ENABLED: {{ .Values.config.rateLimit.enabled | quote }}
+  KUBEMANAGER_RATE_LIMIT_LIMIT: {{ .Values.config.rateLimit.limit | quote }}
+  KUBEMANAGER_RATE_LIMIT_WINDOW: {{ .Values.config.rateLimit.window | quote }}
+
+  KUBEMANAGER_DATABASE_DRIVER: {{ .Values.config.database.driver | quote }}
+  KUBEMANAGER_DATABASE_HOST: {{ .Values.config.database.host | quote }}
+  KUBEMANAGER_DATABASE_PORT: {{ .Values.config.database.port | quote }}
+  KUBEMANAGER_DATABASE_NAME: {{ .Values.config.database.name | quote }}
+  KUBEMANAGER_DATABASE_USER: {{ .Values.config.database.user | quote }}
+  KUBEMANAGER_DATABASE_SSLMODE: {{ .Values.config.database.sslmode | quote }}
+  KUBEMANAGER_DATABASE_MIGRATIONS_PATH: {{ .Values.config.database.migrationsPath | quote }}
+
+  KUBEMANAGER_REDIS_HOST: {{ .Values.config.redis.host | quote }}
+  KUBEMANAGER_REDIS_PORT: {{ .Values.config.redis.port | quote }}
+  KUBEMANAGER_REDIS_DB: {{ .Values.config.redis.db | quote }}
+
+  KUBEMANAGER_TEMPORAL_HOST: {{ .Values.config.temporal.host | quote }}
+  KUBEMANAGER_TEMPORAL_NAMESPACE: {{ .Values.config.temporal.namespace | quote }}
+
+  KUBEMANAGER_KEYCLOAK_ISSUER_URL: {{ .Values.config.keycloak.issuerUrl | quote }}
+  KUBEMANAGER_KEYCLOAK_AUDIENCE: {{ .Values.config.keycloak.audience | quote }}
+  KUBEMANAGER_KEYCLOAK_CLI_CLIENT_ID: {{ .Values.config.keycloak.cliClientId | quote }}
+
+  KUBEMANAGER_VPS_VPS_IP: {{ .Values.config.vps.ip | default "" | quote }}
+  KUBEMANAGER_KUBERNETES_CLUSTER_ID: {{ .Values.config.kubernetes.clusterId | default "" | quote }}
+  KUBEMANAGER_KUBERNETES_INGRESS_CLASS: {{ .Values.config.kubernetes.ingressClass | default "" | quote }}
+  KUBEMANAGER_KUBERNETES_INGRESS_NAMESPACE: {{ .Values.config.kubernetes.ingressNamespace | default "" | quote }}
+  KUBEMANAGER_IAM_STS_ISSUER: {{ .Values.config.iam.stsIssuer | quote }}
+  KUBEMANAGER_IAM_MFA_ACR_VALUES: {{ .Values.config.iam.mfaAcrValues | quote }}
+  KUBEMANAGER_IAM_STEP_UP_MAX_AGE: {{ .Values.config.iam.stepUpMaxAge | quote }}
+
+  KUBEMANAGER_CENTRIFUGO_ENABLED: {{ .Values.config.centrifugo.enabled | quote }}
+  KUBEMANAGER_CENTRIFUGO_URL: {{ .Values.config.centrifugo.url | quote }}
+  KUBEMANAGER_CENTRIFUGO_API_URL: {{ .Values.config.centrifugo.apiUrl | quote }}

@@ -3,5 +3,16 @@ apiVersion: v2
 name: standard-app
 description: Un template universel pour les workloads Kubemanager
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "1.0.0"
+# Changelog 0.2.0 : hardening Pod Security Standard "restricted".
+# - ServiceAccount dédié + automountServiceAccountToken false
+# - securityContext restricted (readOnlyRootFilesystem, capabilities drop ALL, seccomp)
+# - tmpfs /tmp + /var/run compatible readOnlyRootFilesystem
+# - HPA conditionnel (autoscaling.enabled)
+# - PDB conditionnel (pdb.enabled + replicas >= 2)
+# - NetworkPolicy egress zero-trust (DNS + HTTPS allowlist)
+# - Pod anti-affinity soft (spread sur multi-nodes)
+# - Probes startup + readiness + liveness configurables
+# - Ingress TLS via cert-manager
+# - Labels Kubernetes standard (app.kubernetes.io/*)

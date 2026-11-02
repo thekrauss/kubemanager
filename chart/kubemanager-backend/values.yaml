@@ -1,0 +1,168 @@
+#  Image ───
+image:
+  repository: ghcr.io/thekrauss/kubemanager
+  tag: "latest"
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+#  Server (APP_MODE=server) sss
+server:
+  replicaCount: 2
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8080
+  resources:
+    requests: { cpu: 200m, memory: 256Mi }
+    limits:   { memory: 512Mi }
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: true
+    minAvailable: 1
+  # Optional overrides to disable the PodDisruptionBudget at install time.
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+#  Worker (APP_MODE=worker) sss
+worker:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { memory: 512Mi }
+
+#  Migrations (pre-install/upgrade hook) ─
+migrations:
+  enabled: true
+  # Run from the shipped SQL under /app/migrations. Driver comes from env.
+  path: "/app/migrations"
+
+#  Config (non-secret, mounted as ConfigMap → env) ─
+config:
+  serviceName: kubemanager
+  httpPort: 8080
+  rateLimit:
+    enabled: true
+    limit: 300
+    window: "1m"
+  server:
+    allowedOrigins: ["https://app.kubemanager.example"]
+    # Proxies dont X-Forwarded-For est cru (CIDR de l'ingress, BFF de la
+    # console). Vide : boucle locale seulement. À renseigner en prod, sinon
+    # toutes les requêtes semblent venir de l'ingress (limites par IP faussées).
+    trustedProxies: []
+  redis:
+    host: redis-master.kubemanager.svc
+    port: 6379
+    db: 0
+  database:
+    driver: postgres
+    host: postgres.kubemanager.svc
+    port: 5432
+    name: kubemanager
+    user: kubemanager
+    sslmode: require
+    migrationsPath: "/app/migrations"
+  temporal:
+    host: temporal-frontend.temporal.svc:7233
+    namespace: kubemanager
+  keycloak:
+    issuerUrl: "https://auth.example.com/realms/kubemanager"
+    audience: "kubemanager-api"
+    # Client public de la CLI (Device Authorization Grant activé). Vide : désactivé.
+    cliClientId: "betorun-cli"
+  vps:
+    # IP publique du point d'entrée des conteneurs (URL <release>-<projet>.<ip>.sslip.io).
+    # Vide : conteneurs déployés sans URL publique.
+    ip: ""
+  kubernetes:
+    # Identifiant (celui de son watcher) du cluster où tournent les workloads :
+    # active l'identité des workloads. Vide : désactivée.
+    clusterId: ""
+    # Classe d'ingress des conteneurs exposés (vide : nginx).
+    ingressClass: ""
+    # Espace de noms du contrôleur d'ingress, autorisé par la NetworkPolicy
+    # des conteneurs (vide : ingress-nginx).
+    ingressNamespace: ""
+  iam:
+    # STS : URL publique de l'émetteur des jetons machine (= <API>/kmanager/v1/iam).
+    stsIssuer: "https://api.example.com/kmanager/v1/iam"
+    # Double authentification : valeurs acr (mapping ACR → LoA du realm
+    # Keycloak) qui attestent un MFA, séparées par des virgules. Vide :
+    # step-up et iam.requireMfa désactivés. Realm à configurer avant
+    # (docs/architecture/iam.md §9).
+    mfaAcrValues: "gold"
+    stepUpMaxAge: "10m"
+  centrifugo:
+    enabled: true
+    url: "https://realtime.example.com"
+    apiUrl: "https://realtime.example.com/api"
+
+#  Secrets (references to an existing Secret — NOT created by this chart)
+# Keys expected in the Secret :
+#   DB_PASSWORD, REDIS_PASSWORD, JWT_SECRET, JWT_REFRESH_SECRET,
+#   KEYCLOAK_ADMIN_CLIENT_SECRET, IAM_API_KEY_PEPPER (≥ 32 octets),
+#   IAM_STS_KEY_ENCRYPTION_KEY (32 octets en base64 : openssl rand -base64 32), CENTRIFUGO_API_KEY,
+#   CENTRIFUGO_TOKEN_HMAC_SECRET
+existingSecret: "kubemanager-secrets"
+
+#  Pod security (PSA restricted) 
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 10001
+  capabilities:
+    drop: ["ALL"]
+
+#  Service account
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# ───── Observability ────────────────────────────────────────────────────────
+
+# ServiceMonitor (requires prometheus-operator + CRD installed).
+# Prometheus scrapes /metrics on the server Service via this resource.
+serviceMonitor:
+  enabled: false
+  # namespace: monitoring   # override if Prometheus lives in another namespace
+  additionalLabels: {}      # e.g. { release: kube-prometheus-stack }
+  interval: 15s
+  scrapeTimeout: 10s
+  path: /metrics
+
+# PrometheusRule (requires prometheus-operator + CRD installed).
+# Publishes alerting rules covering RED signals, Temporal, business + runtime.
+prometheusRule:
+  enabled: false
+  # namespace: monitoring   # override if rules live next to Prometheus
+  additionalLabels: {}      # e.g. { release: kube-prometheus-stack }
+
+# Pod labels + annotations picked up by Promtail / Loki Docker-SD / Grafana Agent.
+# Default labels already include app.kubernetes.io/* via _helpers.tpl — these are
+# extra tags surfaced to Loki streams for easier filtering in dashboards.
+loki:
+  extraPodLabels:
+    app: kubemanager-backend
+  extraPodAnnotations:
+    # Promtail (helm-deployed) ignores this out-of-the-box, but grafana-agent
+    # and fluentbit.io pipelines use these hints.
+    promtail.io/scrape: "true"

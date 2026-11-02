@@ -1,0 +1,290 @@
+[
+ {
+  "fr": "%s : %s (les groupes arrivent avec la phase B)",
+  "en": "%w: %s (groups arrive in phase B)"
+ },
+ {
+  "fr": "%s : le titre de la condition est obligatoire",
+  "en": "%w: condition title is required"
+ },
+ {
+  "fr": "%s : l'environnement doit être live ou test",
+  "en": "%w: env must be live or test"
+ },
+ {
+  "fr": "%s : plage IP invalide %s",
+  "en": "%w: invalid CIDR %q"
+ },
+ {
+  "fr": "%s : ressource invalide %s",
+  "en": "%w: invalid resource %q"
+ },
+ {
+  "fr": "%s : le rôle %s ne peut pas être accordé sur %s",
+  "en": "%w: role %q cannot be granted on %s"
+ },
+ {
+  "fr": "%s : permission inconnue %s",
+  "en": "%w: unknown permission %q"
+ },
+ {
+  "fr": "%s : rôle inconnu %s",
+  "en": "%w: unknown role %q"
+ },
+ {
+  "fr": "Un compte de service avec cet identifiant existe déjà dans le projet",
+  "en": "a service account with this account_id already exists in the project"
+ },
+ {
+  "fr": "L'identifiant doit faire 6 à 30 caractères : minuscules, chiffres et tirets, en commençant par une lettre",
+  "en": "account_id must be 6-30 chars: lowercase letters, digits and hyphens, starting with a letter"
+ },
+ {
+  "fr": "Clé API introuvable",
+  "en": "api key not found"
+ },
+ {
+  "fr": "Au moins un utilisateur doit rester propriétaire de cette ressource",
+  "en": "at least one user must keep roles/owner on this resource"
+ },
+ {
+  "fr": "%d permissions au maximum par appel",
+  "en": "at most %d permissions per call"
+ },
+ {
+  "fr": "L'etag est obligatoire : relisez d'abord la policy",
+  "en": "etag is required: read the policy first"
+ },
+ {
+  "fr": "La durée de validité doit être comprise entre 1 et 90 jours",
+  "en": "expires_in_days must be between 1 and 90"
+ },
+ {
+  "fr": "Policies IAM non configurées",
+  "en": "iam policies not configured"
+ },
+ {
+  "fr": "Attribution de rôle invalide",
+  "en": "invalid binding"
+ },
+ {
+  "fr": "Restrictions de clé invalides",
+  "en": "invalid key restrictions"
+ },
+ {
+  "fr": "Membre invalide",
+  "en": "invalid principal"
+ },
+ {
+  "fr": "Nom de ressource invalide",
+  "en": "invalid resource name"
+ },
+ {
+  "fr": "Il faut la permission iam.serviceAccounts.actAs sur ce compte de service pour créer ses clés",
+  "en": "permission iam.serviceAccounts.actAs on the service account is required to create its keys"
+ },
+ {
+  "fr": "Les accès de cette ressource ne se gèrent pas par l'API",
+  "en": "policies cannot be managed on this resource through the API"
+ },
+ {
+  "fr": "Ressource introuvable",
+  "en": "resource not found"
+ },
+ {
+  "fr": "Compte de service introuvable",
+  "en": "service account not found"
+ },
+ {
+  "fr": "Les accès ont été modifiés entre-temps : rechargez-les puis réessayez",
+  "en": "the policy was modified concurrently: reload it and retry"
+ },
+ {
+  "fr": "Membre inconnu",
+  "en": "unknown member"
+ },
+ {
+  "fr": "Permission inconnue %s",
+  "en": "unknown permission %q"
+ },
+ {
+  "fr": "Condition non prise en charge : seule « request.time < timestamp('<RFC3339>') » l'est",
+  "en": "unsupported condition: only \"request.time < timestamp('<RFC3339>')\" is supported"
+ },
+ {
+  "fr": "Vous ne pouvez pas accorder un rôle dont vous n'avez pas toutes les permissions",
+  "en": "you cannot grant a role with permissions you do not have"
+ },
+ {
+  "fr": "cluster_id doit faire 1 à 100 caractères : lettres, chiffres, « . », « _ » ou « - »",
+  "en": "cluster_id must be 1-100 chars: letters, digits, '.', '_' or '-'"
+ },
+ {
+  "fr": "grace_days doit être compris entre 0 et 30",
+  "en": "grace_days must be between 0 and 30"
+ },
+ {
+  "fr": "référence de cluster invalide",
+  "en": "invalid cluster reference"
+ },
+ {
+  "fr": "cet appel est réservé au compte de service d'un cluster (watcher)",
+  "en": "this call is reserved for a cluster's agent service account"
+ },
+ {
+  "fr": "cette clé appartient à un autre cluster",
+  "en": "this key belongs to another cluster"
+ },
+ {
+  "fr": "cette clé est déjà révoquée ou expirée : créez-en une nouvelle",
+  "en": "this key is already revoked or expired: create a new one"
+ },
+ {
+  "fr": "expires_in_days doit être compris entre 1 et 365",
+  "en": "expires_in_days must be between 1 and 365"
+ },
+ {
+  "fr": "public_key_pem doit être une « PUBLIC KEY » PEM : ECDSA P-256 ou RSA d'au moins 2048 bits",
+  "en": "public_key_pem must be a PEM \"PUBLIC KEY\": ECDSA P-256 or RSA of at least 2048 bits"
+ },
+ {
+  "fr": "clé de compte de service introuvable",
+  "en": "service account key not found"
+ },
+ {
+  "fr": "sts : la clé de chiffrement doit faire 32 octets, encodée en base64",
+  "en": "sts: key encryption key must be 32 bytes, base64-encoded"
+ },
+ {
+  "fr": "sts : aucune clé de signature active",
+  "en": "sts: no active signing key"
+ },
+ {
+  "fr": "ce compte de service a déjà 10 clés valides : désactivez-en une d'abord",
+  "en": "this service account already has 10 valid keys: disable one first"
+ },
+ {
+  "fr": "expires_in_days doit être compris entre 1 et 90 pour une clé API, 365 pour un fichier de clé",
+  "en": "expires_in_days must be between 1 and 90 for an API key, 365 for a key file"
+ },
+ {
+  "fr": "type doit valoir api_key ou key_file",
+  "en": "type must be api_key or key_file"
+ },
+ {
+  "fr": "un rôle personnalisé a entre 1 et 300 permissions",
+  "en": "a custom role has between 1 and 300 permissions"
+ },
+ {
+  "fr": "un rôle personnalisé avec ce role_id existe déjà ici",
+  "en": "a custom role with this role_id already exists here"
+ },
+ {
+  "fr": "un groupe ne peut recevoir de rôles que dans son organisation",
+  "en": "a group can only be granted roles within its organization"
+ },
+ {
+  "fr": "un groupe ne peut pas contenir un autre groupe",
+  "en": "a group cannot contain another group"
+ },
+ {
+  "fr": "un groupe avec ce group_id existe déjà dans l'organisation",
+  "en": "a group with this group_id already exists in the organization"
+ },
+ {
+  "fr": "rôle personnalisé introuvable",
+  "en": "custom role not found"
+ },
+ {
+  "fr": "un rôle personnalisé se définit sur une organisation ou un projet",
+  "en": "custom roles live on an organization or a project"
+ },
+ {
+  "fr": "groupe introuvable",
+  "en": "group not found"
+ },
+ {
+  "fr": "group_id doit faire 3 à 63 caractères : minuscules, chiffres et tirets, en commençant par une lettre",
+  "en": "group_id must be 3-63 chars: lowercase letters, digits and hyphens, starting with a letter"
+ },
+ {
+  "fr": "permissions invalides pour un rôle personnalisé",
+  "en": "invalid permissions for a custom role"
+ },
+ {
+  "fr": "le membre est obligatoire",
+  "en": "member is required"
+ },
+ {
+  "fr": "ce membre n'appartient pas au groupe",
+  "en": "member not found in this group"
+ },
+ {
+  "fr": "role_id doit faire 3 à 64 caractères : lettres, chiffres, « _ » ou « . »",
+  "en": "role_id must be 3-64 chars: letters, digits, '_' or '.'"
+ },
+ {
+  "fr": "le rôle a été modifié entre-temps : rechargez-le et réessayez",
+  "en": "the role was modified concurrently: reload it and retry"
+ },
+ {
+  "fr": "ce rôle personnalisé ne s'accorde que sur son organisation ou son projet et leurs ressources",
+  "en": "this custom role can only be granted on its organization or project and their resources"
+ },
+ {
+  "fr": "ce groupe a des rôles avec des permissions que vous n'avez pas : vous ne pouvez pas y ajouter de membres",
+  "en": "this group has roles with permissions you do not have: you cannot add members to it"
+ },
+ {
+  "fr": "le titre est obligatoire (100 caractères au plus)",
+  "en": "title is required (at most 100 characters)"
+ },
+ {
+  "fr": "vous ne pouvez pas mettre dans un rôle des permissions que vous n'avez pas",
+  "en": "you cannot put in a role permissions you do not have"
+ },
+ {
+  "fr": "la double authentification n'est pas configurée sur cette plateforme",
+  "en": "two-factor authentication is not configured on this platform"
+ },
+ {
+  "fr": "une double authentification récente est requise pour cette action",
+  "en": "recent two-factor authentication required for this action"
+ },
+ {
+  "fr": "votre organisation exige la double authentification",
+  "en": "your organization requires two-factor authentication"
+ },
+ {
+  "fr": "conditions : 10 claims au plus, noms et valeurs non vides",
+  "en": "conditions: at most 10 claims, non-empty names and values"
+ },
+ {
+  "fr": "relation de confiance introuvable",
+  "en": "federation trust not found"
+ },
+ {
+  "fr": "fédération : refus de contacter une adresse privée",
+  "en": "federation: refusing to contact a private address"
+ },
+ {
+  "fr": "pour cet émetteur, subject_pattern doit fixer le propriétaire (GitHub : « repo:<propriétaire>/… », GitLab : « project_path:<groupe>/… »)",
+  "en": "for this issuer, subject_pattern must pin the owner (GitHub: \"repo:<owner>/…\", GitLab: \"project_path:<group>/…\")"
+ },
+ {
+  "fr": "issuer doit être une URL https sans paramètres ni fragment",
+  "en": "issuer must be an https URL without query or fragment"
+ },
+ {
+  "fr": "subject_pattern doit être un sujet exact ou un préfixe terminé par « * » (un seul « * », à la fin)",
+  "en": "subject_pattern must be an exact subject or a prefix ending with '*' (a single trailing '*')"
+ },
+ {
+  "fr": "ce compte de service a déjà 20 relations de confiance",
+  "en": "this service account already has 20 federation trusts"
+ },
+ {
+  "fr": "clés de comptes de service du cluster invalides : un émetteur et un JWKS avec au moins une clé sont requis",
+  "en": "invalid cluster service account keys: issuer and a JWKS with at least one key are required"
+ }
+]

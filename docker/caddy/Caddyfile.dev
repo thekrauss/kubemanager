@@ -1,0 +1,9 @@
+# Dev : HTTP seulement. Les navigateurs résolvent *.localhost vers 127.0.0.1 :
+#   http://<sous-domaine>.sites.localhost:8088
+{
+	auto_https off
+}
+
+http:// {
+	reverse_proxy static-edge:8090
+}

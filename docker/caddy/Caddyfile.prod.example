@@ -1,0 +1,33 @@
+# Prod (exemple) : TLS automatique.
+#
+# - *.<base_domain> : certificat wildcard via challenge DNS (un seul certificat,
+#   évite les limites Let's Encrypt de 50 certificats/semaine par domaine).
+#   Nécessite un build Caddy avec le module DNS du fournisseur, ex. :
+#   xcaddy build --with github.com/caddy-dns/ovh
+# - domaines personnalisés : TLS à la demande, autorisé seulement si
+#   static-edge répond 200 sur /check (domaine vérifié et site en ligne).
+{
+	email ops@[VOTRE-DOMAINE]
+	on_demand_tls {
+		ask http://static-edge:8091/check
+	}
+}
+
+*.betorun.app {
+	tls {
+		dns ovh {
+			endpoint {env.OVH_ENDPOINT}
+			application_key {env.OVH_APPLICATION_KEY}
+			application_secret {env.OVH_APPLICATION_SECRET}
+			consumer_key {env.OVH_CONSUMER_KEY}
+		}
+	}
+	reverse_proxy static-edge:8090
+}
+
+https:// {
+	tls {
+		on_demand
+	}
+	reverse_proxy static-edge:8090
+}

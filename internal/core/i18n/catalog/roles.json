@@ -1,0 +1,410 @@
+[
+ {
+  "fr": "Propriétaire",
+  "en": "Owner"
+ },
+ {
+  "fr": "Accès complet, y compris les accès, la facturation et la suppression.",
+  "en": "Full access, including access management, billing and deletion."
+ },
+ {
+  "fr": "Éditeur",
+  "en": "Editor"
+ },
+ {
+  "fr": "Crée, modifie et supprime les ressources ; ne gère ni les accès ni la facturation.",
+  "en": "Creates, edits and deletes resources; manages neither access nor billing."
+ },
+ {
+  "fr": "Développeur",
+  "en": "Developer"
+ },
+ {
+  "fr": "Déploie et opère les conteneurs et les sites, sans rien supprimer.",
+  "en": "Deploys and operates containers and sites, without deleting anything."
+ },
+ {
+  "fr": "Lecteur",
+  "en": "Viewer"
+ },
+ {
+  "fr": "Consulte les ressources, les logs et les métriques.",
+  "en": "Views resources, logs and metrics."
+ },
+ {
+  "fr": "Développeur conteneurs",
+  "en": "Container developer"
+ },
+ {
+  "fr": "Déploie et opère les conteneurs du projet.",
+  "en": "Deploys and operates the project's containers."
+ },
+ {
+  "fr": "Lecteur conteneurs",
+  "en": "Container viewer"
+ },
+ {
+  "fr": "Consulte les conteneurs, leurs logs et leurs métriques.",
+  "en": "Views containers, their logs and metrics."
+ },
+ {
+  "fr": "Administrateur sites",
+  "en": "Sites admin"
+ },
+ {
+  "fr": "Gère entièrement les sites statiques et leurs domaines.",
+  "en": "Fully manages static sites and their domains."
+ },
+ {
+  "fr": "Déployeur sites",
+  "en": "Sites deployer"
+ },
+ {
+  "fr": "Publie de nouvelles versions des sites (idéal pour la CI).",
+  "en": "Publishes new site versions (ideal for CI)."
+ },
+ {
+  "fr": "Utilisateur de compte de service",
+  "en": "Service account user"
+ },
+ {
+  "fr": "Peut exécuter des ressources en tant que le compte de service.",
+  "en": "Can run resources as the service account."
+ },
+ {
+  "fr": "Administrateur comptes de service",
+  "en": "Service account admin"
+ },
+ {
+  "fr": "Crée et gère les comptes de service et leurs clés.",
+  "en": "Creates and manages service accounts and their keys."
+ },
+ {
+  "fr": "Administrateur sécurité",
+  "en": "Security admin"
+ },
+ {
+  "fr": "Gère les accès de l'organisation et de ses projets, et lit le journal d'audit.",
+  "en": "Manages access to the organization and its projects, and reads the audit log."
+ },
+ {
+  "fr": "Administrateur facturation",
+  "en": "Billing admin"
+ },
+ {
+  "fr": "Gère la facturation et les paiements.",
+  "en": "Manages billing and payments."
+ },
+ {
+  "fr": "Lecteur journal d'audit",
+  "en": "Audit log viewer"
+ },
+ {
+  "fr": "Lit le journal d'audit.",
+  "en": "Reads the audit log."
+ },
+ {
+  "fr": "Administrateur plateforme",
+  "en": "Platform admin"
+ },
+ {
+  "fr": "Staff betorun : opère la flotte de clusters.",
+  "en": "betorun staff: operates the cluster fleet."
+ },
+ {
+  "fr": "Support plateforme",
+  "en": "Platform support"
+ },
+ {
+  "fr": "Staff betorun : consulte la flotte.",
+  "en": "betorun staff: views the fleet."
+ },
+ {
+  "fr": "Agent de cluster",
+  "en": "Cluster agent"
+ },
+ {
+  "fr": "Compte système du watcher d'un cluster : rend compte de ce seul cluster.",
+  "en": "System account of a cluster's watcher: reports on that cluster only."
+ },
+ {
+  "fr": "Administrateur des groupes",
+  "en": "Group admin"
+ },
+ {
+  "fr": "Crée les groupes de l'organisation et gère leurs membres (dans la limite de ses propres droits).",
+  "en": "Creates the organization's groups and manages their members (within their own permissions)."
+ },
+ {
+  "fr": "Voir une organisation",
+  "en": "View an organization"
+ },
+ {
+  "fr": "Modifier une organisation",
+  "en": "Update an organization"
+ },
+ {
+  "fr": "Voir les accès d'une organisation",
+  "en": "View an organization's access"
+ },
+ {
+  "fr": "Modifier les accès d'une organisation",
+  "en": "Change an organization's access"
+ },
+ {
+  "fr": "Créer un projet",
+  "en": "Create a project"
+ },
+ {
+  "fr": "Voir un projet",
+  "en": "View a project"
+ },
+ {
+  "fr": "Lister les projets",
+  "en": "List projects"
+ },
+ {
+  "fr": "Modifier un projet",
+  "en": "Update a project"
+ },
+ {
+  "fr": "Supprimer un projet",
+  "en": "Delete a project"
+ },
+ {
+  "fr": "Voir les accès d'un projet",
+  "en": "View a project's access"
+ },
+ {
+  "fr": "Modifier les accès d'un projet",
+  "en": "Change a project's access"
+ },
+ {
+  "fr": "Lister les conteneurs",
+  "en": "List containers"
+ },
+ {
+  "fr": "Voir un conteneur",
+  "en": "View a container"
+ },
+ {
+  "fr": "Déployer un conteneur",
+  "en": "Deploy a container"
+ },
+ {
+  "fr": "Modifier un conteneur",
+  "en": "Update a container"
+ },
+ {
+  "fr": "Supprimer un conteneur",
+  "en": "Delete a container"
+ },
+ {
+  "fr": "Démarrer un conteneur",
+  "en": "Start a container"
+ },
+ {
+  "fr": "Arrêter un conteneur",
+  "en": "Stop a container"
+ },
+ {
+  "fr": "Redémarrer un conteneur",
+  "en": "Restart a container"
+ },
+ {
+  "fr": "Revenir à une version d'un conteneur",
+  "en": "Roll back a container"
+ },
+ {
+  "fr": "Lire les logs d'un conteneur",
+  "en": "Read container logs"
+ },
+ {
+  "fr": "Voir les métriques d'un conteneur",
+  "en": "Read container metrics"
+ },
+ {
+  "fr": "Lister les sites",
+  "en": "List sites"
+ },
+ {
+  "fr": "Voir un site",
+  "en": "View a site"
+ },
+ {
+  "fr": "Créer un site",
+  "en": "Create a site"
+ },
+ {
+  "fr": "Modifier un site",
+  "en": "Update a site"
+ },
+ {
+  "fr": "Supprimer un site",
+  "en": "Delete a site"
+ },
+ {
+  "fr": "Voir les déploiements d'un site",
+  "en": "List site deployments"
+ },
+ {
+  "fr": "Déployer un site",
+  "en": "Publish a site version"
+ },
+ {
+  "fr": "Activer une version d'un site",
+  "en": "Activate a site version"
+ },
+ {
+  "fr": "Voir les domaines d'un site",
+  "en": "List domains"
+ },
+ {
+  "fr": "Ajouter un domaine",
+  "en": "Add a domain"
+ },
+ {
+  "fr": "Vérifier un domaine",
+  "en": "Verify a domain"
+ },
+ {
+  "fr": "Retirer un domaine",
+  "en": "Remove a domain"
+ },
+ {
+  "fr": "Lister les comptes de service",
+  "en": "List service accounts"
+ },
+ {
+  "fr": "Voir un compte de service",
+  "en": "View a service account"
+ },
+ {
+  "fr": "Créer un compte de service",
+  "en": "Create a service account"
+ },
+ {
+  "fr": "Modifier un compte de service",
+  "en": "Update a service account"
+ },
+ {
+  "fr": "Supprimer un compte de service",
+  "en": "Delete a service account"
+ },
+ {
+  "fr": "Agir en tant que compte de service",
+  "en": "Act as a service account"
+ },
+ {
+  "fr": "Lister les clés d'un compte de service",
+  "en": "List signing keys"
+ },
+ {
+  "fr": "Créer une clé de compte de service",
+  "en": "Create a signing key"
+ },
+ {
+  "fr": "Supprimer une clé de compte de service",
+  "en": "Disable a signing key"
+ },
+ {
+  "fr": "Lister les clés API",
+  "en": "List API keys"
+ },
+ {
+  "fr": "Créer une clé API",
+  "en": "Create an API key"
+ },
+ {
+  "fr": "Révoquer une clé API",
+  "en": "Revoke an API key"
+ },
+ {
+  "fr": "Lister les rôles",
+  "en": "List roles"
+ },
+ {
+  "fr": "Créer un rôle personnalisé",
+  "en": "Create a custom role"
+ },
+ {
+  "fr": "Modifier un rôle personnalisé",
+  "en": "Update a custom role"
+ },
+ {
+  "fr": "Supprimer un rôle personnalisé",
+  "en": "Delete a custom role"
+ },
+ {
+  "fr": "Lister les groupes",
+  "en": "List groups"
+ },
+ {
+  "fr": "Voir un groupe et ses membres",
+  "en": "View a group and its members"
+ },
+ {
+  "fr": "Créer un groupe",
+  "en": "Create a group"
+ },
+ {
+  "fr": "Modifier un groupe et ses membres",
+  "en": "Update a group and its members"
+ },
+ {
+  "fr": "Supprimer un groupe",
+  "en": "Delete a group"
+ },
+ {
+  "fr": "Voir la facturation",
+  "en": "View billing"
+ },
+ {
+  "fr": "Modifier la facturation",
+  "en": "Update billing"
+ },
+ {
+  "fr": "Effectuer un paiement",
+  "en": "Make a payment"
+ },
+ {
+  "fr": "Lire le journal d'audit",
+  "en": "Read the audit log"
+ },
+ {
+  "fr": "Lister les builds",
+  "en": "List builds"
+ },
+ {
+  "fr": "Voir un build et son journal",
+  "en": "View a build and its log"
+ },
+ {
+  "fr": "Construire une image",
+  "en": "Build an image"
+ },
+ {
+  "fr": "Gérer la connexion GitHub et les dépôts liés aux conteneurs",
+  "en": "Manage the GitHub connection and the repositories linked to containers"
+ },
+ {
+  "fr": "Annuler un build",
+  "en": "Cancel a build"
+ },
+ {
+  "fr": "Voir les variables d'un conteneur (jamais la valeur des secrets)",
+  "en": "View a container's variables (never secret values)"
+ },
+ {
+  "fr": "Modifier les variables et les secrets d'un conteneur",
+  "en": "Change a container's variables and secrets"
+ },
+ {
+  "fr": "Voir les domaines d'un conteneur",
+  "en": "View a container's domains"
+ },
+ {
+  "fr": "Modifier les domaines d'un conteneur",
+  "en": "Change a container's domains"
+ }
+]
