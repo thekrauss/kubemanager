@@ -259,6 +259,49 @@ peuvent être refusés par manque de quota. Si cela arrive, c'est sur les domain
 personnalisés qu'il faut s'appuyer.
 
 
+7 BIS. WATCHER DU CLUSTER
+-------------------------
+
+Agent du serveur 2 (dépôt watcher) : il remonte les événements des pods à l'API et
+publie les clés des jetons Kubernetes. Sans lui, CLUSTER_ID reste vide et l'identité
+des workloads est désactivée. JAMAIS TESTÉ entre deux serveurs : seul le rendu du
+chart a été vérifié (helm template, le 2026-11-02).
+
+Image : aucune CI ne la publie. Depuis le dépôt watcher, sur une autre machine :
+
+    docker build -t thekrauss/watcher:<sha> .
+    docker push thekrauss/watcher:<sha>
+
+Clé : dans la console, Clés de cluster, créer une clé de type « fichier de clé » pour
+un identifiant de cluster stable, par exemple preprod. Le fichier n'est affiché
+qu'une fois. Le copier sur le serveur 2, puis, l'API devant être joignable :
+
+    sudo kubectl create namespace betorun-system
+    sudo kubectl -n betorun-system create secret generic watcher-key-file \
+      --from-file=key.json=<fichier>
+    rm <fichier>
+
+Installation, depuis le dépôt watcher sur le serveur 2 (Helm 3 à installer) :
+
+    sudo env KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm upgrade --install watcher ./chart \
+      -n betorun-system \
+      --set cluster.id=preprod \
+      --set kubemanager.url=https://api.<domaine>/kmanager/v1/clusters \
+      --set kubemanager.keyFileExistingSecret=watcher-key-file \
+      --set image.repository=thekrauss/watcher --set image.tag=<sha> \
+      --set replicaCount=1
+
+    sudo kubectl -n betorun-system get pods -l app.kubernetes.io/instance=watcher
+    sudo kubectl -n betorun-system logs -l app.kubernetes.io/instance=watcher
+
+Puis, sur le serveur 1 : CLUSTER_ID=preprod dans .env.prod, et
+
+    deploy/compose.sh up -d --no-deps api worker
+
+Le watcher ne joint le serveur 1 que par https://api.<domaine> (443) : aucun port de
+plus à ouvrir.
+
+
 8. ADRESSE DES CLIENTS ET RATE LIMIT
 ------------------------------------
 
@@ -362,5 +405,5 @@ demande pg_dump et restauration.
   (docker/caddy/Caddyfile.prod.example).
 - Le code retombe sur nginx si KUBEMANAGER_KUBERNETES_INGRESS_CLASS manque
   (activities/constants.go) ; le compose de production et la validation l'imposent.
-- Le watcher du cluster (dépôt watcher) ne fait pas partie de ce guide. CLUSTER_ID reste
-  vide tant qu'il n'est pas enrôlé : l'identité des workloads est alors désactivée.
+- CLUSTER_ID reste vide tant que le watcher n'est pas enrôlé (section 7 bis) : l'identité
+  des workloads est alors désactivée.
