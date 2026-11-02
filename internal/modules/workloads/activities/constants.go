@@ -29,6 +29,10 @@ const (
 // errTypeWorkloadDeleting : type d'erreur Temporal d'une transition refusée.
 const errTypeWorkloadDeleting = "WORKLOAD_DELETING"
 
+// errTypeWorkloadNotReady : type d'erreur Temporal d'une application qui n'a pas
+// démarré dans le délai de Helm.
+const errTypeWorkloadNotReady = "WORKLOAD_NOT_READY"
+
 // Ressources par défaut d'un conteneur (si non précisées au déploiement).
 const (
 	defaultCPURequest    = "100m"

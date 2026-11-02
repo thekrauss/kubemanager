@@ -2,12 +2,14 @@ package activities
 
 import (
 	"context"
+	"errors"
 	"io"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/sdk/temporal"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chartutil"
 	kubefake "helm.sh/helm/v3/pkg/kube/fake"
@@ -86,6 +88,64 @@ func TestUpgradeOrInstall_CancelInterruptsWait(t *testing.T) {
 		slow(cfg)
 		run(t, cfg)
 	})
+}
+
+// Délai d'attente de Helm : reconnu après une installation comme après une mise à
+// jour, à travers les erreurs enveloppées par le SDK de Helm.
+func TestUpgradeOrInstall_WaitTimeoutIsRecognized(t *testing.T) {
+	ch, err := charts.StandardApp()
+	require.NoError(t, err)
+	vals := buildHelmValues(InstallWorkloadInput{ReleaseName: "web", ImageRepo: "nginx", ImageTag: "1", TargetPort: 8080, Replicas: 1})
+	timeout := func(cfg *action.Configuration) {
+		cfg.KubeClient = &kubefake.FailingKubeClient{PrintingKubeClient: kubefake.PrintingKubeClient{Out: io.Discard}, WaitError: context.DeadlineExceeded}
+	}
+
+	t.Run("installation", func(t *testing.T) {
+		cfg := fakeHelm()
+		timeout(cfg)
+		err := upgradeOrInstall(context.Background(), cfg, "km-test", "web", ch, vals, false)
+		assertNotRetried(t, classifyInstallError(context.Background(), err, HelmInstallTimeout))
+	})
+	t.Run("mise à jour", func(t *testing.T) {
+		cfg := fakeHelm()
+		require.NoError(t, upgradeOrInstall(context.Background(), cfg, "km-test", "web", ch, vals, false))
+		timeout(cfg)
+		err := upgradeOrInstall(context.Background(), cfg, "km-test", "web", ch, vals, false)
+		assertNotRetried(t, classifyInstallError(context.Background(), err, HelmInstallTimeout))
+	})
+}
+
+func assertNotRetried(t *testing.T, err error) {
+	t.Helper()
+	var appErr *temporal.ApplicationError
+	require.ErrorAs(t, err, &appErr)
+	assert.True(t, appErr.NonRetryable())
+	assert.Equal(t, errTypeWorkloadNotReady, appErr.Type())
+}
+
+// Seule une attente complète, sur une activité encore vivante, arrête les
+// tentatives : le reste peut venir de l'infrastructure.
+func TestClassifyInstallError_KeepsRetries(t *testing.T) {
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	short := HelmInstallTimeout - time.Second
+	cases := []struct {
+		name    string
+		ctx     context.Context
+		err     error
+		elapsed time.Duration
+	}{
+		{"cluster injoignable", context.Background(), errors.New("connection refused"), HelmInstallTimeout},
+		{"appel à l'API trop lent", context.Background(), context.DeadlineExceeded, short},
+		{"activité annulée", canceled, context.DeadlineExceeded, HelmInstallTimeout},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := classifyInstallError(c.ctx, c.err, c.elapsed)
+			assert.Equal(t, c.err, got, "erreur transmise telle quelle : Temporal la relance")
+		})
+	}
+	assert.NoError(t, classifyInstallError(context.Background(), nil, HelmInstallTimeout))
 }
 
 // Release restée pending-* : débloquée à la nouvelle tentative ou une fois trop

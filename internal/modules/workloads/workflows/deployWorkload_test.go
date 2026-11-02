@@ -122,6 +122,20 @@ func TestDeploy_FailureIsRecorded(t *testing.T) {
 	}
 }
 
+// Erreur d'infrastructure : nouvelles tentatives. Application qui ne démarre pas
+// (erreur définitive de l'activité) : une seule attente.
+func TestDeploy_InstallAttempts(t *testing.T) {
+	run, err := runDeploy(t, deployMocks{installErr: errors.New("cluster injoignable")}, deployInput())
+	require.Error(t, err)
+	assert.Equal(t, activityRetryMaximumAttempts, run.install)
+	assert.Equal(t, [2]string{utils.WorkloadFailed, utils.PhaseHelmError}, run.last())
+
+	run, err = runDeploy(t, deployMocks{installErr: nonRetryable("ne démarre pas")}, deployInput())
+	require.Error(t, err)
+	assert.Equal(t, 1, run.install)
+	assert.Equal(t, [2]string{utils.WorkloadFailed, utils.PhaseHelmError}, run.last())
+}
+
 // Image illisible : refus avant toute écriture dans le cluster, phase dédiée.
 func TestDeploy_InvalidImage(t *testing.T) {
 	in := deployInput()

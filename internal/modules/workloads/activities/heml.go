@@ -119,6 +119,7 @@ func helmLog(format string, v ...interface{}) {
 }
 
 func (a *WorkloadActivities) InstallChart(ctx context.Context, input InstallWorkloadInput) error {
+	start := time.Now()
 	_, _, err := idempotency.ExecuteActivity(ctx, a.Idempotency, input,
 		idempotency.ActivityOptions{ProcessingTTL: InstallChartProcessingTTL, RetakeOnRetry: true},
 		func() (struct{}, error) {
@@ -145,7 +146,19 @@ func (a *WorkloadActivities) InstallChart(ctx context.Context, input InstallWork
 			return struct{}{}, nil
 		},
 	)
-	return err
+	return classifyInstallError(ctx, err, time.Since(start))
+}
+
+// classifyInstallError : application qui ne démarre pas dans le délai de Helm :
+// une nouvelle attente n'y changerait rien (avant : environ 15 min en STARTING).
+// Toute autre erreur reste relancée par Temporal : infrastructure, ou délai plus
+// court qu'une attente complète (appel à l'API du cluster). L'erreur reste la plus
+// externe : Temporal ne lit que le type de celle-ci.
+func classifyInstallError(ctx context.Context, err error, elapsed time.Duration) error {
+	if err == nil || ctx.Err() != nil || elapsed < HelmInstallTimeout || !errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return temporal.NewNonRetryableApplicationError(err.Error(), errTypeWorkloadNotReady, err)
 }
 
 // upgradeOrInstall : équivalent de `helm upgrade --install`. Dans le SDK,
