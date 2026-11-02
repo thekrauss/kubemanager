@@ -33,7 +33,7 @@ func newWorkloads() *cobra.Command {
 			"betorun workloads logs web --follow"}
 	c.AddCommand(newWorkloadsList(), newWorkloadsDeploy(), newWorkloadsUpdate(), newWorkloadsLogs(), newWorkloadsStatus(),
 		newWorkloadAction("restart"), newWorkloadAction("stop"), newWorkloadAction("start"), newWorkloadsDelete(),
-		newWorkloadsEnv(), newWorkloadsSecrets(), newWorkloadsDomains())
+		newWorkloadsEnv(), newWorkloadsSecrets(), newWorkloadsDomains(), newWorkloadsGit())
 	return c
 }
 

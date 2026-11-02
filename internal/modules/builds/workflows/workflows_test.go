@@ -50,3 +50,68 @@ func TestBuildWorkflow_Failures(t *testing.T) {
 	}
 	runWorkflow(t, temporal.NewNonRetryableApplicationError("boom", "OTHER", nil), domain.StatusFailed, domain.FailureInternal, "")
 }
+
+type deployRun struct {
+	deployed, notDeployed int
+	recorded              string
+}
+
+func runDeployWorkflow(t *testing.T, runErr, deployErr error) deployRun {
+	t.Helper()
+	var s testsuite.WorkflowTestSuite
+	env := s.NewTestWorkflowEnvironment()
+	var acts *activities.Activities
+	var out deployRun
+	env.RegisterActivity(acts)
+	env.OnActivity(acts.MarkBuilding, mock.Anything, mock.Anything).Return(nil)
+	if runErr != nil {
+		env.OnActivity(acts.RunBuild, mock.Anything, mock.Anything).Return(nil, runErr)
+	} else {
+		env.OnActivity(acts.RunBuild, mock.Anything, mock.Anything).Return(&activities.BuildResult{}, nil)
+	}
+	env.OnActivity(acts.Finish, mock.Anything, mock.Anything).Return(nil)
+	env.OnActivity(acts.DeployBuilt, mock.Anything, mock.Anything).Return(func(context.Context, activities.BuildRef) error {
+		out.deployed++
+		return deployErr
+	}).Maybe()
+	env.OnActivity(acts.BuildNotDeployed, mock.Anything, mock.Anything).Return(func(context.Context, activities.NotDeployedInput) error {
+		out.notDeployed++
+		return nil
+	}).Maybe()
+	env.OnActivity(acts.RecordDeployFailure, mock.Anything, mock.Anything).Return(func(_ context.Context, in activities.DeployFailedInput) error {
+		out.recorded = in.State
+		return nil
+	}).Maybe()
+	env.ExecuteWorkflow(BuildImageWorkflow, BuildInput{BuildRef: activities.BuildRef{BuildID: "b", ProjectID: "p"}, Deadline: time.Minute, Deploy: true})
+	require.True(t, env.IsWorkflowCompleted())
+	return out
+}
+
+// Build réussi : le serveur déploie, sans passer par le navigateur.
+func TestBuildWorkflow_DeploysOnSuccess(t *testing.T) {
+	got := runDeployWorkflow(t, nil, nil)
+	assert.Equal(t, 1, got.deployed)
+	assert.Zero(t, got.notDeployed)
+	assert.Empty(t, got.recorded)
+}
+
+// Build en échec : rien n'est déployé, l'actuel reste en service.
+func TestBuildWorkflow_NoDeployOnFailure(t *testing.T) {
+	got := runDeployWorkflow(t, temporal.NewNonRetryableApplicationError("failed", domain.FailureBuild, nil), nil)
+	assert.Zero(t, got.deployed)
+	assert.Equal(t, 1, got.notDeployed)
+}
+
+// Conteneur occupé : réessais bornés, puis état clair.
+func TestBuildWorkflow_BusyIsRetriedThenRecorded(t *testing.T) {
+	got := runDeployWorkflow(t, nil, temporal.NewApplicationError("busy", domain.DeployBusy))
+	assert.Equal(t, deployMaxAttempts, got.deployed)
+	assert.Equal(t, domain.DeployBusy, got.recorded)
+}
+
+// Refus définitif (quota, image) : pas de réessai.
+func TestBuildWorkflow_RefusalNotRetried(t *testing.T) {
+	got := runDeployWorkflow(t, nil, temporal.NewNonRetryableApplicationError("refused", domain.DeployFailed, nil))
+	assert.Equal(t, 1, got.deployed)
+	assert.Equal(t, domain.DeployFailed, got.recorded)
+}

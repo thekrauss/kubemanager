@@ -168,6 +168,10 @@ func buildFailure(b *api.Build) string {
 		return i18n.T("builds.failed.disk", id)
 	case b.Failure == buildsdomain.FailureNoPlan:
 		return i18n.T("builds.failed.no_plan")
+	case b.Failure == buildsdomain.FailureGitAccess:
+		return i18n.T("builds.failed.git_access")
+	case b.Failure == buildsdomain.FailureTooMany:
+		return i18n.T("builds.failed.too_many")
 	}
 	return i18n.T("builds.failed.internal", id)
 }

@@ -78,3 +78,48 @@ func TestWorkloadDomains(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, removed)
 }
+
+func TestWorkloadGit(t *testing.T) {
+	wid, bid := uuid.New(), uuid.New()
+	sha := "0123456789abcdef0123456789abcdef01234567"
+	link := map[string]any{"repo_full_name": "awa/shop", "branch": "main", "auto_deploy": true, "disabled_reason": ""}
+	deployed := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /workloads", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode([]map[string]any{{"ID": wid, "Name": "web"}})
+	})
+	mux.HandleFunc("GET /workloads/{id}/github", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"enabled": true, "linked": true, "link": link, "deployed_commit": sha})
+	})
+	mux.HandleFunc("POST /workloads/{id}/github/deploy", func(w http.ResponseWriter, _ *http.Request) {
+		deployed = true
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": bid, "status": "QUEUED", "git_commit": sha})
+	})
+	mux.HandleFunc("GET /projects/{p}/builds/{b}", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": bid, "status": "SUCCEEDED", "git_commit": sha})
+	})
+	mux.HandleFunc("GET /projects/{p}/builds/{b}/logs", func(w http.ResponseWriter, _ *http.Request) {})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	t.Setenv("BETORUN_CONFIG_DIR", t.TempDir())
+	t.Setenv("BETORUN_LANG", "fr")
+	t.Setenv("BETORUN_TOKEN", "ci-token")
+	t.Setenv("BETORUN_API_URL", srv.URL)
+	t.Setenv("BETORUN_PROJECT", projectID)
+
+	out, err := run(t, "workloads", "git", "status", "web")
+	require.NoError(t, err)
+	assert.Contains(t, out, "awa/shop")
+	assert.Contains(t, out, "0123456")
+
+	out, err = run(t, "workloads", "git", "deploy", "web")
+	require.NoError(t, err)
+	assert.True(t, deployed)
+	assert.Contains(t, out, "0123456")
+
+	link["disabled_reason"] = "INSTALLATION_DELETED"
+	out, err = run(t, "workloads", "git", "status", "web")
+	require.NoError(t, err)
+	assert.Contains(t, out, "désinstallée")
+}

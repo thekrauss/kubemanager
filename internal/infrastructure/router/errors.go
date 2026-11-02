@@ -92,6 +92,7 @@ var sentinelErrors = []sentinelMapping{
 	{githubDomain.ErrStateInvalid, http.StatusBadRequest, "GITHUB_STATE_INVALID", false},
 	{githubDomain.ErrCodeRequired, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
 	{githubDomain.ErrInstallationDenied, http.StatusForbidden, "GITHUB_INSTALLATION_DENIED", false},
+	{githubDomain.ErrInstallationPartial, http.StatusForbidden, "GITHUB_INSTALLATION_PARTIAL", false},
 	{githubDomain.ErrInstallationNotLinked, http.StatusNotFound, "GITHUB_INSTALLATION_NOT_LINKED", false},
 	{githubDomain.ErrRepositoryInaccessible, http.StatusNotFound, "GITHUB_REPOSITORY_INACCESSIBLE", false},
 	{githubDomain.ErrBranchNotFound, http.StatusBadRequest, "GITHUB_BRANCH_NOT_FOUND", false},

@@ -44,7 +44,7 @@ type GlobalConfig struct {
 	GitHubApp GitHubAppConfig `mapstructure:"github_app"`
 }
 
-// GitHubAppConfig : application GitHub de betorun (voir docs/github-app.md).
+// GitHubAppConfig : application GitHub de betorun.
 // Les secrets viennent de l'environnement ; la clé privée d'un fichier, hors
 // du code et de la base.
 type GitHubAppConfig struct {

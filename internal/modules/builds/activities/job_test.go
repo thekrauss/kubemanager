@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 )
 
 func testConfig() JobConfig {
@@ -48,4 +49,39 @@ func TestNewNetworkPolicy_BlocksInternal(t *testing.T) {
 		assert.Contains(t, internet.Except, cidr)
 	}
 	assert.Equal(t, "172.21.0.1/32", np.Spec.Egress[2].To[0].IPBlock.CIDR, "exception explicite")
+}
+
+// Le jeton de clonage n'arrive que par référence au Secret : jamais de valeur
+// dans la spec du Job.
+func TestNewJob_GitTokenBySecretRef(t *testing.T) {
+	cfg := JobConfig{Namespace: "b", Image: "i", CPURequest: "1", CPULimit: "1", MemoryRequest: "1Mi", MemoryLimit: "1Mi", DiskLimit: "1Mi", DeadlineSecond: 60}
+	job := newJob(cfg, JobSpec{BuildID: "x", AuthSecret: "auth", GitURL: "https://github.com/a/b.git", GitCommit: "abc", GitTokenSecret: "build-git-x"})
+	var ref *corev1.SecretKeySelector
+	for _, e := range job.Spec.Template.Spec.Containers[0].Env {
+		if e.Name == "BUILD_GIT_TOKEN" {
+			assert.Empty(t, e.Value)
+			require.NotNil(t, e.ValueFrom)
+			ref = e.ValueFrom.SecretKeyRef
+		}
+	}
+	require.NotNil(t, ref)
+	assert.Equal(t, "build-git-x", ref.Name)
+
+	job = newJob(cfg, JobSpec{BuildID: "x", AuthSecret: "auth", GitURL: "https://github.com/a/b.git"})
+	for _, e := range job.Spec.Template.Spec.Containers[0].Env {
+		assert.NotEqual(t, "BUILD_GIT_TOKEN", e.Name, "dépôt public : pas de jeton")
+	}
+}
+
+// Le script n'écrit le jeton nulle part : ni URL, ni trace d'exécution.
+func TestBuildScript_TokenOnlyInHeader(t *testing.T) {
+	assert.Contains(t, mainScript, "http.extraHeader")
+	assert.NotContains(t, mainScript, "set -x")
+	assert.NotContains(t, mainScript, "@github")
+	for _, line := range strings.Split(mainScript, "\n") {
+		if strings.Contains(line, "echo") {
+			assert.NotContains(t, line, "BUILD_GIT_TOKEN")
+			assert.NotContains(t, line, "GIT_CONFIG_VALUE")
+		}
+	}
 }

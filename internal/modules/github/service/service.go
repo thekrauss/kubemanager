@@ -205,6 +205,9 @@ func (s *Service) Callback(ctx context.Context, user uuid.UUID, caller iam.Princ
 		s.Logger.Warnw("github installation refused: not accessible to this account", "installation", in.InstallationID, "user", user)
 		return nil, domain.ErrInstallationDenied
 	}
+	if err := s.ensureFullAccess(ctx, userToken, found.ID); err != nil {
+		return nil, err
+	}
 	installation := &domain.Installation{ProjectID: st.Project, InstallationID: found.ID, AccountLogin: found.Account.Login,
 		AccountType: found.Account.Type, CreatedBy: &user}
 	if err := s.Repo.UpsertInstallation(ctx, installation); err != nil {
@@ -212,6 +215,29 @@ func (s *Service) Callback(ctx context.Context, user uuid.UUID, caller iam.Princ
 	}
 	res.Status, res.Installation = domain.CallbackLinked, installation
 	return res, nil
+}
+
+// ensureFullAccess : GET /user/installations liste aussi une installation dont
+// la personne ne voit qu'un dépôt (simple collaborateur). La lier ouvrirait à son
+// projet tous les dépôts de l'installation : elle doit tous les voir elle-même.
+func (s *Service) ensureFullAccess(ctx context.Context, userToken string, installationID int64) error {
+	token, err := s.Client.InstallationToken(ctx, installationID, client.ListScope())
+	if err != nil {
+		return apiError(err, domain.ErrInstallationDenied)
+	}
+	_, total, err := s.Client.Repositories(ctx, token, 1, 1)
+	if err != nil {
+		return apiError(err, domain.ErrInstallationDenied)
+	}
+	visible, err := s.Client.UserInstallationRepoCount(ctx, userToken, installationID)
+	if err != nil {
+		return apiError(err, domain.ErrInstallationDenied)
+	}
+	if visible < total {
+		s.Logger.Warnw("github installation refused: partial access", "installation", installationID, "visible", visible, "total", total)
+		return domain.ErrInstallationPartial
+	}
+	return nil
 }
 
 // ListInstallations : installations liées au projet.

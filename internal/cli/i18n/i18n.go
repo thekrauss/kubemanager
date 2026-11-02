@@ -504,6 +504,30 @@ var messages = map[string][2]string{
 	"ex.secrets.env":           {"en CI", "in CI"},
 	"ex.secrets.file":          {"depuis un fichier", "from a file"},
 
+	"builds.failed.git_access": {"betorun n'a plus accès à ce dépôt : reconnectez-le depuis la console.", "betorun no longer has access to this repository: reconnect it from the console."},
+	"builds.failed.too_many":   {"trop de builds en cours dans ce projet quand ce commit est arrivé : relancez avec betorun workloads git deploy.", "too many builds in progress in this project when this commit arrived: run betorun workloads git deploy again."},
+
+	// Dépôt GitHub d'un conteneur (la connexion se fait dans la console).
+	"wl.git.short":            {"Dépôt GitHub lié à un conteneur", "GitHub repository linked to a container"},
+	"wl.git.status.short":     {"Dépôt suivi, dernier commit déployé, dernier build", "Followed repository, last deployed commit, last build"},
+	"wl.git.deploy.short":     {"Construire et déployer maintenant le dernier commit de la branche", "Build and deploy the latest commit of the branch now"},
+	"wl.git.deploy.ok":        {"Construction de %s lancée (commit %s).", "Build of %s started (commit %s)."},
+	"wl.git.deploy.next":      {"Déploiement en cours : betorun workloads status %s", "Deployment in progress: betorun workloads status %s"},
+	"wl.git.disabled":         {"La connexion GitHub n'est pas disponible sur cette plateforme.", "The GitHub connection is not available on this platform."},
+	"wl.git.none":             {"%s n'est lié à aucun dépôt : reliez-le depuis la console.", "%s is not linked to a repository: link it from the console."},
+	"wl.git.col.repo":         {"Dépôt", "Repository"},
+	"wl.git.col.branch":       {"Branche", "Branch"},
+	"wl.git.col.auto":         {"Déployer à chaque push", "Deploy on every push"},
+	"wl.git.col.access":       {"Accès", "Access"},
+	"wl.git.col.deployed":     {"Commit déployé", "Deployed commit"},
+	"wl.git.col.last":         {"Dernier build", "Last build"},
+	"wl.git.on":               {"oui", "yes"},
+	"wl.git.off":              {"non", "no"},
+	"wl.git.access.ok":        {"valide", "valid"},
+	"wl.git.access.deleted":   {"retiré : l'application GitHub a été désinstallée", "removed: the GitHub application was uninstalled"},
+	"wl.git.access.suspended": {"suspendu sur GitHub", "suspended on GitHub"},
+	"wl.git.access.removed":   {"retiré : le dépôt n'est plus partagé avec betorun", "removed: the repository is no longer shared with betorun"},
+
 	// Domaines des conteneurs.
 	"wl.dom.short":        {"Domaines personnalisés d'un conteneur", "A container's custom domains"},
 	"wl.dom.list.short":   {"Lister les domaines", "List domains"},

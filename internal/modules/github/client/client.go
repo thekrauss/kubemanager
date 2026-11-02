@@ -256,6 +256,19 @@ func (c *Client) UserInstallation(ctx context.Context, userToken string, install
 	return nil, nil
 }
 
+// UserInstallationRepoCount : dépôts de l'installation que cette personne peut
+// lire elle-même (GET /user/installations/{id}/repositories).
+func (c *Client) UserInstallationRepoCount(ctx context.Context, userToken string, installationID int64) (int, error) {
+	var out struct {
+		TotalCount int `json:"total_count"`
+	}
+	target := fmt.Sprintf("%s/user/installations/%d/repositories?per_page=1", c.cfg.APIURL, installationID)
+	if err := c.do(ctx, http.MethodGet, target, userToken, nil, &out); err != nil {
+		return 0, err
+	}
+	return out.TotalCount, nil
+}
+
 // Repository : dépôt vu par une installation.
 type Repository struct {
 	ID            int64  `json:"id"`

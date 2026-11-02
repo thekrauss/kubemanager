@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 
+	githubdomain "github.com/thekrauss/kubemanager/internal/modules/github/domain"
 	workloadsdomain "github.com/thekrauss/kubemanager/internal/modules/workloads/domain"
 )
 
@@ -121,4 +122,21 @@ func (c *Client) VerifyWorkloadDomain(ctx context.Context, id, domainID string) 
 // RemoveWorkloadDomain : retire le domaine et sa route.
 func (c *Client) RemoveWorkloadDomain(ctx context.Context, id, domainID string) error {
 	return c.Do(ctx, http.MethodDelete, workloadDomainsPath(id)+"/"+url.PathEscape(domainID), nil, nil)
+}
+
+// GitLinkView : dépôt GitHub lié à un conteneur.
+type GitLinkView = githubdomain.LinkView
+
+func gitLinkPath(id string) string { return pathWorkloads + "/" + url.PathEscape(id) + "/github" }
+
+// GetGitLink : dépôt lié, dernier commit déployé, dernier build.
+func (c *Client) GetGitLink(ctx context.Context, id string) (*GitLinkView, error) {
+	var out GitLinkView
+	return &out, c.Do(ctx, http.MethodGet, gitLinkPath(id), nil, &out)
+}
+
+// DeployGitLink : construit et déploie le dernier commit de la branche suivie.
+func (c *Client) DeployGitLink(ctx context.Context, id string) (*Build, error) {
+	var out Build
+	return &out, c.Do(ctx, http.MethodPost, gitLinkPath(id)+"/deploy", struct{}{}, &out)
 }

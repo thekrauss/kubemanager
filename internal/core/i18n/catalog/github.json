@@ -1,5 +1,9 @@
 [
  {
+  "fr": "Vous n'avez pas accès à tous les dépôts de cette installation GitHub : demandez à un propriétaire du compte de connecter betorun",
+  "en": "you do not have access to every repository of this GitHub installation: ask an owner of the account to connect betorun"
+ },
+ {
   "fr": "GitHub n'a pas confirmé votre identité : recommencez et acceptez l'autorisation",
   "en": "GitHub did not confirm your identity: start again and accept the authorization"
  },

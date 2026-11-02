@@ -16,11 +16,11 @@ import (
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"gorm.io/gorm"
 	"k8s.io/client-go/rest"
 
 	"github.com/thekrauss/kubemanager/internal/core/configs"

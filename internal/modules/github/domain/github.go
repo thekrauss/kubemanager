@@ -25,10 +25,12 @@ const (
 )
 
 var (
-	ErrDisabled               = errors.New("the GitHub connection is not enabled on this platform")
-	ErrStateInvalid           = errors.New("this GitHub connection link is invalid or has expired: start again from the console")
-	ErrCodeRequired           = errors.New("GitHub did not confirm your identity: start again and accept the authorization")
-	ErrInstallationDenied     = errors.New("your GitHub account does not have access to this installation")
+	ErrDisabled           = errors.New("the GitHub connection is not enabled on this platform")
+	ErrStateInvalid       = errors.New("this GitHub connection link is invalid or has expired: start again from the console")
+	ErrCodeRequired       = errors.New("GitHub did not confirm your identity: start again and accept the authorization")
+	ErrInstallationDenied = errors.New("your GitHub account does not have access to this installation")
+	// ErrInstallationPartial : membre qui ne voit qu'une partie des dépôts.
+	ErrInstallationPartial    = errors.New("you do not have access to every repository of this GitHub installation: ask an owner of the account to connect betorun")
 	ErrInstallationNotLinked  = errors.New("this GitHub account is not connected to this project")
 	ErrRepositoryInaccessible = errors.New("this repository is not accessible to the GitHub installation")
 	ErrBranchNotFound         = errors.New("this branch does not exist in the repository")
