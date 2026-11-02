@@ -106,5 +106,13 @@
  {
   "fr": "ce domaine est déjà rattaché à ce site",
   "en": "this domain is already attached to this site"
+ },
+ {
+  "fr": "l'archive n'est pas un fichier .zip valide",
+  "en": "the archive is not a valid .zip file"
+ },
+ {
+  "fr": "archive introuvable",
+  "en": "archive not found"
  }
 ]
