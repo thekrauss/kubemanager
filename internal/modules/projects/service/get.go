@@ -97,7 +97,7 @@ func (s *ProjectService) GetMetrics(ctx context.Context, projectID string) (*dom
 		ReservedUsage: domain.UsageDTO{
 			CPU:     fmt.Sprintf("%dm", resCPU),
 			Memory:  fmt.Sprintf("%dMi", resMem),
-			Storage: fmt.Sprintf("%dGi", resStorage),
+			Storage: fmt.Sprintf("%dGi", resStorage*utils.BytesPerMi/utils.BytesPerGi),
 		},
 	}, nil
 }

@@ -147,9 +147,9 @@ type CustomRoleService struct {
 
 // CustomRoleInput : création ou mise à jour.
 type CustomRoleInput struct {
-	Title       string   `json:"title" desc:"Nom affiché (100 caractères max)"`
+	Title       string   `json:"title" description:"Nom affiché (100 caractères max)"`
 	Description string   `json:"description"`
-	Permissions []string `json:"permissions" desc:"Permissions incluses (utilisables en rôle personnalisé, voir GET /iam/permissions)"`
+	Permissions []string `json:"permissions" description:"Permissions incluses (utilisables en rôle personnalisé, voir GET /iam/permissions)"`
 }
 
 func validatePermissions(raw []string) ([]string, error) {

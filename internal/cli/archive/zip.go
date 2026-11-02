@@ -37,7 +37,7 @@ func Zip(dir string) (*Result, error) {
 		return nil, err
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("%s is not a folder", dir)
+		return nil, errors.New(i18n.T("archive.not_folder", dir))
 	}
 	var files []string
 	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {

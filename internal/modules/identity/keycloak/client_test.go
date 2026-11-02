@@ -27,29 +27,11 @@ func fakeJWT(payload string) string {
 	return enc([]byte(`{"alg":"none"}`)) + "." + enc([]byte(payload)) + ".sig"
 }
 
-func TestGetAuthorizationURL_PKCEWithWebClient(t *testing.T) {
-	c := newTestClient(t, "kubemanager-web")
-
-	raw := c.GetAuthorizationURL("", "http://app/auth/callback", "st", "chal")
-	u, err := url.Parse(raw)
-	require.NoError(t, err)
-	q := u.Query()
-
-	assert.Equal(t, "/realms/kubemanager/protocol/openid-connect/auth", u.Path)
-	assert.Equal(t, "kubemanager-web", q.Get("client_id"))
-	assert.Equal(t, "chal", q.Get("code_challenge"))
-	assert.Equal(t, "S256", q.Get("code_challenge_method"))
-	assert.Empty(t, q.Get("kc_idp_hint"), "login hébergé : pas d'IdP imposé")
-
-	social, _ := url.Parse(c.GetAuthorizationURL("google", "http://app/auth/callback", "st", "chal"))
-	assert.Equal(t, "google", social.Query().Get("kc_idp_hint"))
-}
-
 func TestSetClientCredentials_SecretOnlyForConfidentialClient(t *testing.T) {
 	c := newTestClient(t, "kubemanager-web")
 
 	pub := url.Values{}
-	c.setClientCredentials(pub, c.authClientID())
+	c.setClientCredentials(pub, "kubemanager-web")
 	assert.Equal(t, "kubemanager-web", pub.Get("client_id"))
 	assert.Empty(t, pub.Get("client_secret"))
 
@@ -64,9 +46,4 @@ func TestClientForRefreshToken_FollowsAZP(t *testing.T) {
 	assert.Equal(t, "kubemanager-web", c.clientForRefreshToken(fakeJWT(`{"azp":"kubemanager-web"}`)))
 	assert.Equal(t, "kubemanager-admin", c.clientForRefreshToken(fakeJWT(`{"azp":"kubemanager-admin"}`)))
 	assert.Equal(t, "kubemanager-admin", c.clientForRefreshToken("not-a-jwt"))
-}
-
-func TestAuthClientID_FallsBackToConfidentialClient(t *testing.T) {
-	c := newTestClient(t, "")
-	assert.Equal(t, "kubemanager-admin", c.authClientID())
 }

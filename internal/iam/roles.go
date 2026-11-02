@@ -29,7 +29,7 @@ var (
 	viewerPerms = []Permission{
 		OrganizationsGet, OrganizationsGetIamPolicy,
 		ProjectsGet, ProjectsList, ProjectsGetIamPolicy,
-		WorkloadsList, WorkloadsGet, WorkloadLogsRead, WorkloadMetrics,
+		WorkloadsList, WorkloadsGet, WorkloadLogsRead, WorkloadMetrics, WorkloadVariablesList, WorkloadDomainsList, BuildsList, BuildsGet,
 		SitesList, SitesGet, SiteDeploymentsList, SiteDomainsList,
 		ServiceAccountsList, ServiceAccountsGet, ServiceAccountKeysList, APIKeysList,
 		RolesList, GroupsList, GroupsGet,
@@ -39,7 +39,7 @@ var (
 	// cycle de vie, sans suppression) pour qu'aucune migration n'élargisse un droit.
 	developerPerms = concat(viewerPerms, []Permission{
 		WorkloadsCreate, WorkloadsUpdate, WorkloadsStart, WorkloadsStop,
-		WorkloadsRestart, WorkloadsRollback,
+		WorkloadsRestart, WorkloadsRollback, WorkloadVariablesUpdate, WorkloadDomainsUpdate, BuildsCreate, BuildsCancel,
 		SitesCreate, SitesUpdate, SiteDeploymentsCreate, SiteDeploymentsActive,
 		SiteDomainsCreate, SiteDomainsVerify,
 		ServiceAccountsActAs,
@@ -48,6 +48,8 @@ var (
 	editorPerms = concat(developerPerms, []Permission{
 		ProjectsUpdate,
 		WorkloadsDelete, SitesDelete, SiteDomainsDelete,
+		// Relier un compte GitHub ouvre au projet du code privé : pas un droit de développeur.
+		WorkloadsGitHubManage,
 		ServiceAccountsCreate, ServiceAccountsUpdate, ServiceAccountsDelete,
 		ServiceAccountKeysCreate, ServiceAccountKeysDelete,
 		APIKeysCreate, APIKeysDelete,
@@ -86,10 +88,10 @@ var predefinedRoles = []Role{
 		Description: "Déploie et opère les conteneurs du projet.",
 		Permissions: []Permission{ProjectsGet, WorkloadsList, WorkloadsGet, WorkloadsCreate, WorkloadsUpdate,
 			WorkloadsStart, WorkloadsStop, WorkloadsRestart, WorkloadsRollback, WorkloadLogsRead, WorkloadMetrics,
-			ServiceAccountsActAs}},
+			WorkloadVariablesList, WorkloadVariablesUpdate, WorkloadDomainsList, WorkloadDomainsUpdate, BuildsList, BuildsGet, BuildsCreate, BuildsCancel, ServiceAccountsActAs}},
 	{Name: "roles/workloads.viewer", Title: "Lecteur conteneurs",
 		Description: "Consulte les conteneurs, leurs logs et leurs métriques.",
-		Permissions: []Permission{ProjectsGet, WorkloadsList, WorkloadsGet, WorkloadLogsRead, WorkloadMetrics}},
+		Permissions: []Permission{ProjectsGet, WorkloadsList, WorkloadsGet, WorkloadLogsRead, WorkloadMetrics, WorkloadVariablesList, WorkloadDomainsList, BuildsList, BuildsGet}},
 	{Name: "roles/sites.admin", Title: "Administrateur sites",
 		Description: "Gère entièrement les sites statiques et leurs domaines.",
 		Permissions: []Permission{ProjectsGet, SitesList, SitesGet, SitesCreate, SitesUpdate, SitesDelete,

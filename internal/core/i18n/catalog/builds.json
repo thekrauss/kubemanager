@@ -1,0 +1,50 @@
+[
+ {
+  "fr": "Build introuvable",
+  "en": "build not found"
+ },
+ {
+  "fr": "Les builds ne sont pas activés sur cette plateforme",
+  "en": "builds are not enabled on this platform"
+ },
+ {
+  "fr": "URL Git invalide : utilisez un dépôt public en https, sans identifiants",
+  "en": "invalid Git URL: use a public https repository, without credentials"
+ },
+ {
+  "fr": "Branche ou tag Git invalide",
+  "en": "invalid Git branch or tag"
+ },
+ {
+  "fr": "Nom d'image invalide : 2 à 63 lettres minuscules, chiffres et tirets",
+  "en": "invalid image name: 2-63 lowercase letters, digits and hyphens"
+ },
+ {
+  "fr": "Chemin invalide : il doit rester dans le dossier source",
+  "en": "invalid path: it must stay inside the source"
+ },
+ {
+  "fr": "Identifiants du registre invalides",
+  "en": "invalid registry credentials"
+ },
+ {
+  "fr": "L'archive doit être un fichier .tar.gz",
+  "en": "the archive must be a .tar.gz file"
+ },
+ {
+  "fr": "Ce build est déjà terminé",
+  "en": "this build is already finished"
+ },
+ {
+  "fr": "Cette image appartient à un autre projet",
+  "en": "this image belongs to another project"
+ },
+ {
+  "fr": "Trop de builds en cours pour ce projet : attendez qu'un build se termine",
+  "en": "too many builds in progress for this project: wait for one to finish"
+ },
+ {
+  "fr": "Archive trop volumineuse (maximum %d Mo)",
+  "en": "archive too large (maximum %d MB)"
+ }
+]

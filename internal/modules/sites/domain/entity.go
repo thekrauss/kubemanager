@@ -47,9 +47,12 @@ type SiteDeployment struct {
 }
 
 type SiteDomain struct {
-	ID         uuid.UUID  `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
-	SiteID     uuid.UUID  `gorm:"type:uuid;not null" json:"site_id"`
-	Hostname   string     `gorm:"not null" json:"hostname"`
+	ID       uuid.UUID `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
+	SiteID   uuid.UUID `gorm:"type:uuid;not null" json:"site_id"`
+	Hostname string    `gorm:"not null" json:"hostname"`
+	// Token : preuve de propriété attendue dans le TXT (vide : domaine vérifié
+	// avant cette exigence).
+	Token      string     `gorm:"not null" json:"-"`
 	Verified   bool       `gorm:"not null;default:false" json:"verified"`
 	VerifiedAt *time.Time `json:"verified_at,omitempty"`
 	CheckedAt  *time.Time `json:"checked_at,omitempty"`

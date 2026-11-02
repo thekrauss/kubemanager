@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	"github.com/google/uuid"
 	"github.com/robertbakker/swaggerui"
 	"github.com/sirupsen/logrus"
 	"github.com/wI2L/fizz"
@@ -39,6 +40,9 @@ type RouteGroup struct {
 	Routes      []*Route
 	Groups      []*RouteGroup
 	Middlewares []gin.HandlerFunc
+
+	tag      docTag
+	internal bool
 }
 
 var (
@@ -80,78 +84,64 @@ func RegisterSchema(router *fizz.Fizz, title, desc string, l *logrus.Entry) erro
 	info := &openapi.Info{
 		Title:       title,
 		Description: desc,
-		Version:     "1.0.0",
+		Version:     apiVersion,
 	}
 
-	baseSecuritySchemes := map[string]*openapi.SecurityScheme{
-		"BearerAuth": {
-			Type:         "http",
-			Scheme:       "bearer",
-			BearerFormat: "JWT",
-			Description:  "Entrez le JWT Bearer Token (Ex: 'Bearer eyJhbGci...')",
-		},
-	}
+	configureGenerator(router)
 
-	finalSecuritySchemes := make(map[string]*openapi.SecuritySchemeOrRef)
-	for name, scheme := range baseSecuritySchemes {
-		finalSecuritySchemes[name] = &openapi.SecuritySchemeOrRef{
-			SecurityScheme: scheme,
-		}
-	}
-
-	router.Generator().SetSecuritySchemes(finalSecuritySchemes)
-
-	_ = router.Generator().OverrideDataType(reflect.TypeOf(map[string]any{}), "object", "")
-
-	// Source of truth OpenAPI JSON (public)
+	// Spec public : sans authentification, pour la page /docs de la console
+	// et les générateurs de clients.
+	router.Generator().SetInfo(info)
 	openAPIPath := PathAPIRoot + "/openapi.json"
-	openAPIHandler := router.OpenAPI(info, "json")
-	router.GET(openAPIPath, nil, openAPIHandler)
-	// Backward-compatible alias without API prefix.
-	router.GET("/openapi.json", nil, openAPIHandler)
+	publicSpec := publicSpecHandler(router)
+	router.GET(openAPIPath, nil, publicSpec)
+	publicRoutes[openAPIPath] = true
 
-	// Internal Swagger UI (protected)
-	swaggerHandler := http.StripPrefix("/swagger/", swaggerui.SwaggerURLHandler(openAPIPath))
-
+	// Swagger UI interne : spec complet (routes internes comprises).
+	swaggerHandler := http.StripPrefix("/swagger/", swaggerui.SwaggerURLHandler("/swagger/openapi.json"))
+	fullSpec := router.OpenAPI(info, "json")
 	authMiddleware := gin.BasicAuth(gin.Accounts{
 		configs.AppConfig.Swagger.User: configs.AppConfig.Swagger.Password,
 	})
-
 	router.GET("/swagger/*any", nil, authMiddleware, func(c *gin.Context) {
+		if c.Param("any") == "/openapi.json" {
+			fullSpec(c)
+			return
+		}
 		swaggerHandler.ServeHTTP(c.Writer, c.Request)
 	})
 
-	// Public Scalar UI
-	scalarHTML := `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SCAPI API Docs</title>
-</head>
-<body>
-  <script id="api-reference" data-url="` + openAPIPath + `"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
-</body>
-</html>`
+	// La documentation se lit dans la console.
 	router.GET("/docs", nil, func(c *gin.Context) {
-		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(scalarHTML))
+		c.Redirect(http.StatusFound, strings.TrimRight(configs.AppConfig.Frontend.BaseURL, "/")+"/docs")
 	})
+	publicRoutes["/docs"] = true
 
 	l.Infof("OpenAPI JSON: %s", openAPIPath)
 	l.Infof("Swagger UI: /swagger/")
-	l.Infof("Scalar UI: /docs")
+	l.Infof("Documentation: /docs → console")
 	return nil
+}
+
+// configureGenerator : sécurité et types du spec.
+func configureGenerator(router *fizz.Fizz) {
+	router.Generator().SetSecuritySchemes(securitySchemes())
+
+	_ = router.Generator().OverrideDataType(reflect.TypeOf(map[string]any{}), "object", "")
+	_ = router.Generator().OverrideTypeName(reflect.TypeOf(ErrorBody{}), "Error")
+	// Sans cela, un UUID apparaît comme un tableau de 16 entiers.
+	_ = router.Generator().OverrideDataType(reflect.TypeOf(uuid.UUID{}), "string", "uuid")
+	_ = router.Generator().OverrideDataType(reflect.TypeOf(&uuid.UUID{}), "string", "uuid")
 }
 
 func RegisterRoutes(app *fizz.Fizz) error {
 	for _, g := range AllGroups {
-		registerGroup(app.Group(g.Path, "", g.Description), g, g.Path)
+		registerGroup(app.Group(g.Path, g.tag.name, g.tag.description), g, g.Path, g.internal)
 	}
 	return nil
 }
 
-func registerGroup(fg *fizz.RouterGroup, group *RouteGroup, absPath string) {
+func registerGroup(fg *fizz.RouterGroup, group *RouteGroup, absPath string, internal bool) {
 	g := fg
 
 	for _, m := range group.Middlewares {
@@ -165,10 +155,7 @@ func registerGroup(fg *fizz.RouterGroup, group *RouteGroup, absPath string) {
 			opID = generateOperationID(r.Method, fullPath)
 		}
 
-		options := []fizz.OperationOption{
-			fizz.ID(opID),
-			fizz.Description(buildExplicitDescription(r, absPath)),
-		}
+		options := append([]fizz.OperationOption{fizz.ID(opID)}, docOptions(r, internal)...)
 
 		if r.Payload != nil {
 			options = append(options, fizz.InputModel(r.Payload))
@@ -202,18 +189,8 @@ func registerGroup(fg *fizz.RouterGroup, group *RouteGroup, absPath string) {
 	}
 
 	for _, child := range group.Groups {
-		registerGroup(g.Group(child.Path, "", child.Description), child, absPath+child.Path)
+		registerGroup(g.Group(child.Path, child.tag.name, child.tag.description), child, absPath+child.Path, internal || child.internal)
 	}
-}
-
-func buildExplicitDescription(r *Route, absPath string) string {
-	base := strings.TrimSpace(r.Description)
-	if base == "" {
-		base = "Opération API"
-	}
-	fullPath := buildFullPath(absPath, r.Path)
-	return base + " (Route: " + strings.ToUpper(strings.TrimSpace(r.Method)) + " " + fullPath + ")" +
-		"\n\nAccès : " + r.Access.summary + "."
 }
 
 // publicRoutes : chemins gin des routes déclarées Public(), remplis à

@@ -1,30 +1,22 @@
-// login.go — flux d'authentification user-facing :
-//   - Login / Logout / RefreshToken (délégués à Keycloak)
-//   - ForgotPassword / ResetPassword (required-action email + admin reset)
-//   - LoginURL / SocialLoginURL / HandleSocialCallback (Authorization Code +
-//     PKCE S256 + state CSRF)
-//   - ResendVerificationEmail
+// login.go — profil local et sessions de l'ancien fournisseur :
+//   - Logout / RefreshToken : sessions Keycloak ouvertes avant le passage
+//     aux sessions betorun (transition, retirées en phase 3) ;
+//   - synchronisation du profil local (première connexion).
 //
-// Adapté du pattern gophercart (identity/services/service.go).
+// L'authentification elle-même : authflow.go, mfa.go, emailflow.go, cliauth.go.
 package services
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"regexp"
 	"strings"
 	"time"
 
-	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
-
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
-	"gorm.io/gorm"
 
 	"github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	keycloakadmin "github.com/thekrauss/kubemanager/internal/modules/identity/keycloak"
@@ -49,227 +41,8 @@ func (s *service) RefreshToken(ctx context.Context, refreshToken string) (*keycl
 	return s.keycloak.RefreshToken(ctx, refreshToken)
 }
 
-// ── Password reset (Keycloak-driven) ─────────────────────────────────────
-
-// ── Social login (Google / GitHub via Keycloak IDP broker) ──────────────
-
-// hostedLoginProvider : marqueur du login via la page Keycloak (sans IdP social).
-const hostedLoginProvider = "keycloak"
-
-// oauthState : mémorisé côté serveur entre l'URL d'autorisation et le callback.
-type oauthState struct {
-	Provider     string `json:"p"`
-	CodeVerifier string `json:"v"`
-	// ClientID : client OAuth de la demande (vide : client web) ; le code ne
-	// s'échange qu'avec le client qui l'a obtenu.
-	ClientID string `json:"c,omitempty"`
-}
-
-// LoginOptions : variantes de la connexion hébergée.
-type LoginOptions struct {
-	// StepUp : ré-authentification avec double authentification (RFC 9470).
-	StepUp bool
-	// CLI : connexion de la CLI, redirigée vers son serveur local
-	// http://127.0.0.1:<port>/callback (RFC 8252), avec son client public.
-	CLI bool
-}
-
-// cliRedirectRe : seule redirection acceptée pour la CLI (boucle locale).
+// cliRedirectRe : seule adresse de retour acceptée pour la CLI (boucle locale, RFC 8252).
 var cliRedirectRe = regexp.MustCompile(`^http://127\.0\.0\.1:[0-9]{1,5}/callback$`)
-
-// LoginURL construit l'URL de la page de login Keycloak (Authorization Code +
-// PKCE). Le callback est le même que pour le social : HandleSocialCallback.
-//
-// stepUp : ré-authentification obligatoire (max_age=0) au niveau MFA
-// (acr_values), demandée par l'API sur une action sensible (RFC 9470).
-func (s *service) LoginURL(ctx context.Context, redirectURI string, o LoginOptions) (string, error) {
-	if s == nil || s.keycloak == nil {
-		return "", ErrIdentityServiceUnavailable
-	}
-	var opt keycloakadmin.AuthRequestOptions
-	if o.CLI {
-		if s.cliClientID == "" {
-			return "", ErrDeviceLoginDisabled
-		}
-		if !cliRedirectRe.MatchString(strings.TrimSpace(redirectURI)) {
-			return "", ErrCLIRedirectURI
-		}
-		opt.ClientID = s.cliClientID
-	}
-	if o.StepUp {
-		if s.stepUpACR == "" {
-			return "", ErrMFANotConfigured
-		}
-		zero := 0
-		opt.ACRValues, opt.MaxAge = s.stepUpACR, &zero
-	}
-	return s.authorizationURL(ctx, hostedLoginProvider, "", redirectURI, opt)
-}
-
-// SocialLoginURL construit l'URL d'autorisation Keycloak + kc_idp_hint.
-func (s *service) SocialLoginURL(ctx context.Context, provider, redirectURI string) (string, error) {
-	if s == nil || s.keycloak == nil {
-		return "", ErrIdentityServiceUnavailable
-	}
-	provider = strings.ToLower(strings.TrimSpace(provider))
-	idpAlias, ok := validProviders[provider]
-	if !ok {
-		return "", ErrUnknownProvider
-	}
-	return s.authorizationURL(ctx, provider, idpAlias, redirectURI)
-}
-
-// authorizationURL : un state CSRF unique + le code_verifier PKCE sont stockés
-// dans StateStore (Redis en prod) avec TTL 10min, one-time use côté callback.
-// Fix H9 : store distribué pour que pod B puisse valider un state créé par pod A.
-// Le verifier ne quitte jamais le serveur ; seul son challenge S256 part dans l'URL.
-func (s *service) authorizationURL(ctx context.Context, provider, idpAlias, redirectURI string, opts ...keycloakadmin.AuthRequestOptions) (string, error) {
-	if s.stateStore == nil {
-		return "", ErrIdentityServiceUnavailable
-	}
-
-	redirectURI = strings.TrimSpace(redirectURI)
-	if redirectURI == "" {
-		redirectURI = s.socialRedirectURI
-	}
-	if redirectURI == "" {
-		return "", betoerrors.New(betoerrors.CodeInvalidInput, "redirect_uri is required")
-	}
-
-	stateID, err := uuid.NewRandom()
-	if err != nil {
-		return "", err
-	}
-	state := stateID.String()
-	verifier, challenge, err := newPKCEPair()
-	if err != nil {
-		return "", err
-	}
-	clientID := ""
-	for _, o := range opts {
-		if o.ClientID != "" {
-			clientID = o.ClientID
-		}
-	}
-	payload, err := json.Marshal(oauthState{Provider: provider, CodeVerifier: verifier, ClientID: clientID})
-	if err != nil {
-		return "", err
-	}
-	if err := s.stateStore.SetValue(ctx, "oauth:state:"+state, string(payload), 10*time.Minute); err != nil {
-		return "", err
-	}
-
-	return s.keycloak.GetAuthorizationURL(idpAlias, redirectURI, state, challenge, opts...), nil
-}
-
-// newPKCEPair : code_verifier aléatoire (32 octets → 43 car. base64url, RFC 7636)
-// et son code_challenge S256.
-func newPKCEPair() (verifier, challenge string, err error) {
-	buf := make([]byte, 32)
-	if _, err := rand.Read(buf); err != nil {
-		return "", "", err
-	}
-	verifier = base64.RawURLEncoding.EncodeToString(buf)
-	sum := sha256.Sum256([]byte(verifier))
-	return verifier, base64.RawURLEncoding.EncodeToString(sum[:]), nil
-}
-
-// HandleSocialCallback : valide le state, échange le code (+ verifier PKCE) contre
-// un token, provisionne le user local. Sert au login hébergé comme au social.
-func (s *service) HandleSocialCallback(ctx context.Context, code, state, redirectURI string) (*LoginResult, error) {
-	if s == nil || s.keycloak == nil {
-		return nil, ErrIdentityServiceUnavailable
-	}
-	if s.stateStore == nil {
-		return nil, ErrIdentityServiceUnavailable
-	}
-
-	// Validation state CSRF + consommation (one-time) via store distribué.
-	// Fix H9 : lu sur N'IMPORTE quel pod puisque stocké en Redis.
-	stateKey := "oauth:state:" + strings.TrimSpace(state)
-	stored, err := s.stateStore.GetValue(ctx, stateKey)
-	if err != nil || stored == "" {
-		return nil, ErrInvalidState
-	}
-	_ = s.stateStore.DeleteValue(ctx, stateKey)
-	var st oauthState
-	if err := json.Unmarshal([]byte(stored), &st); err != nil || st.CodeVerifier == "" {
-		return nil, ErrInvalidState
-	}
-
-	tokens, err := s.keycloak.ExchangeCodeForToken(ctx, code, redirectURI, st.CodeVerifier, st.ClientID)
-	if err != nil {
-		return nil, err
-	}
-
-	claims := extractJWTClaims(tokens.AccessToken)
-	if !claims.EmailVerified {
-		return nil, ErrEmailNotVerified
-	}
-	sub := claims.Sub
-	if sub == "" {
-		return nil, ErrSubjectInvalid
-	}
-
-	kcUser, err := s.keycloak.GetUserByID(ctx, sub)
-	if err != nil {
-		return nil, err
-	}
-	email := normalizeEmail(kcUser.Email)
-	fullName := firstNonEmpty(kcUser.FullName, claims.Name, deriveDisplayName(email))
-	avatarURL := strings.TrimSpace(kcUser.AvatarURL)
-
-	user, dbErr := s.users.FindByKeycloakUserID(ctx, sub)
-	if dbErr != nil && !errors.Is(dbErr, gorm.ErrRecordNotFound) {
-		return nil, dbErr
-	}
-
-	bootstrapped := false
-	if user == nil {
-		// Premier login (hébergé ou social) → provision user local (pas de projet par défaut).
-		user, err = s.syncLocalUser(ctx, sub, email, fullName, avatarURL)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		// Sync minimal : avatar + last_login.
-		mutated := false
-		if avatarURL != "" && user.AvatarURL != avatarURL {
-			user.AvatarURL = avatarURL
-			mutated = true
-		}
-		if mutated {
-			_ = s.users.UpdateUser(ctx, user)
-		}
-		s.touchLastLogin(ctx, user)
-	}
-	// bootstrapped = true dès qu'il y a un membership actif
-	if member, mErr := s.projectMembers.FindFirstActiveByUser(ctx, user.ID); mErr == nil && member != nil {
-		bootstrapped = true
-	}
-
-	return &LoginResult{
-		AccessToken:    tokens.AccessToken,
-		RefreshToken:   tokens.RefreshToken,
-		ExpiresIn:      tokens.ExpiresIn,
-		KeycloakUserID: sub,
-		Email:          email,
-		AvatarURL:      avatarURL,
-		Bootstrapped:   bootstrapped,
-	}, nil
-}
-
-// ── Verification emails ──────────────────────────────────────────────────
-
-func (s *service) actionEmailOptions() *keycloakadmin.ActionEmailOptions {
-	if s.actionEmailClientID == "" && s.frontendBaseURL == "" {
-		return nil
-	}
-	return &keycloakadmin.ActionEmailOptions{
-		ClientID:    s.actionEmailClientID,
-		RedirectURI: s.frontendBaseURL,
-	}
-}
 
 // ── User sync helpers ────────────────────────────────────────────────────
 
@@ -392,60 +165,4 @@ func ExtractJTI(tokenString string) string {
 		return ""
 	}
 	return strings.TrimSpace(payload.JTI)
-}
-
-// ── CLI : flux device (RFC 8628) ─────────────────────────────────────────
-
-// deviceKey : clé du verifier PKCE d'une connexion device (hash du
-// device_code : le code lui-même n'est jamais stocké).
-func deviceKey(deviceCode string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(deviceCode)))
-	return "oauth:device:" + hex.EncodeToString(sum[:])
-}
-
-// StartDeviceLogin : code à afficher par la CLI et URL de validation. Le
-// verifier PKCE reste côté serveur jusqu'à l'expiration du code.
-func (s *service) StartDeviceLogin(ctx context.Context) (*keycloakadmin.DeviceAuthorization, error) {
-	if s == nil || s.keycloak == nil || s.stateStore == nil {
-		return nil, ErrIdentityServiceUnavailable
-	}
-	if s.cliClientID == "" {
-		return nil, ErrDeviceLoginDisabled
-	}
-	verifier, challenge, err := newPKCEPair()
-	if err != nil {
-		return nil, err
-	}
-	auth, err := s.keycloak.StartDeviceAuthorization(ctx, s.cliClientID, challenge)
-	if err != nil {
-		return nil, err
-	}
-	ttl := time.Duration(auth.ExpiresIn)*time.Second + time.Minute
-	if err := s.stateStore.SetValue(ctx, deviceKey(auth.DeviceCode), verifier, ttl); err != nil {
-		return nil, err
-	}
-	return auth, nil
-}
-
-// PollDeviceLogin : jetons une fois la connexion validée dans le navigateur ;
-// sinon *keycloakadmin.DeviceTokenError (authorization_pending, slow_down…).
-func (s *service) PollDeviceLogin(ctx context.Context, deviceCode string) (*keycloakadmin.TokenPair, error) {
-	if s == nil || s.keycloak == nil || s.stateStore == nil {
-		return nil, ErrIdentityServiceUnavailable
-	}
-	if s.cliClientID == "" {
-		return nil, ErrDeviceLoginDisabled
-	}
-	if strings.TrimSpace(deviceCode) == "" {
-		return nil, betoerrors.New(betoerrors.CodeInvalidInput, "device_code is required")
-	}
-	verifier, err := s.stateStore.GetValue(ctx, deviceKey(deviceCode))
-	if err != nil || verifier == "" {
-		return nil, &keycloakadmin.DeviceTokenError{Code: "expired_token", Description: "unknown or expired device_code"}
-	}
-	tokens, err := s.keycloak.PollDeviceToken(ctx, s.cliClientID, deviceCode, verifier)
-	if err == nil {
-		_ = s.stateStore.DeleteValue(ctx, deviceKey(deviceCode))
-	}
-	return tokens, err
 }

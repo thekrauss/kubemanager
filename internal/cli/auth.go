@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"runtime"
@@ -14,11 +15,13 @@ import (
 )
 
 func newLogin() *cobra.Command {
-	var noBrowser, mfa bool
+	var noBrowser, device bool
 	c := &cobra.Command{
 		Use:   "login",
 		Short: i18n.T("login.short"),
-		Args:  cobra.NoArgs,
+		Example: "betorun login            # " + i18n.T("ex.login.browser") + "\n" +
+			"betorun login --device   # " + i18n.T("ex.login.device"),
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			s, err := settings()
 			if err != nil {
@@ -26,26 +29,8 @@ func newLogin() *cobra.Command {
 			}
 			ctx := cmd.Context()
 			cl := api.New(s.APIURL)
-			if mfa {
-				// Double authentification exigée : navigateur + serveur local.
-				if _, err := browserLogin(ctx, cl, cmd.OutOrStdout(), true, !noBrowser); err != nil {
-					return err
-				}
-			} else {
-				dc, err := cl.StartDeviceLogin(ctx)
-				if err != nil {
-					return err
-				}
-				link := dc.VerificationURIComplete
-				if link == "" {
-					link = dc.VerificationURI
-				}
-				fmt.Fprintln(cmd.OutOrStdout(), i18n.T("login.open", link, dc.UserCode))
-				if !noBrowser {
-					openURL(link)
-				}
-				fmt.Fprintln(cmd.OutOrStdout(), i18n.T("login.waiting"))
-				creds, err := cl.WaitDeviceLogin(ctx, dc)
+			if device {
+				creds, err := deviceLogin(cmd, cl, !noBrowser)
 				if err != nil {
 					return err
 				}
@@ -53,6 +38,8 @@ func newLogin() *cobra.Command {
 					return err
 				}
 				cl.UseCredentials(creds)
+			} else if _, err := browserLogin(ctx, cl, cmd.OutOrStdout(), !noBrowser); err != nil {
+				return err
 			}
 
 			// Mémorise l'API utilisée et, faute de mieux, le projet de l'utilisateur.
@@ -72,18 +59,34 @@ func newLogin() *cobra.Command {
 			}); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("login.ok", firstNonEmpty(status.Email, status.FullName)))
+			printer(cmd).Success(i18n.T("login.ok", firstNonEmpty(status.Email, status.FullName)))
 			if project != "" {
-				fmt.Fprintln(cmd.OutOrStdout(), i18n.T("login.project", projectLabel(status, project)))
+				printer(cmd).Hint(i18n.T("login.project", projectLabel(status, project)))
 			} else {
-				fmt.Fprintln(cmd.OutOrStdout(), i18n.T("login.no_project"))
+				printer(cmd).Hint(i18n.T("login.no_project"))
 			}
 			return nil
 		},
 	}
 	c.Flags().BoolVar(&noBrowser, "no-browser", false, i18n.T("flag.no_browser"))
-	c.Flags().BoolVar(&mfa, "mfa", false, i18n.T("flag.mfa"))
+	c.Flags().BoolVar(&device, "device", false, i18n.T("flag.device"))
 	return c
+}
+
+// deviceLogin : code d'appareil (RFC 8628), à valider dans la console depuis
+// n'importe quel appareil.
+func deviceLogin(cmd *cobra.Command, cl *api.Client, open bool) (*config.Credentials, error) {
+	dc, err := cl.StartDeviceLogin(cmd.Context())
+	if err != nil {
+		return nil, err
+	}
+	p := printer(cmd)
+	p.Println(i18n.T("login.open", p.Link(dc.VerificationURI), p.Brand(p.Bold(dc.UserCode))))
+	if open {
+		openURL(dc.VerificationURIComplete)
+	}
+	p.Hint(i18n.T("login.waiting"))
+	return cl.WaitDeviceLogin(cmd.Context(), dc)
 }
 
 func newLogout() *cobra.Command {
@@ -97,7 +100,7 @@ func newLogout() *cobra.Command {
 				return err
 			}
 			if creds == nil {
-				fmt.Fprintln(cmd.OutOrStdout(), i18n.T("logout.none"))
+				printer(cmd).Hint(i18n.T("logout.none"))
 				return nil
 			}
 			// Révocation côté serveur au mieux ; la session locale est effacée dans tous les cas.
@@ -109,7 +112,7 @@ func newLogout() *cobra.Command {
 			if err := config.DeleteCredentials(); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("logout.ok"))
+			printer(cmd).Success(i18n.T("logout.ok"))
 			return nil
 		},
 	}
@@ -145,10 +148,11 @@ func newWhoami() *cobra.Command {
 				fmt.Fprintln(out, i18n.T("whoami.project", s.ProjectID))
 			}
 			if session.MFAAvailable && session.AuthMethod == "bearer" {
+				p := printer(cmd)
 				if session.MFA {
-					fmt.Fprintln(out, i18n.T("whoami.mfa_on"))
+					fmt.Fprintln(out, p.Green(i18n.T("whoami.mfa_on")))
 				} else {
-					fmt.Fprintln(out, i18n.T("whoami.mfa_off"))
+					fmt.Fprintln(out, p.Yellow(i18n.T("whoami.mfa_off")))
 				}
 			}
 			fmt.Fprintln(out, i18n.T("whoami.api", s.APIURL))
@@ -175,6 +179,27 @@ func newToken() *cobra.Command {
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), tok)
+			return nil
+		},
+	}
+}
+
+// newDocs : documentation de l'API dans le navigateur.
+func newDocs() *cobra.Command {
+	return &cobra.Command{
+		Use:   "docs",
+		Short: i18n.T("docs.short"),
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			docs := docsURL()
+			if docs == "" {
+				return errors.New(i18n.T("err.no_api"))
+			}
+			p := printer(cmd)
+			p.Info(i18n.T("docs.open", p.Link(docs)))
+			if interactive() {
+				openURL(docs)
+			}
 			return nil
 		},
 	}

@@ -51,6 +51,14 @@ func (s *WorkloadService) Delete(ctx context.Context, id uuid.UUID) error {
 		return err
 	}
 
+	// Un déploiement ou une mise à jour encore en cours réinstallerait le
+	// conteneur après sa désinstallation (nouvelles tentatives de l'activité
+	// Helm) : il resterait dans Kubernetes, hors de la base, et consommerait
+	// le quota du projet. Ils sont arrêtés d'abord (absents : rien à faire).
+	for _, prefix := range []string{workflows.WorkflowIDDeployPrefix, workflows.WorkflowIDUpdatePrefix} {
+		_ = s.Distributor.TerminateWorkflow(ctx, prefix+id.String(), "", "workload deleted")
+	}
+
 	_, err = s.Distributor.ExecuteWorkflow(ctx,
 		temporal.ExecuteOptions{WorkflowID: workflows.WorkflowIDDeletePrefix + id.String()},
 		workflows.DeleteWorkloadWorkflowName,
@@ -82,6 +90,9 @@ func (s *WorkloadService) Stop(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
+	if err := ensureBuilt(w); err != nil {
+		return err
+	}
 	if err := s.scaleTo(ctx, w, 0); err != nil {
 		return fmt.Errorf("scale to 0: %w", err)
 	}
@@ -92,6 +103,9 @@ func (s *WorkloadService) Stop(ctx context.Context, id uuid.UUID) error {
 func (s *WorkloadService) Start(ctx context.Context, id uuid.UUID) error {
 	w, err := s.Repo.GetByID(ctx, id)
 	if err != nil {
+		return err
+	}
+	if err := ensureBuilt(w); err != nil {
 		return err
 	}
 	target := int32(w.Replicas)
@@ -109,6 +123,9 @@ func (s *WorkloadService) Start(ctx context.Context, id uuid.UUID) error {
 func (s *WorkloadService) Restart(ctx context.Context, id uuid.UUID) error {
 	w, err := s.Repo.GetByID(ctx, id)
 	if err != nil {
+		return err
+	}
+	if err := ensureBuilt(w); err != nil {
 		return err
 	}
 	patch := fmt.Sprintf(
@@ -134,6 +151,9 @@ func (s *WorkloadService) Restart(ctx context.Context, id uuid.UUID) error {
 func (s *WorkloadService) Rollback(ctx context.Context, id uuid.UUID, toRevision int) error {
 	w, err := s.Repo.GetByID(ctx, id)
 	if err != nil {
+		return err
+	}
+	if err := ensureBuilt(w); err != nil {
 		return err
 	}
 	cfg, err := s.newHelmActionConfig(w.Namespace)

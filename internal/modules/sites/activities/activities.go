@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	buildActs "github.com/thekrauss/kubemanager/internal/modules/builds/activities"
 	"io"
 	"os"
 
@@ -151,6 +152,12 @@ func (a *SiteActivities) DeleteProjectSiteObjects(ctx context.Context, projectID
 	id, err := uuid.Parse(projectID)
 	if err != nil {
 		return temporal.NewNonRetryableApplicationError("invalid project id", domain.ErrTypeInvalidInput, err)
+	}
+	// Archives et journaux des builds du projet : même stockage.
+	if a.Store != nil {
+		if err := a.Store.DeletePrefix(ctx, buildActs.ObjectPrefix(projectID)); err != nil {
+			return err
+		}
 	}
 	sites, err := a.Repo.ListSites(ctx, id)
 	if err != nil {

@@ -72,7 +72,7 @@ type ConnectionTokenResponse struct {
 }
 
 type SubscribeRequest struct {
-	Channel string `query:"channel" binding:"required" desc:"Canal Centrifugo (ex: project:xxx:workload:yyy:deploy)"`
+	Channel string `query:"channel" binding:"required" description:"Canal d'événements (ex: project:xxx:workload:yyy:deploy)"`
 }
 
 type SubscriptionTokenResponse struct {

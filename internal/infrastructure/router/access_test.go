@@ -33,7 +33,7 @@ func TestAccess_PublicRoutesReachAuthMiddleware(t *testing.T) {
 	group := root.NewGroup("/zz-access-test", "test")
 	group.AddRoute("/social/:provider", http.MethodGet, "public", Public(), h)
 	group.AddRoute("/me", http.MethodGet, "auth", Authenticated(), h)
-	registerGroup(f.Group(root.Path, "", ""), root, root.Path)
+	registerGroup(f.Group(root.Path, "", ""), root, root.Path, false)
 	mw.SetPublicRoutes(PublicRoutes())
 
 	rec := httptest.NewRecorder()
@@ -50,5 +50,5 @@ func TestAccess_MissingAccessPanicsAtStartup(t *testing.T) {
 	f := fizz.NewFromEngine(gin.New())
 	g := &RouteGroup{Path: "/zz-missing"}
 	g.AddRoute("/x", http.MethodGet, "x", Access{}, func(c *gin.Context) {})
-	assert.Panics(t, func() { registerGroup(f.Group(g.Path, "", ""), g, g.Path) })
+	assert.Panics(t, func() { registerGroup(f.Group(g.Path, "", ""), g, g.Path, false) })
 }

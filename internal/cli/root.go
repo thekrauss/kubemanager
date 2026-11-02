@@ -10,7 +10,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/signal"
 	"strings"
@@ -21,6 +20,7 @@ import (
 	"github.com/thekrauss/kubemanager/internal/cli/archive"
 	"github.com/thekrauss/kubemanager/internal/cli/config"
 	"github.com/thekrauss/kubemanager/internal/cli/i18n"
+	"github.com/thekrauss/kubemanager/internal/cli/ui"
 )
 
 // Version et DefaultAPIURL : posés à la compilation
@@ -39,12 +39,24 @@ func newRoot(name string) *cobra.Command {
 	root := &cobra.Command{
 		Use:           name,
 		Short:         i18n.T("root.short"),
+		Long:          i18n.T("root.long"),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 	root.PersistentFlags().StringVar(&flagAPI, "api", "", i18n.T("flag.api"))
 	root.PersistentFlags().StringVarP(&flagProject, "project", "p", "", i18n.T("flag.project"))
-	root.AddCommand(newLogin(), newLogout(), newWhoami(), newToken(), newSites(), newWorkloads(), newAccess(), newVersion())
+	root.PersistentFlags().BoolVar(&flagJSON, "json", false, i18n.T("flag.json"))
+	inGroup := func(id string, cmds ...*cobra.Command) {
+		for _, c := range cmds {
+			c.GroupID = id
+			root.AddCommand(c)
+		}
+	}
+	inGroup(groupStart, newLogin(), newLogout(), newWhoami(), newToken())
+	inGroup(groupDeploy, newInit(), newDeploy(), newWorkloads(), newSites(), newBuilds())
+	inGroup(groupAccess, newAccess())
+	inGroup(groupOther, newDocs(), newVersion())
+	setupHelp(root)
 	return root
 }
 
@@ -66,7 +78,7 @@ func Execute(name string, args []string) int {
 	}
 	root.SetArgs(args)
 	if err := root.ExecuteContext(ctx); err != nil {
-		fmt.Fprintln(os.Stderr, "betorun: "+describe(err))
+		ui.New(os.Stderr).Fail(describe(err))
 		return 1
 	}
 	return 0
@@ -83,8 +95,6 @@ func describe(err error) string {
 		return i18n.T("login.expired")
 	case errors.Is(err, api.ErrDeviceDenied):
 		return i18n.T("login.denied")
-	case errors.Is(err, api.ErrDeviceDisabled):
-		return i18n.T("login.disabled")
 	case errors.Is(err, archive.ErrEmpty):
 		return i18n.T("sites.deploy.empty")
 	}
@@ -131,11 +141,7 @@ func client(s config.Settings) *api.Client {
 	}
 	c.Source = src
 	if src == nil && stepUpAllowed() {
-		c.OnStepUp = func(ctx context.Context) error {
-			fmt.Fprintln(os.Stderr, i18n.T("login.step_up"))
-			_, err := browserLogin(ctx, c, os.Stderr, true, true)
-			return err
-		}
+		c.OnStepUp = func(ctx context.Context) error { return stepUp(ctx, c, os.Stderr) }
 	}
 	return c
 }

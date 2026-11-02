@@ -70,3 +70,55 @@ func (c *Client) StreamLogs(ctx context.Context, id string, o LogsOptions, w io.
 	}
 	return c.Stream(ctx, pathWorkloads+"/"+url.PathEscape(id)+segLogs+"?"+q.Encode(), w)
 }
+
+// Types des variables d'un conteneur.
+type (
+	VariableView          = workloadsdomain.VariableView
+	VariablesResponse     = workloadsdomain.VariablesResponse
+	PatchVariablesRequest = workloadsdomain.PatchVariablesRequest
+)
+
+// ListVariables : variables et secrets, sans la valeur des secrets.
+func (c *Client) ListVariables(ctx context.Context, id string) (*VariablesResponse, error) {
+	var out VariablesResponse
+	return &out, c.Do(ctx, http.MethodGet, pathWorkloads+"/"+url.PathEscape(id)+"/variables", nil, &out)
+}
+
+// PatchVariables : applique les modifications (redéploiement si une valeur change).
+func (c *Client) PatchVariables(ctx context.Context, id string, req PatchVariablesRequest) (*VariablesResponse, error) {
+	var out VariablesResponse
+	return &out, c.Do(ctx, http.MethodPatch, pathWorkloads+"/"+url.PathEscape(id)+"/variables", req, &out)
+}
+
+// Types des domaines d'un conteneur.
+type (
+	WorkloadDomainView = workloadsdomain.DomainResponse
+	AddDomainRequest   = workloadsdomain.AddDomainRequest
+)
+
+func workloadDomainsPath(id string) string {
+	return pathWorkloads + "/" + url.PathEscape(id) + segDomains
+}
+
+// ListWorkloadDomains : domaines et enregistrements DNS à créer.
+func (c *Client) ListWorkloadDomains(ctx context.Context, id string) ([]WorkloadDomainView, error) {
+	var out []WorkloadDomainView
+	return out, c.Do(ctx, http.MethodGet, workloadDomainsPath(id), nil, &out)
+}
+
+// AddWorkloadDomain : nouvelle demande.
+func (c *Client) AddWorkloadDomain(ctx context.Context, id, host string) (*WorkloadDomainView, error) {
+	var out WorkloadDomainView
+	return &out, c.Do(ctx, http.MethodPost, workloadDomainsPath(id), AddDomainRequest{Hostname: host}, &out)
+}
+
+// VerifyWorkloadDomain : vérifie la preuve de propriété.
+func (c *Client) VerifyWorkloadDomain(ctx context.Context, id, domainID string) (*WorkloadDomainView, error) {
+	var out WorkloadDomainView
+	return &out, c.Do(ctx, http.MethodPost, workloadDomainsPath(id)+"/"+url.PathEscape(domainID)+segVerify, nil, &out)
+}
+
+// RemoveWorkloadDomain : retire le domaine et sa route.
+func (c *Client) RemoveWorkloadDomain(ctx context.Context, id, domainID string) error {
+	return c.Do(ctx, http.MethodDelete, workloadDomainsPath(id)+"/"+url.PathEscape(domainID), nil, nil)
+}

@@ -69,16 +69,13 @@ func TestBuildHelmValues_Ingress(t *testing.T) {
 	assert.Equal(t, "kube-system", traefik["networkPolicy"].(map[string]any)["ingressNSLabelValue"])
 }
 
-// Variables : jamais en clair dans les valeurs Helm (donc dans la spec du
-// Deployment) ; l'empreinte change avec leur contenu, pas avec leur ordre.
+// Variables : jamais dans les valeurs Helm (donc dans la spec du Deployment) ;
+// seule la révision y figure, et elle renouvelle les pods quand elle change.
 func TestBuildHelmValues_EnvOnlyThroughSecret(t *testing.T) {
-	a := buildHelmValues(InstallWorkloadInput{ReleaseName: "api", Env: map[string]string{"A": "1", "B": "2"}})
+	a := buildHelmValues(InstallWorkloadInput{ReleaseName: "api", EnvRevision: 3})
 	_, plain := a["envVars"]
 	assert.False(t, plain, "variables absentes des valeurs Helm")
 	assert.Equal(t, "api-env", a["envSecretName"])
-
-	same := buildHelmValues(InstallWorkloadInput{ReleaseName: "api", Env: map[string]string{"B": "2", "A": "1"}})
-	assert.Equal(t, a["envChecksum"], same["envChecksum"])
-	changed := buildHelmValues(InstallWorkloadInput{ReleaseName: "api", Env: map[string]string{"A": "1", "B": "3"}})
-	assert.NotEqual(t, a["envChecksum"], changed["envChecksum"], "valeur modifiée : nouveaux pods")
+	assert.Equal(t, "3", a["envChecksum"])
+	assert.NotEqual(t, a["envChecksum"], buildHelmValues(InstallWorkloadInput{ReleaseName: "api", EnvRevision: 4})["envChecksum"])
 }

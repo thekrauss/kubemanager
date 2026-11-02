@@ -50,7 +50,12 @@ func (f *fakeRepo) Delete(_ context.Context, id uuid.UUID) error {
 	f.mu.Unlock()
 	return nil
 }
-func (f *fakeRepo) UpdateSpec(_ context.Context, _ uuid.UUID, _, _, _ string) error { return nil }
+func (f *fakeRepo) UpdateSpec(_ context.Context, _ uuid.UUID, _, _, _ string, _ []byte) error {
+	return nil
+}
+func (f *fakeRepo) UpdateRuntime(_ context.Context, _ uuid.UUID, _ int, _, _ string, _ int, _ bool) error {
+	return nil
+}
 func (f *fakeRepo) GetTotalUsageByProject(_ context.Context, _ uuid.UUID) (int64, int64, int64, error) {
 	return 0, 0, 0, nil
 }

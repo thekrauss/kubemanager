@@ -113,7 +113,7 @@ type CreateSAKeyInput struct {
 type SAKeyPath struct {
 	ProjectID string `path:"id" binding:"required"`
 	SAID      string `path:"saID" binding:"required"`
-	KeyID     string `path:"keyID" binding:"required" desc:"Identifiant de la clé (key_id)"`
+	KeyID     string `path:"keyID" binding:"required" description:"Identifiant de la clé (key_id)"`
 }
 
 // CreateSAKey : la clé privée (clé générée) n'apparaît que dans cette réponse.

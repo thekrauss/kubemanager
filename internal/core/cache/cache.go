@@ -211,6 +211,8 @@ type CacheRedis interface {
 	SetValue(ctx context.Context, key, value string, ttl time.Duration) error
 	GetValue(ctx context.Context, key string) (string, error)
 	DeleteValue(ctx context.Context, key string) error
+	// TakeValue : lit et supprime atomiquement (jeton à usage unique).
+	TakeValue(ctx context.Context, key string) (string, error)
 
 	Ping(ctx context.Context) error
 }
@@ -397,6 +399,14 @@ func (r *cacheRedis) SetValue(ctx context.Context, key, value string, ttl time.D
 func (r *cacheRedis) GetValue(ctx context.Context, key string) (string, error) {
 	fullKey := ServiceKeyPrefix + key
 	val, err := r.Client.Get(ctx, fullKey).Result()
+	if err == redis.Nil {
+		return "", ErrCacheMiss
+	}
+	return val, err
+}
+
+func (r *cacheRedis) TakeValue(ctx context.Context, key string) (string, error) {
+	val, err := r.Client.GetDel(ctx, ServiceKeyPrefix+key).Result()
 	if err == redis.Nil {
 		return "", ErrCacheMiss
 	}

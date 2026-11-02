@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"fmt"
+	workloadsRepo "github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,6 +13,8 @@ import (
 	"github.com/thekrauss/kubemanager/internal/iam"
 	"github.com/thekrauss/kubemanager/internal/iam/sts"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/objectstore"
+	buildActs "github.com/thekrauss/kubemanager/internal/modules/builds/activities"
+	githubSvc "github.com/thekrauss/kubemanager/internal/modules/github/service"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/thekrauss/beto-shared/pkg/logger"
@@ -64,11 +67,16 @@ type App struct {
 	Publisher           realtime.Publisher
 	RealtimeSigner      realtime.TokenSigner
 	ObjectStore         objectstore.Store // nil si sites désactivés
+	Variables           workloadsRepo.VariableStore
 	IAM                 *iam.Engine
 	ServiceAccounts     *iam.ServiceAccountService
 	ClusterAgents       *iam.ClusterAgents
 	STS                 *sts.Service
 	OrgPolicies         *iam.OrgPolicyService
+	// GitHub : connexion GitHub (Client nil : désactivée).
+	GitHub *githubSvc.Service
+	// WorkloadDeployer : mise à jour d'un conteneur à la fin d'un build (worker).
+	WorkloadDeployer buildActs.Deployer
 
 	Security      Security
 	Servers       Servers
@@ -113,16 +121,19 @@ func (a *App) RunWorker(ctx context.Context) error {
 	defer a.shutdownInfra()
 
 	processor := temporal.NewTemporalProcessor(temporal.WorkerConfig{
-		Client:      a.Temporal.Client,
-		Config:      a.Config,
-		Logger:      a.Logger,
-		K8sClient:   a.K8sProvider.Client,
-		K8sConfig:   a.K8sProvider.Config,
-		DB:          a.DB,
-		RBACSvc:     a.Services.RBAC,
-		Idempotency: a.Idempotency,
-		Publisher:   a.Publisher,
-		ObjectStore: a.ObjectStore,
+		Client:       a.Temporal.Client,
+		Config:       a.Config,
+		Logger:       a.Logger,
+		K8sClient:    a.K8sProvider.Client,
+		K8sConfig:    a.K8sProvider.Config,
+		DB:           a.DB,
+		RBACSvc:      a.Services.RBAC,
+		Idempotency:  a.Idempotency,
+		Publisher:    a.Publisher,
+		ObjectStore:  a.ObjectStore,
+		Builds:       a.buildActivities(),
+		RegistryPull: a.registryPull(),
+		Variables:    a.Variables,
 	})
 
 	errCh, err := processor.Start()

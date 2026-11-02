@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,6 +36,10 @@ type SiteRepository interface {
 	GetDomain(ctx context.Context, siteID, domainID uuid.UUID) (*domain.SiteDomain, error)
 	ListDomains(ctx context.Context, siteID uuid.UUID) ([]domain.SiteDomain, error)
 	SetDomainVerification(ctx context.Context, domainID uuid.UUID, verified bool, at time.Time) error
+	// TouchDomain : date de la dernière vérification, rien d'autre.
+	TouchDomain(ctx context.Context, domainID uuid.UUID, at time.Time) error
+	// VerifiedDomain : domaine vérifié portant ce nom, hors du domaine donné.
+	VerifiedDomain(ctx context.Context, hostname string, except uuid.UUID) (*domain.SiteDomain, error)
 	DeleteDomain(ctx context.Context, siteID, domainID uuid.UUID) error
 }
 
@@ -158,6 +163,19 @@ func (r *siteRepository) GetDomain(ctx context.Context, siteID, domainID uuid.UU
 func (r *siteRepository) ListDomains(ctx context.Context, siteID uuid.UUID) ([]domain.SiteDomain, error) {
 	var ds []domain.SiteDomain
 	return ds, r.db.WithContext(ctx).Where("site_id = ?", siteID).Order("created_at").Find(&ds).Error
+}
+
+func (r *siteRepository) TouchDomain(ctx context.Context, domainID uuid.UUID, at time.Time) error {
+	return r.db.WithContext(ctx).Model(&domain.SiteDomain{}).Where("id = ?", domainID).Update("checked_at", at).Error
+}
+
+func (r *siteRepository) VerifiedDomain(ctx context.Context, hostname string, except uuid.UUID) (*domain.SiteDomain, error) {
+	var d domain.SiteDomain
+	err := r.db.WithContext(ctx).Where("hostname = ? AND verified AND id <> ?", hostname, except).First(&d).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &d, err
 }
 
 func (r *siteRepository) SetDomainVerification(ctx context.Context, domainID uuid.UUID, verified bool, at time.Time) error {

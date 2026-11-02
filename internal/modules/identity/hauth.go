@@ -131,3 +131,66 @@ func (a *AuthController) VerifyEmail(c *gin.Context, in *identitytypes.VerifyEma
 func (a *AuthController) ResetPassword(c *gin.Context, in *identitytypes.ResetPasswordRequest) error {
 	return a.service.CompletePasswordReset(c.Request.Context(), in.Token, in.Password)
 }
+
+// ── Connexion de la CLI (docs/architecture/auth.md §9) ──
+
+func (a *AuthController) CLIAuthorizeURL(c *gin.Context, in *identitytypes.CLIAuthorizeQuery) (*identitytypes.URLResponse, error) {
+	return a.service.CLIAuthorizeURL(c.Request.Context(), *in)
+}
+
+func (a *AuthController) AuthorizeCLI(c *gin.Context, in *identitytypes.CLIAuthorizeRequest) (*identitytypes.URLResponse, error) {
+	user, sid, err := session(c)
+	if err != nil {
+		return nil, err
+	}
+	return a.service.AuthorizeCLI(c.Request.Context(), user, sid, *in)
+}
+
+func (a *AuthController) CLIToken(c *gin.Context, in *identitytypes.CLITokenRequest) (*identitytypes.AuthResponse, error) {
+	return a.service.ExchangeCLICode(c.Request.Context(), *in, clientOf(c))
+}
+
+func (a *AuthController) DeviceInfo(c *gin.Context, in *identitytypes.DeviceCodeQuery) (*identitytypes.DeviceInfo, error) {
+	if _, _, err := session(c); err != nil {
+		return nil, err
+	}
+	return a.service.DeviceInfo(c.Request.Context(), in.UserCode)
+}
+
+func (a *AuthController) ApproveDevice(c *gin.Context, in *identitytypes.DeviceApproveRequest) error {
+	user, sid, err := session(c)
+	if err != nil {
+		return err
+	}
+	return a.service.ApproveDevice(c.Request.Context(), user, sid, *in)
+}
+
+// ── Connexion Google / GitHub (docs/architecture/auth.md §8) ──
+
+func (a *AuthController) SocialProviders(_ *gin.Context) (*identitytypes.SocialProvidersResponse, error) {
+	return &identitytypes.SocialProvidersResponse{Providers: a.service.SocialProviders()}, nil
+}
+
+func (a *AuthController) SocialAuthorize(c *gin.Context, in *identitytypes.SocialProviderPath) (*identitytypes.URLResponse, error) {
+	return a.service.SocialAuthorizeURL(c.Request.Context(), in.Provider)
+}
+
+func (a *AuthController) SocialCallback(c *gin.Context, in *identitytypes.SocialCallbackRequest) (*identitytypes.AuthResponse, error) {
+	return a.service.SocialCallback(c.Request.Context(), in.Provider, *in, clientOf(c))
+}
+
+func (a *AuthController) ListIdentities(c *gin.Context) ([]auth.LinkedIdentity, error) {
+	user, _, err := session(c)
+	if err != nil {
+		return nil, err
+	}
+	return a.service.ListIdentities(c.Request.Context(), user)
+}
+
+func (a *AuthController) UnlinkIdentity(c *gin.Context, in *identitytypes.SocialProviderPath) error {
+	user, sid, err := session(c)
+	if err != nil {
+		return err
+	}
+	return a.service.UnlinkIdentity(c.Request.Context(), user, sid, c.GetString("userID"), in.Provider)
+}

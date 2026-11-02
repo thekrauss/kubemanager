@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/thekrauss/kubemanager/internal/auth"
+	"github.com/thekrauss/kubemanager/internal/auth/social"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/mail"
 
 	"github.com/thekrauss/kubemanager/internal/core/cache"
@@ -69,15 +70,21 @@ type Service interface {
 	Logout(ctx context.Context, refreshToken string) error
 	RefreshToken(ctx context.Context, refreshToken string) (*keycloakadmin.TokenPair, error)
 
-	// Authorization Code + PKCE : login hébergé Keycloak, ou social (kc_idp_hint).
-	// Les deux reviennent sur HandleSocialCallback.
-	// StartDeviceLogin / PollDeviceLogin : connexion de la CLI (RFC 8628).
-	StartDeviceLogin(ctx context.Context) (*keycloakadmin.DeviceAuthorization, error)
-	PollDeviceLogin(ctx context.Context, deviceCode string) (*keycloakadmin.TokenPair, error)
-	// LoginURL : URL de la page de connexion Keycloak (voir LoginOptions).
-	LoginURL(ctx context.Context, redirectURI string, opts LoginOptions) (string, error)
-	SocialLoginURL(ctx context.Context, provider, redirectURI string) (string, error)
-	HandleSocialCallback(ctx context.Context, code, state, redirectURI string) (*LoginResult, error)
+	// Connexion de la CLI (docs/architecture/auth.md §9).
+	CLIAuthorizeURL(ctx context.Context, q identitytypes.CLIAuthorizeQuery) (*identitytypes.URLResponse, error)
+	AuthorizeCLI(ctx context.Context, userID, sessionID uuid.UUID, in identitytypes.CLIAuthorizeRequest) (*identitytypes.URLResponse, error)
+	ExchangeCLICode(ctx context.Context, in identitytypes.CLITokenRequest, cl Client) (*identitytypes.AuthResponse, error)
+	StartDevice(ctx context.Context, cl Client) (*identitytypes.DeviceCodeResponse, error)
+	DeviceInfo(ctx context.Context, userCode string) (*identitytypes.DeviceInfo, error)
+	ApproveDevice(ctx context.Context, userID, sessionID uuid.UUID, in identitytypes.DeviceApproveRequest) error
+	PollDevice(ctx context.Context, deviceCode string, cl Client) (*identitytypes.AuthResponse, error)
+
+	// Connexion Google / GitHub (docs/architecture/auth.md §8).
+	SocialProviders() []string
+	SocialAuthorizeURL(ctx context.Context, provider string) (*identitytypes.URLResponse, error)
+	SocialCallback(ctx context.Context, provider string, in identitytypes.SocialCallbackRequest, cl Client) (*identitytypes.AuthResponse, error)
+	ListIdentities(ctx context.Context, userID uuid.UUID) ([]auth.LinkedIdentity, error)
+	UnlinkIdentity(ctx context.Context, userID, sessionID uuid.UUID, subject, provider string) error
 
 	// Authentification gérée par betorun (docs/architecture/auth.md).
 	PasswordLogin(ctx context.Context, in identitytypes.PasswordLoginRequest, cl Client) (*identitytypes.AuthResponse, error)
@@ -137,6 +144,9 @@ type Deps struct {
 	Mailer      mail.Sender
 	Limiter     Limiter
 	Logger      *zap.SugaredLogger
+	// Connexion Google / GitHub (fournisseurs configurés uniquement).
+	SocialProviders map[string]social.Provider
+	Identities      *auth.Identities
 }
 
 type service struct {
@@ -158,6 +168,8 @@ type service struct {
 	mailer              mail.Sender
 	limiter             Limiter
 	logger              *zap.SugaredLogger
+	socialProviders     map[string]social.Provider
+	identities          *auth.Identities
 }
 
 func NewService(deps Deps) Service {
@@ -180,6 +192,8 @@ func NewService(deps Deps) Service {
 		mailer:              deps.Mailer,
 		limiter:             deps.Limiter,
 		logger:              deps.Logger,
+		socialProviders:     deps.SocialProviders,
+		identities:          deps.Identities,
 	}
 }
 

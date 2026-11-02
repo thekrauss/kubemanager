@@ -57,7 +57,7 @@ func (h *Controller) Session(c *gin.Context) (*SessionResponse, error) {
 
 type SetOrgSecurityPolicyRequest struct {
 	OrgID      string `path:"id" binding:"required"`
-	RequireMFA bool   `json:"require_mfa" desc:"Exiger la double authentification de toute personne qui agit sur l'organisation et ses projets"`
+	RequireMFA bool   `json:"require_mfa" description:"Exiger la double authentification de toute personne qui agit sur l'organisation et ses projets"`
 }
 
 func (h *Controller) GetOrgSecurityPolicy(c *gin.Context, in *OrgPath) (*iam.OrgSecurityPolicy, error) {

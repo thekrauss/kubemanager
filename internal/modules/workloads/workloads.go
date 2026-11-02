@@ -21,6 +21,12 @@ type IWorkloadController interface {
 	GetWorkload(c *gin.Context, in *WorkloadIDRequest) (*domain.Workload, error)
 	ListWorkloads(c *gin.Context, in *ListWorkloadsRequest) ([]domain.Workload, error)
 	UpdateWorkload(c *gin.Context, in *UpdateWorkloadParams) error
+	ListVariables(c *gin.Context, in *WorkloadIDRequest) (*domain.VariablesResponse, error)
+	ListDomains(c *gin.Context, in *WorkloadIDRequest) ([]domain.DomainResponse, error)
+	AddDomain(c *gin.Context, in *AddDomainParams) (*domain.DomainResponse, error)
+	VerifyDomain(c *gin.Context, in *DomainPath) (*domain.DomainResponse, error)
+	RemoveDomain(c *gin.Context, in *DomainPath) error
+	PatchVariables(c *gin.Context, in *PatchVariablesParams) (*domain.VariablesResponse, error)
 	DeleteWorkload(c *gin.Context, in *WorkloadIDRequest) error
 
 	// Lifecycle K8s
@@ -47,11 +53,11 @@ func NewWorkloadHandler(svc service.IWorkloadService) *WorkloadController {
 //  DTOs d'entrée
 
 type WorkloadIDRequest struct {
-	ID string `path:"id" binding:"required" desc:"ID du workload"`
+	ID string `path:"id" binding:"required" description:"ID du conteneur"`
 }
 
 type ListWorkloadsRequest struct {
-	ProjectID string `query:"project_id" binding:"required" desc:"ID du projet parent"`
+	ProjectID string `query:"project_id" binding:"required" description:"ID du projet parent"`
 }
 
 // UpdateWorkloadParams : corps embarqué (encoding/json ignore « inline » :
@@ -61,17 +67,35 @@ type UpdateWorkloadParams struct {
 	domain.UpdateWorkloadRequest
 }
 
+// PatchVariablesParams : corps embarqué, comme UpdateWorkloadParams.
+type PatchVariablesParams struct {
+	ID string `path:"id" binding:"required"`
+	domain.PatchVariablesRequest
+}
+
+// AddDomainParams : corps embarqué.
+type AddDomainParams struct {
+	ID string `path:"id" binding:"required"`
+	domain.AddDomainRequest
+}
+
+// DomainPath : un domaine d'un conteneur.
+type DomainPath struct {
+	ID       string `path:"id" binding:"required"`
+	DomainID string `path:"domainID" binding:"required"`
+}
+
 type RollbackRequest struct {
 	ID       string `path:"id" binding:"required"`
-	Revision int    `json:"revision" desc:"Révision Helm cible (0 = précédente)"`
+	Revision int    `json:"revision" description:"Révision cible (0 = la précédente)"`
 }
 
 type LogsRequest struct {
 	ID           string `path:"id" binding:"required"`
 	Follow       bool   `query:"follow"`
 	Previous     bool   `query:"previous"`
-	TailLines    int64  `query:"tail"       desc:"Nombre de lignes depuis la fin (default 500)"`
-	SinceSeconds int64  `query:"since"      desc:"Lookback en secondes (default 24h)"`
+	TailLines    int64  `query:"tail"       description:"Nombre de lignes depuis la fin (défaut : 500)"`
+	SinceSeconds int64  `query:"since"      description:"Période à remonter, en secondes (défaut : 24 h)"`
 	Timestamps   bool   `query:"timestamps"`
 }
 
@@ -92,6 +116,84 @@ func (h *WorkloadController) CreateWorkload(c *gin.Context, in *domain.CreateWor
 		Namespace:  workload.Namespace,
 		Message:    "Deployment initiated successfully",
 	}, nil
+}
+
+func parseWorkload(raw string) (uuid.UUID, error) {
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil, betoerrors.New(betoerrors.CodeNotFound, "workload not found")
+	}
+	return id, nil
+}
+
+func parseDomain(in *DomainPath) (uuid.UUID, uuid.UUID, error) {
+	w, err := parseWorkload(in.ID)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
+	d, err := uuid.Parse(in.DomainID)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, domain.ErrDomainNotFound
+	}
+	return w, d, nil
+}
+
+// ListDomains : domaines et enregistrements DNS à créer.
+func (h *WorkloadController) ListDomains(c *gin.Context, in *WorkloadIDRequest) ([]domain.DomainResponse, error) {
+	id, err := parseWorkload(in.ID)
+	if err != nil {
+		return nil, err
+	}
+	return h.WorkloadService.ListDomains(c.Request.Context(), id)
+}
+
+// AddDomain : nouvelle demande, sans effet sur le routage.
+func (h *WorkloadController) AddDomain(c *gin.Context, in *AddDomainParams) (*domain.DomainResponse, error) {
+	id, err := parseWorkload(in.ID)
+	if err != nil {
+		return nil, err
+	}
+	return h.WorkloadService.AddDomain(c.Request.Context(), id, in.Hostname)
+}
+
+// VerifyDomain : vérifie la preuve TXT et, si elle est là, route le domaine.
+func (h *WorkloadController) VerifyDomain(c *gin.Context, in *DomainPath) (*domain.DomainResponse, error) {
+	w, d, err := parseDomain(in)
+	if err != nil {
+		return nil, err
+	}
+	return h.WorkloadService.VerifyDomain(c.Request.Context(), w, d)
+}
+
+// RemoveDomain : retire le domaine et sa route.
+func (h *WorkloadController) RemoveDomain(c *gin.Context, in *DomainPath) error {
+	w, d, err := parseDomain(in)
+	if err != nil {
+		return err
+	}
+	return h.WorkloadService.RemoveDomain(c.Request.Context(), w, d)
+}
+
+// ListVariables : variables et secrets, sans la valeur des secrets.
+func (h *WorkloadController) ListVariables(c *gin.Context, in *WorkloadIDRequest) (*domain.VariablesResponse, error) {
+	id, err := uuid.Parse(in.ID)
+	if err != nil {
+		return nil, betoerrors.New(betoerrors.CodeNotFound, "workload not found")
+	}
+	views, err := h.WorkloadService.ListVariables(c.Request.Context(), id)
+	if err != nil {
+		return nil, err
+	}
+	return &domain.VariablesResponse{Variables: views}, nil
+}
+
+// PatchVariables : modifie variables et secrets, et redéploie si besoin.
+func (h *WorkloadController) PatchVariables(c *gin.Context, in *PatchVariablesParams) (*domain.VariablesResponse, error) {
+	id, err := uuid.Parse(in.ID)
+	if err != nil {
+		return nil, betoerrors.New(betoerrors.CodeNotFound, "workload not found")
+	}
+	return h.WorkloadService.PatchVariables(c.Request.Context(), id, in.PatchVariablesRequest)
 }
 
 func (h *WorkloadController) GetWorkload(c *gin.Context, in *WorkloadIDRequest) (*domain.Workload, error) {

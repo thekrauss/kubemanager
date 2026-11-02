@@ -23,8 +23,8 @@ import "time"
 // ── Enroll ────────────────────────────────────────────────────────────────
 
 type EnrollRequest struct {
-	ClusterID string `json:"cluster_id" binding:"required" desc:"Identifiant unique du cluster (ex: prod-fr-north-1)"`
-	Version   string `json:"version"    binding:"required" desc:"Version du binaire watcher (ex: v1.0.0)"`
+	ClusterID string `json:"cluster_id" binding:"required" description:"Identifiant unique du cluster (ex: prod-fr-north-1)"`
+	Version   string `json:"version"    binding:"required" description:"Version du binaire watcher (ex: v1.0.0)"`
 }
 
 type EnrollResponse struct {

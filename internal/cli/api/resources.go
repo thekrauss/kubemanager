@@ -2,7 +2,8 @@ package api
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"github.com/thekrauss/kubemanager/internal/cli/i18n"
 	"io"
 	"net/http"
 	"net/url"
@@ -82,7 +83,7 @@ func (c *Client) FindDeployment(ctx context.Context, project, siteID, id string)
 			return &list[i], nil
 		}
 	}
-	return nil, fmt.Errorf("deployment %s not found", id)
+	return nil, errors.New(i18n.T("sites.deployment_not_found", id))
 }
 
 // Domain : domaine personnalisé d'un site, avec la cible DNS à configurer.

@@ -278,6 +278,28 @@ services:
     networks:
       - backend
 
+  # ── Registre d'images (builds) ──────────────────────────────────────────
+  # Authentification déléguée à l'API (jetons signés, voir
+  # internal/modules/builds/registry). Certificats : scripts/registry_dev_certs.sh.
+  # REGISTRY_BIND : passerelle du réseau k3d pour que pods et nœuds l'atteignent.
+  registry:
+    image: registry:3.0.0
+    ports:
+      - "${REGISTRY_BIND:-127.0.0.1}:5000:5000"
+    environment:
+      REGISTRY_AUTH_TOKEN_REALM: ${REGISTRY_TOKEN_REALM:-http://127.0.0.1:18080/kmanager/v1/registry/token}
+      REGISTRY_AUTH_TOKEN_SERVICE: betorun-registry
+      REGISTRY_AUTH_TOKEN_ISSUER: betorun
+      REGISTRY_AUTH_TOKEN_ROOTCERTBUNDLE: /certs/token.crt
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+      OTEL_TRACES_EXPORTER: none
+    volumes:
+      - registry-data:/var/lib/registry
+      - ./docker/registry/certs/token.crt:/certs/token.crt:ro
+    restart: unless-stopped
+    networks:
+      - backend
+
   static-edge:
     build:
       context: .
@@ -315,6 +337,7 @@ services:
 
 volumes:
   s3data:
+  registry-data:
   redisdata:
   k8sdbdata:
   grafanadata:

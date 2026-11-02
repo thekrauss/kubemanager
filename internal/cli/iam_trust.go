@@ -51,10 +51,10 @@ func newTrustList() *cobra.Command {
 				return err
 			}
 			if len(trusts) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), i18n.T("trust.list.empty", sa.AccountID))
+				printer(cmd).Hint(i18n.T("trust.list.empty", sa.AccountID))
 				return nil
 			}
-			tw := newTable(cmd)
+			tw := newTable(cmd, i18n.T("col.id"), i18n.T("col.issuer"), i18n.T("col.subject"), i18n.T("col.usage"))
 			for _, t := range trusts {
 				used := i18n.T("sa.keys.never_used")
 				if t.LastUsedAt != nil {
@@ -98,7 +98,7 @@ func newTrustGitHub() *cobra.Command {
 	var pullRequests bool
 	c := &cobra.Command{
 		Use: "github " + i18n.T("arg.sa"), Short: i18n.T("trust.github.short"), Args: cobra.ExactArgs(1),
-		Example: "  betorun iam sa trust github ci-deployer --repo sunupay/api                # branche main\n" +
+		Example: "  betorun iam sa trust github ci-deployer --repo sunupay/api  # " + i18n.T("ex.trust.main") + "\n" +
 			"  betorun iam sa trust github ci-deployer --repo sunupay/api --environment production\n" +
 			"  betorun iam sa trust github ci-deployer --repo sunupay/api --tag 'v*'",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -198,8 +198,8 @@ func createTrust(cmd *cobra.Command, saRef string, in api.FederationTrustInput, 
 		return err
 	}
 	out := cmd.OutOrStdout()
-	fmt.Fprintln(out, i18n.T("trust.create.ok", sa.AccountID, t.SubjectPattern))
-	fmt.Fprintln(out, i18n.T("trust.create.roles", sa.AccountID))
+	printer(cmd).Success(i18n.T("trust.create.ok", sa.AccountID, t.SubjectPattern))
+	printer(cmd).Hint(i18n.T("trust.create.roles", sa.AccountID))
 	fmt.Fprintln(out, "\n"+i18n.T("trust.create.snippet"))
 	target.APIURL, target.Project, target.ServiceAccount, target.Audience = s.APIURL, x.project, sa.Principal, audience
 	fmt.Fprintln(out, snippet(target))
@@ -274,7 +274,7 @@ func newTrustDelete() *cobra.Command {
 			if err := x.cl.DeleteTrust(cmd.Context(), x.project, sa.ID, args[1]); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("trust.delete.ok", args[1]))
+			printer(cmd).Success(i18n.T("trust.delete.ok", args[1]))
 			return nil
 		},
 	}

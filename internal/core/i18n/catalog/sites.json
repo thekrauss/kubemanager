@@ -102,5 +102,9 @@
  {
   "fr": "trop de fichiers : %d (maximum %d)",
   "en": "too many files: %d (maximum %d)"
+ },
+ {
+  "fr": "ce domaine est déjà rattaché à ce site",
+  "en": "this domain is already attached to this site"
  }
 ]

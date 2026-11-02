@@ -2,6 +2,10 @@ package repository
 
 import (
 	"context"
+	"errors"
+
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/thekrauss/kubemanager/internal/core/pgerr"
 
 	"github.com/google/uuid"
 	"github.com/thekrauss/kubemanager/internal/modules/utils"
@@ -15,8 +19,10 @@ type WorkloadRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Workload, error)
 	ListByProject(ctx context.Context, projectID uuid.UUID) ([]domain.Workload, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string, phase string) error
-	// UpdateSpec : image, taille du disque et URL publique d'une nouvelle version.
-	UpdateSpec(ctx context.Context, id uuid.UUID, image, storageSize, externalURL string) error
+	// UpdateSpec : nouvelle version (image, disque, URL publique, spec déclarative).
+	UpdateSpec(ctx context.Context, id uuid.UUID, image, storageSize, externalURL string, spec []byte) error
+	// UpdateRuntime : réplicas, limites, port et TLS (comptés dans les quotas).
+	UpdateRuntime(ctx context.Context, id uuid.UUID, replicas int, cpuLimit, memoryLimit string, targetPort int, tls bool) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	// DeleteByProject hard-deletes every workload row belonging to a project.
 	// Used by the delete-project saga after the K8s namespace is torn down.
@@ -32,8 +38,16 @@ func NewWorkloadRepository(db *gorm.DB) WorkloadRepository {
 	return &workloadRepository{db: db}
 }
 
+// ErrNameTaken : un conteneur du projet porte déjà ce nom (index unique).
+var ErrNameTaken = errors.New("a container with this name already exists in the project")
+
 func (r *workloadRepository) Create(ctx context.Context, workload *domain.Workload) error {
-	return r.db.WithContext(ctx).Create(workload).Error
+	err := r.db.WithContext(ctx).Create(workload).Error
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgerr.UniqueViolation {
+		return ErrNameTaken // deux créations simultanées du même nom
+	}
+	return err
 }
 
 func (r *workloadRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Workload, error) {
@@ -57,13 +71,26 @@ func (r *workloadRepository) UpdateStatus(ctx context.Context, id uuid.UUID, sta
 		}).Error
 }
 
-func (r *workloadRepository) UpdateSpec(ctx context.Context, id uuid.UUID, image, storageSize, externalURL string) error {
+func (r *workloadRepository) UpdateRuntime(ctx context.Context, id uuid.UUID, replicas int, cpuLimit, memoryLimit string, targetPort int, tls bool) error {
+	return r.db.WithContext(ctx).Model(&domain.Workload{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"replicas":     replicas,
+			"cpu_limit":    cpuLimit,
+			"memory_limit": memoryLimit,
+			"target_port":  targetPort,
+			"tls_enabled":  tls,
+		}).Error
+}
+
+func (r *workloadRepository) UpdateSpec(ctx context.Context, id uuid.UUID, image, storageSize, externalURL string, spec []byte) error {
 	return r.db.WithContext(ctx).Model(&domain.Workload{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
 			"image":         image,
 			"storage_size":  storageSize,
 			"external_url":  externalURL,
+			"spec":          spec,
 			"status":        utils.WorkloadStarting,
 			"current_phase": utils.PhaseHelmChartLoading,
 		}).Error
@@ -98,7 +125,7 @@ func (r *workloadRepository) GetTotalUsageByProject(ctx context.Context, project
 		totalMem += r.parseMemToMi(w.MemoryLimit) * replicas
 
 		if w.PersistenceEnabled {
-			totalStorage += r.parseSizeToGi(w.StorageSize)
+			totalStorage += r.parseSizeToMi(w.StorageSize)
 		}
 	}
 
@@ -123,10 +150,8 @@ func (r *workloadRepository) parseMemToMi(mem string) int64 {
 	return q.Value() / utils.BytesPerMi
 }
 
-func (r *workloadRepository) parseSizeToGi(size string) int64 {
-	q, err := resource.ParseQuantity(size)
-	if err != nil {
-		return 0
-	}
-	return q.Value() / utils.BytesPerGi
+// parseSizeToMi : même unité que les quotas du service (en Gi, le disque déjà
+// utilisé comptait 1024 fois moins que le disque demandé).
+func (r *workloadRepository) parseSizeToMi(size string) int64 {
+	return r.parseMemToMi(size)
 }

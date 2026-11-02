@@ -5,26 +5,26 @@ package domain
 // RequireProjectPermission vérifie l'appartenance au projet.
 
 type ProjectPath struct {
-	ProjectID string `path:"id" binding:"required" desc:"ID du projet"`
+	ProjectID string `path:"id" binding:"required" description:"ID du projet"`
 }
 
 type SitePath struct {
-	ProjectID string `path:"id" binding:"required" desc:"ID du projet"`
-	SiteID    string `path:"siteID" binding:"required" desc:"ID du site"`
+	ProjectID string `path:"id" binding:"required" description:"ID du projet"`
+	SiteID    string `path:"siteID" binding:"required" description:"ID du site"`
 }
 
 type CreateSiteRequest struct {
 	ProjectID string `path:"id" binding:"required"`
-	Name      string `json:"name" binding:"required" desc:"Nom du site (minuscules, chiffres, tirets)"`
+	Name      string `json:"name" binding:"required" description:"Nom du site (minuscules, chiffres, tirets)"`
 	// Subdomain : défaut = Name. Servi sur <subdomain>.<base_domain>.
-	Subdomain   string `json:"subdomain" desc:"Sous-domaine (défaut : le nom)"`
-	SPAFallback bool   `json:"spa_fallback" desc:"Renvoyer index.html pour les chemins inconnus (application monopage)"`
+	Subdomain   string `json:"subdomain" description:"Sous-domaine (défaut : le nom)"`
+	SPAFallback bool   `json:"spa_fallback" description:"Renvoyer index.html pour les chemins inconnus (application monopage)"`
 }
 
-// UploadPath : handler brut (wrapRawHandler → ShouldBindUri, tags `uri`).
+// UploadPath : handler brut (wrapRawHandler lit les mêmes étiquettes path: que tonic).
 type UploadPath struct {
-	ProjectID string `uri:"id" binding:"required"`
-	SiteID    string `uri:"siteID" binding:"required"`
+	ProjectID string `path:"id" binding:"required"`
+	SiteID    string `path:"siteID" binding:"required"`
 }
 
 type UpdateSiteRequest struct {
@@ -42,7 +42,7 @@ type DeploymentPath struct {
 type CreateDomainRequest struct {
 	ProjectID string `path:"id" binding:"required"`
 	SiteID    string `path:"siteID" binding:"required"`
-	Hostname  string `json:"hostname" binding:"required" desc:"Domaine personnalisé (ex: www.example.com)"`
+	Hostname  string `json:"hostname" binding:"required" description:"Domaine personnalisé (ex: www.example.com)"`
 }
 
 type DomainPath struct {
@@ -61,4 +61,18 @@ type SiteResponse struct {
 type DomainResponse struct {
 	SiteDomain
 	CNAMETarget string `json:"cname_target"`
+	// Records : preuve de propriété (TXT), puis routage (CNAME).
+	Records []DNSRecord `json:"records"`
+	// Pointing : le domaine pointe vers la plateforme (connu après une vérification).
+	Pointing bool `json:"pointing"`
 }
+
+// DNSRecord : enregistrement à créer chez le fournisseur DNS.
+type DNSRecord struct {
+	Type  string `json:"type"`
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// ChallengePrefix : nom de l'enregistrement TXT de preuve de propriété.
+const ChallengePrefix = "_betorun-challenge."

@@ -62,6 +62,8 @@ type mfaChallenge struct {
 	UserID  uuid.UUID `json:"user_id"`
 	Subject string    `json:"subject"`
 	Kind    string    `json:"kind"`
+	// AMR : méthode du premier facteur (mot de passe, google, github).
+	AMR []string `json:"amr,omitempty"`
 }
 
 func emailKey(email string) string {
@@ -138,29 +140,7 @@ func (s *service) PasswordLogin(ctx context.Context, in identitytypes.PasswordLo
 	audit.Annotate(ctx, "user", "user:"+user.ID.String())
 	kind := sessionKind(in.Client)
 
-	hasFactor, err := s.factors.HasFactor(ctx, user.ID)
-	if err != nil {
-		return nil, err
-	}
-	if hasFactor {
-		challenge, err := randomID()
-		if err != nil {
-			return nil, err
-		}
-		raw, _ := json.Marshal(mfaChallenge{UserID: user.ID, Subject: check.Subject, Kind: kind})
-		if err := s.stateStore.SetValue(ctx, "auth:mfa:"+challenge, string(raw), mfaChallengeTTL); err != nil {
-			return nil, ErrAuthUnavailable
-		}
-		return &identitytypes.AuthResponse{Status: identitytypes.AuthStatusMFARequired, Challenge: challenge}, nil
-	}
-	tokens, err := s.sessions.Create(ctx, auth.NewSession{UserID: user.ID, Kind: kind,
-		AMR: []string{auth.AMRPassword}, IP: cl.IP, UserAgent: cl.UserAgent})
-	if err != nil {
-		return nil, err
-	}
-	s.touchLastLogin(ctx, user)
-	audit.Annotate(ctx, "login", "succeeded")
-	return authResponse(tokens), nil
+	return s.completeLogin(ctx, user.ID, check.Subject, []string{auth.AMRPassword}, kind, cl)
 }
 
 // MFALogin : deuxième étape de la connexion.
@@ -188,8 +168,12 @@ func (s *service) MFALogin(ctx context.Context, in identitytypes.MFALoginRequest
 		return nil, err
 	}
 	_ = s.stateStore.DeleteValue(ctx, key)
+	amr := ch.AMR
+	if len(amr) == 0 {
+		amr = []string{auth.AMRPassword}
+	}
 	tokens, err := s.sessions.Create(ctx, auth.NewSession{UserID: ch.UserID, Kind: ch.Kind,
-		AMR: []string{auth.AMRPassword, auth.AMROTP}, MFA: true, IP: cl.IP, UserAgent: cl.UserAgent})
+		AMR: append(amr, auth.AMROTP), MFA: true, IP: cl.IP, UserAgent: cl.UserAgent})
 	if err != nil {
 		return nil, err
 	}

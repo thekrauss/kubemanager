@@ -18,7 +18,6 @@ import (
 	"github.com/thekrauss/kubemanager/internal/middleware"
 	"github.com/thekrauss/kubemanager/internal/middleware/security"
 	"github.com/wI2L/fizz"
-	"github.com/wI2L/fizz/openapi"
 	ginprometheus "github.com/zsais/go-gin-prometheus"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
@@ -132,12 +131,7 @@ func (a *App) startHTTPServer() {
 
 	f := fizz.NewFromEngine(engine)
 
-	infos := &openapi.Info{
-		Title:       "KUBE MANAGER API",
-		Description: "API K8s Manager",
-		Version:     "1.0.0",
-	}
-	_ = RegisterSchema(f, infos.Title, infos.Description, logrus.NewEntry(logrus.StandardLogger()))
+	_ = RegisterSchema(f, apiTitle, apiDescription, logrus.NewEntry(logrus.StandardLogger()))
 
 	AddAllRoutes(a)
 

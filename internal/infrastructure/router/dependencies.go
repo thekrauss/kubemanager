@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"fmt"
+	"github.com/thekrauss/kubemanager/internal/auth"
 	"strings"
 	"time"
 
@@ -353,6 +354,7 @@ func (a *App) initObjectStore(ctx context.Context) error {
 
 func (a *App) initRepositories() {
 	a.Logger.Info("itializing repositories...")
+	a.initVariableStore()
 	authRepo := repository.NewAuthRepository(a.DB)
 	projectRepo := projectRepos.NewProjectRepository(a.DB)
 	workloadRepo := workloadsRepo.NewWorkloadRepository(a.DB)
@@ -364,6 +366,24 @@ func (a *App) initRepositories() {
 		Site:     sitesRepo.NewSiteRepository(a.DB),
 	}
 }
+
+// initVariableStore : sans clé valide, déployer un conteneur échouera avec une
+// erreur explicite plutôt que de stocker des secrets en clair.
+func (a *App) initVariableStore() {
+	sealer, err := auth.NewSealer(a.Config.IAM.STSKeyEncryptionKey)
+	if err != nil {
+		a.Logger.Warnw("workload variables: encryption key missing or invalid, containers cannot be deployed", "error", err)
+		a.Variables = workloadsRepo.NewVariableStore(a.DB, unavailableSealer{err})
+		return
+	}
+	a.Variables = workloadsRepo.NewVariableStore(a.DB, sealer)
+}
+
+// unavailableSealer : clé de chiffrement absente.
+type unavailableSealer struct{ err error }
+
+func (u unavailableSealer) Seal([]byte, string) ([]byte, error) { return nil, u.err }
+func (u unavailableSealer) Open([]byte, string) ([]byte, error) { return nil, u.err }
 
 // initDomain : plus de seed de rôles, ils sont définis dans le code
 // (internal/iam/roles.go, migration 000007).

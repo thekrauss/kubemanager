@@ -1,6 +1,7 @@
 package workflows
 
 import (
+	"github.com/thekrauss/kubemanager/internal/modules/builds/registry"
 	"github.com/thekrauss/kubemanager/internal/modules/utils"
 	"github.com/thekrauss/kubemanager/internal/modules/workloads/activities"
 	"go.temporal.io/sdk/temporal"
@@ -16,9 +17,16 @@ type DeployWorkloadInput struct {
 	Namespace   string
 	ReleaseName string
 	Image       string
+	// PlatformImage : image du registre de la plateforme (Secret de pull requis).
+	PlatformImage bool
 
-	EnvVars map[string]string
-	Secrets map[string]string
+	// EnvRevision : version des variables à déployer. Les valeurs ne passent
+	// jamais par ici : tout ce qu'un workflow reçoit reste dans son historique.
+	EnvRevision int64
+
+	// CustomDomains : noms vérifiés à router vers ce conteneur.
+	CustomDomains   []string
+	CustomDomainTLS bool
 
 	// Routage public, calculé par le service (enregistré avec le workload) :
 	// ExternalHost vide = pas d'ingress.
@@ -95,13 +103,22 @@ func DeployWorkloadWorkflow(ctx workflow.Context, input DeployWorkloadInput) err
 		return err
 	}
 
-	secretData := mergeMaps(input.EnvVars, input.Secrets)
-	err = workflow.ExecuteActivity(ctx, helmActs.EnsureSecret,
-		input.Namespace, input.ReleaseName, input.ProjectID, secretData).Get(ctx, nil)
+	err = workflow.ExecuteActivity(ctx, helmActs.SyncEnvSecret,
+		input.Namespace, input.ReleaseName, input.ProjectID, input.WorkloadID, input.EnvRevision).Get(ctx, nil)
 	if err != nil {
 		workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
 			input.WorkloadID, input.ProjectID, utils.WorkloadFailed, utils.PhaseSecretCreateError)
 		return err
+	}
+
+	var pullSecrets []string
+	if input.PlatformImage {
+		if err := workflow.ExecuteActivity(ctx, helmActs.EnsureRegistryPullSecret, input.Namespace, input.ProjectID).Get(ctx, nil); err != nil {
+			workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
+				input.WorkloadID, input.ProjectID, utils.WorkloadFailed, utils.PhaseSecretCreateError)
+			return err
+		}
+		pullSecrets = []string{registry.PullSecretName}
 	}
 
 	workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
@@ -114,11 +131,13 @@ func DeployWorkloadWorkflow(ctx workflow.Context, input DeployWorkloadInput) err
 		Namespace:            input.Namespace,
 		ImageRepo:            imgInfo.Repository,
 		ImageTag:             imgInfo.Tag,
+		PullSecrets:          pullSecrets,
 		ExternalURL:          input.ExternalHost,
 		IngressClass:         input.IngressClass,
 		IngressNamespace:     input.IngressNamespace,
-		Env:                  input.EnvVars,
-		Secrets:              input.Secrets,
+		EnvRevision:          input.EnvRevision,
+		CustomDomains:        input.CustomDomains,
+		CustomDomainTLS:      input.CustomDomainTLS,
 		PersistenceEnabled:   input.PersistenceEnabled,
 		StorageSize:          input.StorageSize,
 		StorageClass:         input.StorageClass,
@@ -154,15 +173,4 @@ func DeployWorkloadWorkflow(ctx workflow.Context, input DeployWorkloadInput) err
 		input.WorkloadID, input.ProjectID, utils.WorkloadRunning, utils.PhaseDeployed).Get(ctx, nil)
 
 	return nil
-}
-
-func mergeMaps(a, b map[string]string) map[string]string {
-	out := make(map[string]string, len(a)+len(b))
-	for k, v := range a {
-		out[k] = v
-	}
-	for k, v := range b {
-		out[k] = v
-	}
-	return out
 }

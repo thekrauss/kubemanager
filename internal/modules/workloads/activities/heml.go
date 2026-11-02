@@ -2,33 +2,41 @@ package activities
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/helm/charts"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/storage/driver"
-	"sort"
+	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
+	"go.temporal.io/sdk/temporal"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
 	idempotency "github.com/thekrauss/kubemanager/internal/infrastructure/idempotence"
+	"github.com/thekrauss/kubemanager/internal/modules/builds/registry"
 	"github.com/thekrauss/kubemanager/internal/modules/utils"
+	"github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
 )
 
 // WorkloadActivities : activities Temporal pour déployer des workloads via Helm.
 // Idempotency (optionnel) déduplique InstallChart / EnsureSecret sur retry.
 type WorkloadActivities struct {
-	K8sConfig   *rest.Config
-	K8sClient   *kubernetes.Clientset
+	K8sConfig *rest.Config
+	K8sClient *kubernetes.Clientset
+	// Registry : registre de la plateforme (nil si builds désactivés).
+	Registry    *RegistryPull
 	Idempotency idempotency.AtomicManager
+	// Variables : valeurs chiffrées des variables des conteneurs.
+	Variables repository.VariableStore
 }
 
 // WorkloadIdentity : le workload s'exécute comme un compte de service ; ses
@@ -48,14 +56,20 @@ type InstallWorkloadInput struct {
 	Namespace    string
 	ImageRepo    string
 	ImageTag     string
+	PullSecrets  []string
 	ExternalURL  string
 	IngressClass string // vide : nginx
 	// IngressNamespace : espace du contrôleur d'ingress (vide : ingress-nginx).
 	IngressNamespace string
 	ServiceType      string // "ClusterIP" ou "LoadBalancer"
 
-	Env     map[string]string
-	Secrets map[string]string
+	// EnvRevision : change les pods quand les variables changent (annotation
+	// du Deployment), sans rien révéler de leurs valeurs.
+	EnvRevision int64
+
+	// CustomDomains : un Ingress par nom (voir le chart).
+	CustomDomains   []string
+	CustomDomainTLS bool
 
 	PersistenceEnabled bool
 	StorageSize        string
@@ -205,8 +219,8 @@ func buildHelmValues(input InstallWorkloadInput) map[string]any {
 	// Resources avec fallbacks sur les defaults restrictifs.
 	resources := map[string]any{
 		"requests": map[string]any{
-			"cpu":    fallback(input.CPURequest, defaultCPURequest),
-			"memory": fallback(input.MemoryRequest, defaultMemoryRequest),
+			"cpu":    requestWithin(input.CPURequest, defaultCPURequest, input.CPULimit),
+			"memory": requestWithin(input.MemoryRequest, defaultMemoryRequest, input.MemoryLimit),
 		},
 		"limits": map[string]any{
 			"cpu":    fallback(input.CPULimit, defaultCPULimit),
@@ -249,8 +263,9 @@ func buildHelmValues(input InstallWorkloadInput) map[string]any {
 			"workloadID": input.WorkloadID,
 		},
 		"image": map[string]any{
-			"repository": input.ImageRepo,
-			"tag":        input.ImageTag,
+			"repository":  input.ImageRepo,
+			"tag":         input.ImageTag,
+			"pullSecrets": input.PullSecrets,
 		},
 		"service": map[string]any{
 			"type":       fallback(input.ServiceType, defaultServiceType),
@@ -267,6 +282,9 @@ func buildHelmValues(input InstallWorkloadInput) map[string]any {
 				"clusterIssuer": defaultClusterIssuer,
 			},
 		},
+		"customDomains":            customDomainValues(input.CustomDomains),
+		"customDomainTLS":          input.CustomDomainTLS,
+		"customDomainIssuer":       defaultClusterIssuer,
 		"resources":                resources,
 		"podSecurityContext":       podSec,
 		"containerSecurityContext": containerSec,
@@ -344,30 +362,10 @@ func buildHelmValues(input InstallWorkloadInput) map[string]any {
 		"envSecretName": utils.EnvSecretName(input.ReleaseName),
 		// Empreinte du contenu : change → nouveaux pods (le Secret seul ne
 		// relance rien, et le nom du Secret, lui, ne change jamais).
-		"envChecksum": envChecksum(input.Env, input.Secrets),
+		"envChecksum": strconv.FormatInt(input.EnvRevision, 10),
 	}
 
 	return vals
-}
-
-// envChecksum : empreinte stable des variables (clés triées).
-func envChecksum(maps ...map[string]string) string {
-	merged := map[string]string{}
-	for _, m := range maps {
-		for k, v := range m {
-			merged[k] = v
-		}
-	}
-	keys := make([]string, 0, len(merged))
-	for k := range merged {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	h := sha256.New()
-	for _, k := range keys {
-		fmt.Fprintf(h, "%d:%s=%d:%s;", len(k), k, len(merged[k]), merged[k])
-	}
-	return hex.EncodeToString(h.Sum(nil))
 }
 
 // defaultEgressPublicPorts : ports TCP sortants autorisés vers Internet
@@ -389,35 +387,110 @@ func fallbackInt32(v, def int32) int32 {
 	return v
 }
 
-func (a *WorkloadActivities) EnsureSecret(ctx context.Context, nsNam, releaseName, projectID string, data map[string]string) error {
-	payload := struct {
-		NS, Release, ProjectID string
-		Data                   map[string]string
-	}{nsNam, releaseName, projectID, data}
+// requestWithin : réservation demandée, sinon le défaut ramené à la limite.
+// Kubernetes refuse une réservation supérieure à la limite : une limite basse
+// (légitime) échouait en plein déploiement à cause de la valeur par défaut.
+func requestWithin(requested, def, limit string) string {
+	if requested != "" {
+		return requested
+	}
+	d, err := resource.ParseQuantity(def)
+	l, lerr := resource.ParseQuantity(limit)
+	if err == nil && lerr == nil && l.Cmp(d) < 0 {
+		return limit
+	}
+	return def
+}
 
-	_, _, err := idempotency.ExecuteActivity(ctx, a.Idempotency, payload,
-		idempotency.ActivityOptions{ProcessingTTL: ensureSecretProcessingTTL},
-		func() (struct{}, error) {
-			secretName := utils.EnvSecretName(releaseName)
-			_, err := a.K8sClient.CoreV1().Secrets(nsNam).Get(ctx, secretName, metav1.GetOptions{})
+func customDomainValues(hosts []string) []any {
+	out := make([]any, 0, len(hosts))
+	for _, h := range hosts {
+		out = append(out, h)
+	}
+	return out
+}
 
-			secret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      secretName,
-					Namespace: nsNam,
-					Labels:    map[string]string{utils.LabelKmProjectID: projectID},
-				},
-				StringData: data,
-			}
-			if err != nil {
-				_, err = a.K8sClient.CoreV1().Secrets(nsNam).Create(ctx, secret, metav1.CreateOptions{})
-			} else {
-				_, err = a.K8sClient.CoreV1().Secrets(nsNam).Update(ctx, secret, metav1.UpdateOptions{})
-			}
-			return struct{}{}, err
-		},
-	)
+// SyncEnvSecret : écrit le Secret Kubernetes depuis les valeurs chiffrées en
+// base, lues ici : ni l'entrée ni le résultat de l'activité ne contiennent de
+// valeur. Revision 0 : conteneur antérieur, son Secret reste tel quel.
+func (a *WorkloadActivities) SyncEnvSecret(ctx context.Context, namespace, releaseName, projectID, workloadID string, revision int64) error {
+	if revision == 0 {
+		return nil
+	}
+	id, err := uuid.Parse(workloadID)
+	if err != nil {
+		return temporal.NewNonRetryableApplicationError("invalid workload id", "INVALID_INPUT", err)
+	}
+	values, err := a.Variables.Values(ctx, id)
+	if err != nil {
+		return err
+	}
+	data := make(map[string][]byte, len(values))
+	for k, v := range values {
+		data[k] = []byte(v)
+	}
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: utils.EnvSecretName(releaseName), Namespace: namespace,
+			Labels: map[string]string{utils.LabelKmProjectID: projectID}},
+		Data: data,
+	}
+	api := a.K8sClient.CoreV1().Secrets(namespace)
+	if _, err := api.Create(ctx, secret, metav1.CreateOptions{}); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		_, err = api.Update(ctx, secret, metav1.UpdateOptions{})
+		return err
+	}
+	return nil
+}
+
+// DeleteEnvSecret : Secret des variables d'un conteneur supprimé.
+func (a *WorkloadActivities) DeleteEnvSecret(ctx context.Context, namespace, releaseName string) error {
+	err := a.K8sClient.CoreV1().Secrets(namespace).Delete(ctx, utils.EnvSecretName(releaseName), metav1.DeleteOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
 	return err
+}
+
+// RegistryPull : de quoi créer le Secret de pull d'un projet.
+type RegistryPull struct {
+	Host  string
+	Creds registry.Credentials
+}
+
+// EnsureRegistryPullSecret : identifiant de lecture du registre, limité aux
+// images de ce projet. Le secret reste hors de l'historique Temporal : il est
+// dérivé ici, côté worker.
+func (a *WorkloadActivities) EnsureRegistryPullSecret(ctx context.Context, namespace, projectID string) error {
+	if a.Registry == nil {
+		return temporal.NewNonRetryableApplicationError("platform registry disabled", "REGISTRY_DISABLED", nil)
+	}
+	project, err := uuid.Parse(projectID)
+	if err != nil {
+		return temporal.NewNonRetryableApplicationError("invalid project id", "INVALID_INPUT", err)
+	}
+	user, password := a.Registry.Creds.ForPull(project)
+	raw, err := registry.DockerConfigJSON(a.Registry.Host, user, password)
+	if err != nil {
+		return err
+	}
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: registry.PullSecretName, Namespace: namespace,
+			Labels: map[string]string{utils.LabelKmProjectID: projectID}},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{corev1.DockerConfigJsonKey: raw},
+	}
+	api := a.K8sClient.CoreV1().Secrets(namespace)
+	if _, err := api.Create(ctx, secret, metav1.CreateOptions{}); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		_, err = api.Update(ctx, secret, metav1.UpdateOptions{})
+		return err
+	}
+	return nil
 }
 
 func identityValues(id *WorkloadIdentity) map[string]any {

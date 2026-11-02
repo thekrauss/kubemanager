@@ -108,7 +108,13 @@ func TestE2E_ServiceAccountsAndKeys(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rec.Code, "restriction : un seul site")
 	assert.Contains(t, rec.Body.String(), "restrictions")
 
-	typo := created.Key[:len(created.Key)-1] + "x"
+	// Dernier caractère réellement changé (une clé qui finit déjà par « x »
+	// rendait ce test instable : la « fausse » clé était la vraie).
+	last := "x"
+	if strings.HasSuffix(created.Key, "x") {
+		last = "y"
+	}
+	typo := created.Key[:len(created.Key)-1] + last
 	assert.Equal(t, http.StatusUnauthorized, call(http.MethodPost, deploy, typo, "").Code)
 
 	// Mauvais pepper : la base seule ne suffit pas à valider une clé.

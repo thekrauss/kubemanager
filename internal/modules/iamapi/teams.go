@@ -10,7 +10,7 @@ import (
 // ── Ascendance d'une ressource ───────────────────────────────────────────
 
 type AncestryRequest struct {
-	Resource string `query:"resource" binding:"required" desc:"projects/<uuid> ou organizations/<uuid>"`
+	Resource string `query:"resource" binding:"required" description:"projects/<uuid> ou organizations/<uuid>"`
 }
 
 type AncestryResponse struct {
@@ -40,22 +40,22 @@ func (h *Controller) Ancestry(c *gin.Context, in *AncestryRequest) (*AncestryRes
 // ── Rôles personnalisés ──────────────────────────────────────────────────
 
 type ListCustomRolesRequest struct {
-	Parent string `query:"parent" binding:"required" desc:"organizations/<uuid> ou projects/<uuid>"`
+	Parent string `query:"parent" binding:"required" description:"organizations/<uuid> ou projects/<uuid>"`
 }
 
 type CreateCustomRoleRequest struct {
-	Parent string `json:"parent" binding:"required" desc:"organizations/<uuid> ou projects/<uuid>"`
-	RoleID string `json:"role_id" binding:"required" desc:"3-64 caractères : lettres, chiffres, '_' ou '.' (ex: ciDeployer)"`
+	Parent string `json:"parent" binding:"required" description:"organizations/<uuid> ou projects/<uuid>"`
+	RoleID string `json:"role_id" binding:"required" description:"3-64 caractères : lettres, chiffres, '_' ou '.' (ex: ciDeployer)"`
 	iam.CustomRoleInput
 }
 
 type CustomRoleNameRequest struct {
-	Name string `query:"name" binding:"required" desc:"organizations|projects/<uuid>/roles/<id>"`
+	Name string `query:"name" binding:"required" description:"organizations|projects/<uuid>/roles/<id>"`
 }
 
 type UpdateCustomRoleRequest struct {
 	Name string `json:"name" binding:"required"`
-	Etag string `json:"etag" binding:"required" desc:"Etag lu (écritures concurrentes refusées)"`
+	Etag string `json:"etag" binding:"required" description:"Etag lu (écritures concurrentes refusées)"`
 	iam.CustomRoleInput
 }
 
@@ -104,7 +104,7 @@ type GroupPath struct {
 
 type CreateGroupRequest struct {
 	OrgID       string `path:"id" binding:"required"`
-	GroupID     string `json:"group_id" binding:"required" desc:"3-63 caractères : minuscules, chiffres, tirets (ex: equipe-paiement)"`
+	GroupID     string `json:"group_id" binding:"required" description:"3-63 caractères : minuscules, chiffres, tirets (ex: equipe-paiement)"`
 	DisplayName string `json:"display_name"`
 	Description string `json:"description"`
 }
@@ -119,13 +119,13 @@ type UpdateGroupRequest struct {
 type AddGroupMemberRequest struct {
 	OrgID   string `path:"id" binding:"required"`
 	GroupID string `path:"groupID" binding:"required"`
-	Member  string `json:"member" binding:"required" desc:"user:<email|uuid> ou serviceAccount:<uuid>"`
+	Member  string `json:"member" binding:"required" description:"user:<email|uuid> ou serviceAccount:<uuid>"`
 }
 
 type GroupMemberPath struct {
 	OrgID   string `path:"id" binding:"required"`
 	GroupID string `path:"groupID" binding:"required"`
-	Member  string `query:"member" binding:"required" desc:"Principal du membre (user:<uuid>, serviceAccount:<uuid>)"`
+	Member  string `query:"member" binding:"required" description:"Principal du membre (user:<uuid>, serviceAccount:<uuid>)"`
 }
 
 func (h *Controller) ListGroups(c *gin.Context, in *OrgPath) ([]iam.Group, error) {

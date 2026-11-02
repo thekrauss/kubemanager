@@ -35,6 +35,14 @@ func DeleteWorkloadWorkflow(ctx workflow.Context, input DeleteWorkloadInput) err
 		return err
 	}
 
+	// Hors de la release Helm : sans cela, les valeurs survivaient au conteneur.
+	if err := workflow.ExecuteActivity(ctx, helmActs.DeleteEnvSecret,
+		input.Namespace, input.ReleaseName).Get(ctx, nil); err != nil {
+		_ = workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
+			input.WorkloadID, input.ProjectID, utils.WorkloadDeleteFailed, utils.PhaseHelmUninstallErr).Get(ctx, nil)
+		return err
+	}
+
 	if err := workflow.ExecuteActivity(ctx, dbActs.SoftDeleteWorkload,
 		input.WorkloadID, input.ProjectID).Get(ctx, nil); err != nil {
 		_ = workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,

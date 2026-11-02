@@ -12,6 +12,8 @@ func newMultipart(w io.Writer) *multipartWriter { return &multipartWriter{w: mul
 
 func (m *multipartWriter) contentType() string { return m.w.FormDataContentType() }
 
+func (m *multipartWriter) writeField(name, value string) error { return m.w.WriteField(name, value) }
+
 func (m *multipartWriter) writeFile(field, filename string, data io.Reader) error {
 	part, err := m.w.CreateFormFile(field, filename)
 	if err != nil {

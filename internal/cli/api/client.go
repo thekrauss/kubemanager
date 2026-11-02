@@ -91,7 +91,12 @@ func (c *Client) token(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	c.creds = &config.Credentials{AccessToken: out.AccessToken, RefreshToken: out.RefreshToken,
+	refresh := out.RefreshToken
+	if refresh == "" {
+		// Jeton tout juste remplacé par une requête simultanée : l'actuel reste valable.
+		refresh = c.creds.RefreshToken
+	}
+	c.creds = &config.Credentials{AccessToken: out.AccessToken, RefreshToken: refresh,
 		ExpiresAt: c.now().Add(time.Duration(out.ExpiresIn) * time.Second)}
 	if err := config.SaveCredentials(c.creds); err != nil {
 		return "", err
@@ -139,6 +144,11 @@ func (c *Client) DoPublic(ctx context.Context, method, path string, body, out an
 
 // Upload : envoi multipart (champ field) authentifié.
 func (c *Client) Upload(ctx context.Context, path, field, filename string, data io.Reader, out any) error {
+	return c.UploadWithFields(ctx, path, nil, field, filename, data, out)
+}
+
+// UploadWithFields : envoi multipart avec des champs avant le fichier.
+func (c *Client) UploadWithFields(ctx context.Context, path string, fields map[string]string, field, filename string, data io.Reader, out any) error {
 	tok, err := c.token(ctx)
 	if err != nil {
 		return err
@@ -146,6 +156,12 @@ func (c *Client) Upload(ctx context.Context, path, field, filename string, data 
 	pr, pw := io.Pipe()
 	mw := newMultipart(pw)
 	go func() {
+		for k, v := range fields {
+			if err := mw.writeField(k, v); err != nil {
+				pw.CloseWithError(err)
+				return
+			}
+		}
 		pw.CloseWithError(mw.writeFile(field, filename, data))
 	}()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+path, pr)

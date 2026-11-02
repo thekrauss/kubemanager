@@ -4,20 +4,22 @@ import (
 	controller "github.com/thekrauss/kubemanager/internal/modules/auth"
 	authRepos "github.com/thekrauss/kubemanager/internal/modules/auth/repository"
 	authSvc "github.com/thekrauss/kubemanager/internal/modules/auth/service"
+	"github.com/thekrauss/kubemanager/internal/modules/builds"
 	clustersCtrl "github.com/thekrauss/kubemanager/internal/modules/clusters"
+	"github.com/thekrauss/kubemanager/internal/modules/github"
+	"github.com/thekrauss/kubemanager/internal/modules/iamapi"
 	identity "github.com/thekrauss/kubemanager/internal/modules/identity"
 	identitySvc "github.com/thekrauss/kubemanager/internal/modules/identity/service"
 	"github.com/thekrauss/kubemanager/internal/modules/projects"
-	realtimeCtrl "github.com/thekrauss/kubemanager/internal/modules/realtime"
 	projectRepos "github.com/thekrauss/kubemanager/internal/modules/projects/repository"
 	projectSvc "github.com/thekrauss/kubemanager/internal/modules/projects/service"
-	workload "github.com/thekrauss/kubemanager/internal/modules/workloads"
-	workloadsRepo "github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
-	workloadsSvc "github.com/thekrauss/kubemanager/internal/modules/workloads/service"
-	"github.com/thekrauss/kubemanager/internal/modules/iamapi"
+	realtimeCtrl "github.com/thekrauss/kubemanager/internal/modules/realtime"
 	"github.com/thekrauss/kubemanager/internal/modules/sites"
 	sitesRepo "github.com/thekrauss/kubemanager/internal/modules/sites/repository"
 	sitesSvc "github.com/thekrauss/kubemanager/internal/modules/sites/service"
+	workload "github.com/thekrauss/kubemanager/internal/modules/workloads"
+	workloadsRepo "github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
+	workloadsSvc "github.com/thekrauss/kubemanager/internal/modules/workloads/service"
 )
 
 type RepositoryContainer struct {
@@ -49,6 +51,8 @@ type ControllerContainer struct {
 	Clusters clustersCtrl.IClusterController
 	Site     sites.ISiteController // nil si sites désactivés
 	IAM      *iamapi.Controller
+	Builds   *builds.Controller // nil si builds désactivés
+	GitHub   *github.Controller
 }
 
 func AddAllRoutes(a *App) {
@@ -60,5 +64,7 @@ func AddAllRoutes(a *App) {
 	addRealtimeRoutes(a)
 	addClusterRoutes(a)
 	addSiteRoutes(a)
+	addBuildRoutes(a)
+	addGitHubRoutes(a)
 	addIAMRoutes(a)
 }

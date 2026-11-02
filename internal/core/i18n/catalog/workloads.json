@@ -46,5 +46,69 @@
  {
   "fr": "Un conteneur porte déjà ce nom dans le projet",
   "en": "a container with this name already exists in the project"
+ },
+ {
+  "fr": "Limite CPU invalide : %s",
+  "en": "invalid CPU limit: %s"
+ },
+ {
+  "fr": "Limite mémoire invalide : %s",
+  "en": "invalid memory limit: %s"
+ },
+ {
+  "fr": "Le nombre de répliques doit être positif",
+  "en": "replicas must be positive"
+ },
+ {
+  "fr": "Nom de variable invalide : lettres, chiffres et tirets bas, sans commencer par un chiffre",
+  "en": "invalid variable name: letters, digits and underscores, not starting with a digit"
+ },
+ {
+  "fr": "Valeur de variable trop grande (64 Kio maximum)",
+  "en": "variable value too large (64 KiB maximum)"
+ },
+ {
+  "fr": "Trop de variables pour ce conteneur (200 au maximum, 768 Kio au total)",
+  "en": "too many variables for this container (200 maximum, 768 KiB in total)"
+ },
+ {
+  "fr": "Ce conteneur est arrêté : démarrez-le avant de modifier ses variables",
+  "en": "this container is stopped: start it before changing its variables"
+ },
+ {
+  "fr": "Un déploiement de ce conteneur est en cours : attendez qu'il se termine",
+  "en": "a deployment of this container is in progress: wait for it to finish"
+ },
+ {
+  "fr": "Domaine introuvable",
+  "en": "domain not found"
+ },
+ {
+  "fr": "Ce domaine est déjà rattaché à ce conteneur",
+  "en": "this domain is already attached to this container"
+ },
+ {
+  "fr": "Ce domaine est déjà utilisé sur betorun",
+  "en": "this domain is already in use on betorun"
+ },
+ {
+  "fr": "Trop de domaines pour ce conteneur (10 au maximum)",
+  "en": "too many domains for this container (10 maximum)"
+ },
+ {
+  "fr": "Les domaines personnalisés sont indisponibles : la plateforme n'a pas d'adresse publique",
+  "en": "custom domains are not available: the platform has no public address"
+ },
+ {
+  "fr": "Ce nom de domaine n'est pas disponible",
+  "en": "registrar: domain not available"
+ },
+ {
+  "fr": "Cette extension n'est pas vendue par ce fournisseur",
+  "en": "registrar: extension not sold by this registrar"
+ },
+ {
+  "fr": "Un même nom ne peut pas être défini et supprimé, ni être à la fois une variable et un secret, dans une même requête",
+  "en": "the same name cannot be set and removed, or be both a variable and a secret, in one request"
  }
 ]

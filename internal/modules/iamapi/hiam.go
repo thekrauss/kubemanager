@@ -40,12 +40,12 @@ func NewController(policies *iam.PolicyService, engine *iam.Engine, sa *iam.Serv
 }
 
 type GetPolicyRequest struct {
-	Resource string `query:"resource" binding:"required" desc:"Nom de la ressource (ex: projects/<uuid>)"`
+	Resource string `query:"resource" binding:"required" description:"Nom de la ressource (ex: projects/<uuid>)"`
 }
 
 type SetPolicyRequest struct {
-	Resource string     `json:"resource" binding:"required" desc:"Nom de la ressource (ex: projects/<uuid>)"`
-	Policy   iam.Policy `json:"policy" binding:"required" desc:"Policy complète, avec l'etag lu par GET /iam/policy"`
+	Resource string     `json:"resource" binding:"required" description:"Nom de la ressource (ex: projects/<uuid>)"`
+	Policy   iam.Policy `json:"policy" binding:"required" description:"Policy complète, avec l'etag lu par GET /iam/policy"`
 }
 
 type TestPermissionsRequest struct {
@@ -154,12 +154,12 @@ type ServiceAccountPath struct {
 type APIKeyPath struct {
 	ProjectID string `path:"id" binding:"required"`
 	SAID      string `path:"saID" binding:"required"`
-	KeyID     string `path:"keyID" binding:"required" desc:"Identifiant public de la clé (key_id)"`
+	KeyID     string `path:"keyID" binding:"required" description:"Identifiant public de la clé (key_id)"`
 }
 
 type CreateServiceAccountRequest struct {
 	ProjectID   string `path:"id" binding:"required"`
-	AccountID   string `json:"account_id" binding:"required" desc:"6-30 caractères : minuscules, chiffres, tirets (ex: ci-deployer)"`
+	AccountID   string `json:"account_id" binding:"required" description:"6-30 caractères : minuscules, chiffres, tirets (ex: ci-deployer)"`
 	DisplayName string `json:"display_name"`
 	Description string `json:"description"`
 }
@@ -168,9 +168,9 @@ type CreateAPIKeyRequest struct {
 	ProjectID     string              `path:"id" binding:"required"`
 	SAID          string              `path:"saID" binding:"required"`
 	DisplayName   string              `json:"display_name"`
-	Env           string              `json:"env" desc:"live (défaut) ou test"`
-	ExpiresInDays int                 `json:"expires_in_days" desc:"1 à 90 jours (défaut 90)"`
-	Restrictions  iam.KeyRestrictions `json:"restrictions" desc:"Permissions, ressources et plages IP autorisées (toutes optionnelles)"`
+	Env           string              `json:"env" description:"live (défaut) ou test"`
+	ExpiresInDays int                 `json:"expires_in_days" description:"1 à 90 jours (défaut 90)"`
+	Restrictions  iam.KeyRestrictions `json:"restrictions" description:"Permissions, ressources et plages IP autorisées (toutes optionnelles)"`
 }
 
 func ids(raw ...string) ([]uuid.UUID, error) {
@@ -267,9 +267,9 @@ func (h *Controller) RevokeAPIKey(c *gin.Context, in *APIKeyPath) error {
 // ── Journal d'audit ───────────────────────────────────────────────────────
 
 type AuditLogsRequest struct {
-	Resource string `query:"resource" binding:"required" desc:"organizations/<uuid>, projects/<uuid> ou une sous-ressource"`
-	BeforeID int64  `query:"before_id" desc:"Curseur : entrées plus anciennes que cet id"`
-	Limit    int    `query:"limit" desc:"1 à 200 (défaut 50)"`
+	Resource string `query:"resource" binding:"required" description:"organizations/<uuid>, projects/<uuid> ou une sous-ressource"`
+	BeforeID int64  `query:"before_id" description:"Curseur : entrées plus anciennes que cet id"`
+	Limit    int    `query:"limit" description:"1 à 200 (défaut 50)"`
 }
 
 type AuditLogsResponse struct {

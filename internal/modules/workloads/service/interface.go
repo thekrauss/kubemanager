@@ -15,6 +15,12 @@ type IWorkloadService interface {
 	Get(ctx context.Context, id uuid.UUID) (*domain.Workload, error)
 	List(ctx context.Context, projectID uuid.UUID) ([]domain.Workload, error)
 	Update(ctx context.Context, id string, req domain.UpdateWorkloadRequest) error
+	ListDomains(ctx context.Context, workload uuid.UUID) ([]domain.DomainResponse, error)
+	AddDomain(ctx context.Context, workload uuid.UUID, hostname string) (*domain.DomainResponse, error)
+	VerifyDomain(ctx context.Context, workload, id uuid.UUID) (*domain.DomainResponse, error)
+	RemoveDomain(ctx context.Context, workload, id uuid.UUID) error
+	ListVariables(ctx context.Context, id uuid.UUID) ([]domain.VariableView, error)
+	PatchVariables(ctx context.Context, id uuid.UUID, req domain.PatchVariablesRequest) (*domain.VariablesResponse, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 
 	//  Lifecycle K8s (scaling / rollout)

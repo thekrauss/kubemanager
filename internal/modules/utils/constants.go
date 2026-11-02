@@ -27,7 +27,10 @@ const ProjectStatusUnknown = "UNKNOWN_STATE"
 
 // Statuts d'un workload (colonne workloads.status, exposés tels quels en JSON).
 const (
-	WorkloadStarting     = "STARTING"
+	WorkloadStarting = "STARTING"
+	// WorkloadBuilding : conteneur créé depuis un dépôt, première image en
+	// construction : encore rien à faire tourner.
+	WorkloadBuilding     = "BUILDING"
 	WorkloadRunning      = "RUNNING"
 	WorkloadDegraded     = "DEGRADED"
 	WorkloadFailed       = "FAILED"
@@ -47,6 +50,8 @@ const (
 
 // Phases d'un workload (colonne workloads.current_phase).
 const (
+	PhaseBuildRunning          = "BUILD_RUNNING"
+	PhaseBuildFailed           = "BUILD_FAILED"
 	PhaseHelmChartLoading      = "HELM_CHART_LOADING"
 	PhaseHelmValuesInjecting   = "HELM_VALUES_INJECTING"
 	PhaseHelmReleaseInstalling = "HELM_INSTALLING"

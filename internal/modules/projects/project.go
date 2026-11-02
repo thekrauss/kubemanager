@@ -37,7 +37,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context, in *typeiam.CreateProject
 }
 
 type GetProjectStatusRequest struct {
-	ProjectID string `path:"id" desc:"ID du projet"`
+	ProjectID string `path:"id" description:"ID du projet"`
 }
 
 func (h *ProjectHandler) GetProjectStatus(c *gin.Context, in *GetProjectStatusRequest) (*typeiam.ProjectStatusResponse, error) {

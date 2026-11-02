@@ -48,6 +48,11 @@ ingress:
     # secretName : si fourni, utilise un Secret TLS existant (pas de cert-manager).
     secretName: ""
 
+# Domaines personnalisés vérifiés (voir templates/custom-domains.yaml).
+customDomains: []
+customDomainTLS: true
+customDomainIssuer: "letsencrypt-prod"
+
 # Resources  defaults "starter" type Heroku eco. L'API override selon le plan user.
 resources:
   requests:

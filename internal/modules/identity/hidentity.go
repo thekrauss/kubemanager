@@ -30,11 +30,6 @@ type Controller interface {
 	ForgotPassword(c *gin.Context, in *identitytypes.ForgotPasswordRequest) error
 	ChangePassword(c *gin.Context, in *identitytypes.ChangePasswordRequest) error
 
-	// Login hébergé (PKCE) + social — callback commun SocialCallback
-	LoginURL(c *gin.Context, in *identitytypes.LoginURLQuery) (*identitytypes.LoginURLResponse, error)
-	SocialLoginURL(c *gin.Context, in *identitytypes.SocialLoginURLQuery) (*identitytypes.SocialLoginURLResponse, error)
-	SocialCallback(c *gin.Context, in *identitytypes.SocialCallbackQuery) (*identitytypes.LoginResponse, error)
-
 	// CLI : flux device (RFC 8628)
 	DeviceCode(c *gin.Context)
 	DeviceToken(c *gin.Context)
@@ -182,60 +177,6 @@ func (ctrl *controller) ChangePassword(c *gin.Context, in *identitytypes.ChangeP
 	}
 	sid, _ := security.SessionID(c)
 	return ctrl.service.ChangePassword(c.Request.Context(), keycloakUserID, sid, in.CurrentPassword, in.NewPassword)
-}
-
-// ── Login hébergé (Authorization Code + PKCE) ─────────────────────────────
-
-func (ctrl *controller) LoginURL(c *gin.Context, in *identitytypes.LoginURLQuery) (*identitytypes.LoginURLResponse, error) {
-	if ctrl == nil || ctrl.service == nil {
-		return nil, identitysvc.ErrIdentityServiceUnavailable
-	}
-	if in == nil {
-		return nil, betoerrors.New(betoerrors.CodeInvalidInput, "input is required")
-	}
-	loginURL, err := ctrl.service.LoginURL(c.Request.Context(), in.RedirectURI,
-		identitysvc.LoginOptions{StepUp: in.StepUp, CLI: in.Client == "cli"})
-	if err != nil {
-		return nil, err
-	}
-	return &identitytypes.LoginURLResponse{URL: loginURL}, nil
-}
-
-// ── Social login ──────────────────────────────────────────────────────────
-
-func (ctrl *controller) SocialLoginURL(c *gin.Context, in *identitytypes.SocialLoginURLQuery) (*identitytypes.SocialLoginURLResponse, error) {
-	if ctrl == nil || ctrl.service == nil {
-		return nil, identitysvc.ErrIdentityServiceUnavailable
-	}
-	if in == nil {
-		return nil, betoerrors.New(betoerrors.CodeInvalidInput, "input is required")
-	}
-	loginURL, err := ctrl.service.SocialLoginURL(c.Request.Context(), in.Provider, in.RedirectURI)
-	if err != nil {
-		return nil, err
-	}
-	return &identitytypes.SocialLoginURLResponse{URL: loginURL, Provider: in.Provider}, nil
-}
-
-func (ctrl *controller) SocialCallback(c *gin.Context, in *identitytypes.SocialCallbackQuery) (*identitytypes.LoginResponse, error) {
-	if ctrl == nil || ctrl.service == nil {
-		return nil, identitysvc.ErrIdentityServiceUnavailable
-	}
-	if in == nil {
-		return nil, betoerrors.New(betoerrors.CodeInvalidInput, "input is required")
-	}
-	result, err := ctrl.service.HandleSocialCallback(c.Request.Context(), in.Code, in.State, in.RedirectURI)
-	if err != nil {
-		return nil, err
-	}
-	return &identitytypes.LoginResponse{
-		AccessToken:    result.AccessToken,
-		RefreshToken:   result.RefreshToken,
-		ExpiresIn:      result.ExpiresIn,
-		KeycloakUserID: result.KeycloakUserID,
-		Email:          result.Email,
-		Bootstrapped:   result.Bootstrapped,
-	}, nil
 }
 
 // ── Verification ──────────────────────────────────────────────────────────

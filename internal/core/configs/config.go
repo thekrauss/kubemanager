@@ -11,20 +11,22 @@ import (
 )
 
 type GlobalConfig struct {
-	ServiceName  string             `mapstructure:"service_name"`
-	ProjectID    string             `mapstructure:"project_id"`
-	Logger       logger.Config      `mapstructure:"logger"`
-	Server       ServerConfig       `mapstructure:"server"`
-	Database     DBConfig           `mapstructure:"database"`
-	Redis        RedisConfig        `mapstructure:"redis"`
-	RabbitMQ     RabbitConfig       `mapstructure:"rabbitmq"`
-	Metrics      MetricsConfig      `mapstructure:"metrics"`
-	Tracing      TracingConfig      `mapstructure:"tracing"`
-	Temporal     TemporalConfig     `mapstructure:"temporal"`
-	Mail         MailConfig         `mapstructure:"mail"`
-	Swagger      SwaggerConfig      `mapstructure:"swagger"`
-	JWT          JWTConfig          `mapstructure:"jwt"`
-	Frontend     FrontendConfig     `mapstructure:"frontend"`
+	ServiceName string         `mapstructure:"service_name"`
+	ProjectID   string         `mapstructure:"project_id"`
+	Logger      logger.Config  `mapstructure:"logger"`
+	Server      ServerConfig   `mapstructure:"server"`
+	Database    DBConfig       `mapstructure:"database"`
+	Redis       RedisConfig    `mapstructure:"redis"`
+	RabbitMQ    RabbitConfig   `mapstructure:"rabbitmq"`
+	Metrics     MetricsConfig  `mapstructure:"metrics"`
+	Tracing     TracingConfig  `mapstructure:"tracing"`
+	Temporal    TemporalConfig `mapstructure:"temporal"`
+	Mail        MailConfig     `mapstructure:"mail"`
+	Swagger     SwaggerConfig  `mapstructure:"swagger"`
+	JWT         JWTConfig      `mapstructure:"jwt"`
+	Frontend    FrontendConfig `mapstructure:"frontend"`
+	// Social : connexion avec Google / GitHub (applications OAuth de betorun).
+	Social       SocialConfig       `mapstructure:"social"`
 	Roles        RolesConfig        `mapstructure:"roles"`
 	Kubernetes   KubernetesConfig   `mapstructure:"kubernetes"`
 	Vps          Vps                `mapstructure:"vps"`
@@ -35,7 +37,45 @@ type GlobalConfig struct {
 	RateLimit    RateLimitConfig    `mapstructure:"rate_limit"`
 	ObjectStore  ObjectStoreConfig  `mapstructure:"object_store"`
 	Sites        SitesConfig        `mapstructure:"sites"`
+	Builds       BuildsConfig       `mapstructure:"builds"`
 	IAM          IAMConfig          `mapstructure:"iam"`
+	// GitHubApp : connexion GitHub des conteneurs (dépôts privés, déploiement
+	// à chaque push). Désactivée tant qu'elle est incomplète.
+	GitHubApp GitHubAppConfig `mapstructure:"github_app"`
+}
+
+// GitHubAppConfig : application GitHub de betorun (voir docs/github-app.md).
+// Les secrets viennent de l'environnement ; la clé privée d'un fichier, hors
+// du code et de la base.
+type GitHubAppConfig struct {
+	AppID          string `mapstructure:"app_id"`
+	Slug           string `mapstructure:"slug"`
+	PrivateKeyFile string `mapstructure:"private_key_file"`
+	WebhookSecret  string `mapstructure:"webhook_secret"`
+	ClientID       string `mapstructure:"client_id"`
+	ClientSecret   string `mapstructure:"client_secret"`
+	// APIURL et WebURL : surchargeables pour les tests (ou GitHub Enterprise).
+	// WebURL sert aussi à construire l'adresse de clonage des dépôts : c'est
+	// une valeur de l'opérateur, elle échappe au contrôle des URL saisies par
+	// les utilisateurs (builds/domain.NormalizeGitURL).
+	APIURL string `mapstructure:"api_url"`
+	WebURL string `mapstructure:"web_url"`
+}
+
+// Complete : tous les réglages obligatoires sont renseignés.
+func (c GitHubAppConfig) Complete() bool {
+	return c.AppID != "" && c.Slug != "" && c.PrivateKeyFile != "" && c.WebhookSecret != "" && c.ClientID != "" && c.ClientSecret != ""
+}
+
+// WithDefaults : adresses de github.com si elles ne sont pas renseignées.
+func (c GitHubAppConfig) WithDefaults() GitHubAppConfig {
+	if c.APIURL == "" {
+		c.APIURL = "https://api.github.com"
+	}
+	if c.WebURL == "" {
+		c.WebURL = "https://github.com"
+	}
+	return c
 }
 
 // IAMConfig : secrets de l'IAM (docs/architecture/iam.md).
@@ -88,6 +128,72 @@ type SitesConfig struct {
 	MaxArchiveBytes   int64 `mapstructure:"max_archive_bytes"`
 	MaxExtractedBytes int64 `mapstructure:"max_extracted_bytes"`
 	MaxFiles          int   `mapstructure:"max_files"`
+}
+
+// BuildsConfig : construction d'images depuis le code et registre de la
+// plateforme. Désactivé tant que le registre n'est pas configuré.
+type BuildsConfig struct {
+	Enabled   bool   `mapstructure:"enabled"`
+	Namespace string `mapstructure:"namespace"`
+	// BuildkitImage : image BuildKit sans root, en version figée.
+	BuildkitImage string `mapstructure:"buildkit_image"`
+	// RegistryHost : registre vu par les Jobs et les nœuds (ex. registry.betorun.app).
+	RegistryHost string `mapstructure:"registry_host"`
+	// RegistryInsecure : registre en HTTP, développement uniquement.
+	RegistryInsecure bool   `mapstructure:"registry_insecure"`
+	RegistryService  string `mapstructure:"registry_service"`
+	TokenIssuer      string `mapstructure:"token_issuer"`
+	// Certificat et clé ECDSA P-256 des jetons du registre (rootcertbundle
+	// du registre = ce certificat).
+	TokenCertFile string `mapstructure:"token_cert_file"`
+	TokenKeyFile  string `mapstructure:"token_key_file"`
+	// Secret : dérive les identifiants du registre et signe les URL des
+	// archives (≥ 32 octets). Le changer invalide les Secrets de pull existants.
+	Secret string `mapstructure:"secret"`
+	// PublicAPIURL : URL de l'API vue depuis les pods (…/kmanager/v1).
+	PublicAPIURL    string        `mapstructure:"public_api_url"`
+	MaxArchiveBytes int64         `mapstructure:"max_archive_bytes"`
+	MaxConcurrent   int64         `mapstructure:"max_concurrent"`
+	Timeout         time.Duration `mapstructure:"timeout"`
+	CPURequest      string        `mapstructure:"cpu_request"`
+	CPULimit        string        `mapstructure:"cpu_limit"`
+	MemoryRequest   string        `mapstructure:"memory_request"`
+	MemoryLimit     string        `mapstructure:"memory_limit"`
+	DiskLimit       string        `mapstructure:"disk_limit"`
+	// EgressAllowCIDRs : adresses privées qu'un build peut joindre (registre
+	// et API s'ils sont sur un réseau privé).
+	EgressAllowCIDRs []string `mapstructure:"egress_allow_cidrs"`
+	// RuntimeClass : runtime isolé des builds en production (gVisor, Kata).
+	RuntimeClass string            `mapstructure:"runtime_class"`
+	NodeSelector map[string]string `mapstructure:"node_selector"`
+}
+
+// WithDefaults : réglages non renseignés remplacés par leur valeur par défaut.
+func (c BuildsConfig) WithDefaults() BuildsConfig {
+	str := func(v *string, def string) {
+		if *v == "" {
+			*v = def
+		}
+	}
+	str(&c.Namespace, "betorun-builds")
+	str(&c.BuildkitImage, "moby/buildkit:v0.23.2-rootless")
+	str(&c.RegistryService, "betorun-registry")
+	str(&c.TokenIssuer, "betorun")
+	str(&c.CPURequest, "250m")
+	str(&c.CPULimit, "2")
+	str(&c.MemoryRequest, "512Mi")
+	str(&c.MemoryLimit, "4Gi")
+	str(&c.DiskLimit, "10Gi")
+	if c.MaxArchiveBytes == 0 {
+		c.MaxArchiveBytes = 200 << 20
+	}
+	if c.MaxConcurrent == 0 {
+		c.MaxConcurrent = 2
+	}
+	if c.Timeout == 0 {
+		c.Timeout = 30 * time.Minute
+	}
+	return c
 }
 
 // AuditConfig : contrôle le sampling des logs d'audit (fix P1).
@@ -244,6 +350,23 @@ type Vps struct {
 	AdressIp string `mapstructure:"vps_ip"`
 }
 
+// SocialConfig : un fournisseur n'est proposé que si son client_id est
+// renseigné. Les adresses ont des valeurs par défaut (réglables pour les tests).
+type SocialConfig struct {
+	Google SocialProviderConfig `mapstructure:"google"`
+	GitHub SocialProviderConfig `mapstructure:"github"`
+}
+
+type SocialProviderConfig struct {
+	ClientID     string `mapstructure:"client_id"`
+	ClientSecret string `mapstructure:"client_secret"`
+	AuthURL      string `mapstructure:"auth_url"`
+	TokenURL     string `mapstructure:"token_url"`
+	APIURL       string `mapstructure:"api_url"`
+	JWKSURL      string `mapstructure:"jwks_url"`
+	Issuer       string `mapstructure:"issuer"`
+}
+
 type FrontendConfig struct {
 	BaseURL string `mapstructure:"url"`
 }
@@ -253,6 +376,14 @@ type RolesConfig struct {
 }
 
 type KubernetesConfig struct {
+	// IngressTarget : nom ou adresse vers laquelle les domaines personnalisés
+	// doivent pointer (défaut : vps_ip).
+	IngressTarget string `mapstructure:"ingress_target"`
+	// DomainDNSServer : résolveur (hôte:port) des vérifications de domaine.
+	DomainDNSServer string `mapstructure:"domain_dns_server"`
+	// CustomDomainInsecure : pas de certificat pour les domaines (développement).
+	CustomDomainInsecure bool `mapstructure:"custom_domain_insecure"`
+
 	KubeConfigPath string `mapstructure:"kubeconfig_path"`
 	// ClusterID : identifiant (celui de son watcher) du cluster où tournent
 	// les workloads. Vide : identité des workloads désactivée.

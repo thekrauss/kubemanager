@@ -1,6 +1,8 @@
 package router
 
 import (
+	"context"
+	"github.com/google/uuid"
 	"github.com/thekrauss/kubemanager/internal/iam"
 	authCtrl "github.com/thekrauss/kubemanager/internal/modules/auth"
 	authSvc "github.com/thekrauss/kubemanager/internal/modules/auth/service"
@@ -15,7 +17,9 @@ import (
 	sitesActs "github.com/thekrauss/kubemanager/internal/modules/sites/activities"
 	sitesSvc "github.com/thekrauss/kubemanager/internal/modules/sites/service"
 	workloadsCtrl "github.com/thekrauss/kubemanager/internal/modules/workloads"
+	workloadsRepo "github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
 	workloadsSvc "github.com/thekrauss/kubemanager/internal/modules/workloads/service"
+	"strings"
 )
 
 func (a *App) initDomainLayers() error {
@@ -47,6 +51,13 @@ func (a *App) initDomainLayers() error {
 		a.K8sProvider.Config,
 		a.Logger,
 	)
+	workloadService.Variables = a.Variables
+	workloadService.Domains = workloadsRepo.NewDomainStore(a.DB)
+	workloadService.DomainCfg = &workloadsSvc.DomainSettings{
+		Resolver: workloadsSvc.NewResolver(a.Config.Kubernetes.DomainDNSServer),
+		Target:   firstNonEmptyString(a.Config.Kubernetes.IngressTarget, a.Config.Vps.AdressIp),
+		TLS:      !a.Config.Kubernetes.CustomDomainInsecure,
+	}
 	// Identité des workloads : cluster des workloads connu et STS en place.
 	if a.STS != nil && a.STS.WorkloadClusterID != "" && a.ServiceAccounts != nil {
 		workloadService.Identity = &workloadsSvc.IdentitySettings{Authorizer: a.ServiceAccounts,
@@ -98,7 +109,8 @@ func (a *App) initDomainLayers() error {
 	var siteController sites.ISiteController
 	if a.ObjectStore != nil {
 		sc := a.Config.Sites
-		siteService = sitesSvc.NewSiteService(a.Repos.Site, a.ObjectStore, a.TemporalDistributor, nil,
+		resolver, _ := workloadsSvc.NewResolver(a.Config.Kubernetes.DomainDNSServer).(sitesSvc.DNSResolver)
+		concrete := sitesSvc.NewSiteService(a.Repos.Site, a.ObjectStore, a.TemporalDistributor, resolver,
 			sitesSvc.Config{
 				BaseDomain: sc.BaseDomain,
 				EdgeTarget: sc.EdgeTarget,
@@ -108,8 +120,24 @@ func (a *App) initDomainLayers() error {
 					MaxFiles:          sc.MaxFiles,
 				},
 			}, a.Logger)
+		siteService = concrete
+		concrete.HostnameInUse = func(ctx context.Context, host string) (bool, error) {
+			owner, err := workloadService.Domains.VerifiedOwner(ctx, host, uuid.Nil)
+			return owner != nil, err
+		}
 		siteController = sites.NewSiteController(siteService, a.Logger)
 	}
+
+	buildController, err := a.newBuildController()
+	if err != nil {
+		return err
+	}
+	if buildController != nil {
+		workloadService.Registry = &workloadsSvc.RegistrySettings{Host: a.Config.Builds.RegistryHost}
+	}
+
+	a.GitHub = a.newGitHubService(buildController, workloadService)
+	a.WorkloadDeployer = workloadService
 
 	a.Services = &ServiceContainer{
 		RBAC:     rbacService,
@@ -122,6 +150,8 @@ func (a *App) initDomainLayers() error {
 	}
 
 	a.Controllers = &ControllerContainer{
+		Builds:   buildController,
+		GitHub:   a.newGitHubController(a.GitHub),
 		RBAC:     rbacController,
 		APIKey:   apiKeyController,
 		Project:  projectController,
@@ -150,4 +180,13 @@ func (a *App) newIAMController(policies *iam.PolicyService) *iamapi.Controller {
 	ctrl.OrgPolicies = a.OrgPolicies
 	ctrl.MFA = iamapi.MFASettings{ACRValues: a.Config.IAM.MFAACRValues, MaxAge: a.stepUpMaxAge()}
 	return ctrl
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, v := range values {
+		if v = strings.TrimSpace(v); v != "" {
+			return v
+		}
+	}
+	return ""
 }

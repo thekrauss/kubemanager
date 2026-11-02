@@ -12,6 +12,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"github.com/thekrauss/kubemanager/internal/cli/i18n"
 	"net/http"
 	"net/url"
 	"os"
@@ -162,11 +163,11 @@ type keyFileSource struct {
 func KeyFileSource(path string) (TokenSource, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("key file: %w", err)
+		return nil, fmt.Errorf("%s: %w", i18n.T("creds.key_file"), err)
 	}
 	var f KeyFile
 	if err := json.Unmarshal(raw, &f); err != nil {
-		return nil, fmt.Errorf("key file %s: %w", path, err)
+		return nil, fmt.Errorf("%s %s: %w", i18n.T("creds.key_file"), path, err)
 	}
 	if f.Type != keyFileType || f.KeyID == "" || f.Principal == "" || f.TokenURI == "" {
 		return nil, fmt.Errorf("key file %s: not a betorun service account key", path)
@@ -177,7 +178,7 @@ func KeyFileSource(path string) (TokenSource, error) {
 	}
 	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("key file %s: %w", path, err)
+		return nil, fmt.Errorf("%s %s: %w", i18n.T("creds.key_file"), path, err)
 	}
 	s := &keyFileSource{stsCache: newSTSCache(), path: path, file: f}
 	switch k := parsed.(type) {

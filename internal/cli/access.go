@@ -3,11 +3,9 @@ package cli
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"regexp"
 	"sort"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
@@ -18,7 +16,10 @@ import (
 var dateRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 
 func newAccess() *cobra.Command {
-	c := &cobra.Command{Use: "access", Aliases: []string{"iam"}, Short: i18n.T("acc.short")}
+	c := &cobra.Command{Use: "access", Aliases: []string{"iam"}, Short: i18n.T("acc.short"),
+		Example: "betorun iam list  # " + i18n.T("ex.acc.list") + "\n" +
+			"betorun iam grant awa@ex.sn developer\n" +
+			"betorun iam sa create ci-deployer  # " + i18n.T("ex.acc.sa")}
 	c.AddCommand(newAccessList(), newAccessGrant(), newAccessRevoke(), newRoles(), newPermissions(),
 		newGroups(), newServiceAccounts())
 	return c
@@ -119,11 +120,15 @@ func newAccessList() *cobra.Command {
 				}
 			}
 			sort.Slice(rows, func(i, j int) bool { return rows[i].member < rows[j].member })
-			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			for _, r := range rows {
-				fmt.Fprintf(tw, "%s\t%s\t%s\n", r.member, r.role, r.until)
+			if done, err := wantJSON(cmd, view); done {
+				return err
 			}
-			return tw.Flush()
+			p := printer(cmd)
+			t := p.Table(i18n.T("col.member"), i18n.T("col.role"), i18n.T("col.expires"))
+			for _, r := range rows {
+				t.Row(r.member, p.Bold(r.role), p.Dim(r.until))
+			}
+			return t.Flush()
 		},
 	}
 }
@@ -180,7 +185,7 @@ func newAccessGrant() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("acc.grant.ok", roleLabel(role), args[0]))
+			printer(cmd).Success(i18n.T("acc.grant.ok", roleLabel(role), args[0]))
 			return nil
 		},
 	}
@@ -239,7 +244,7 @@ func newAccessRevoke() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("acc.revoke.ok", args[0], removed))
+			printer(cmd).Success(i18n.T("acc.revoke.ok", args[0], removed))
 			return nil
 		},
 	}

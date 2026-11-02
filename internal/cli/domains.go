@@ -2,14 +2,13 @@ package cli
 
 import (
 	"errors"
-	"fmt"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"github.com/thekrauss/kubemanager/internal/cli/api"
 	"github.com/thekrauss/kubemanager/internal/cli/i18n"
+	"github.com/thekrauss/kubemanager/internal/cli/ui"
 )
 
 func newDomains() *cobra.Command {
@@ -71,24 +70,30 @@ func newDomains() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if done, err := wantJSON(cmd, list); done {
+				return err
+			}
+			p := printer(cmd)
 			if len(list) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), i18n.T("dom.list.empty"))
+				p.Hint(i18n.T("dom.list.empty"))
 				return nil
 			}
-			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
+			t := p.Table(i18n.T("dom.col.domain"), i18n.T("wl.col.status"), i18n.T("dom.col.dns"))
 			for _, d := range list {
-				state := i18n.T("dom.pending")
+				state := p.Status(ui.ToneProgress, i18n.T("dom.pending"))
 				if d.Verified {
-					state = i18n.T("dom.verified")
+					state = p.Status(ui.ToneOK, i18n.T("dom.verified"))
 				}
-				fmt.Fprintf(tw, "%s\t%s\tCNAME → %s\n", d.Hostname, state, d.CNAMETarget)
+				t.Row(p.Bold(d.Hostname), state, "CNAME → "+d.CNAMETarget)
 			}
-			return tw.Flush()
+			return t.Flush()
 		},
 	}, &cobra.Command{
 		Use:   "add " + i18n.T("arg.host"),
 		Short: i18n.T("dom.add.short"),
-		Args:  cobra.ExactArgs(1),
+		Example: "betorun sites domains add www.exemple.sn --site vitrine\n" +
+			"betorun sites domains verify www.exemple.sn --site vitrine  # " + i18n.T("ex.dom.verify"),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl, project, site, err := siteFor(cmd)
 			if err != nil {
@@ -98,7 +103,12 @@ func newDomains() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("dom.add.ok", d.Hostname, d.Hostname, d.CNAMETarget, siteName, d.Hostname))
+			p := printer(cmd)
+			p.Success(i18n.T("dom.add.ok", d.Hostname))
+			if err := printSiteRecords(p, d); err != nil {
+				return err
+			}
+			p.Hint(i18n.T("dom.add.then", siteName, d.Hostname))
 			return nil
 		},
 	}, &cobra.Command{
@@ -113,10 +123,18 @@ func newDomains() *cobra.Command {
 			if d, err = cl.VerifyDomain(cmd.Context(), project, site.ID.String(), d.ID.String()); err != nil {
 				return err
 			}
+			p := printer(cmd)
 			if !d.Verified {
-				return errors.New(i18n.T("dom.verify.pending", d.Hostname, d.CNAMETarget))
+				p.Warn(i18n.T("dom.verify.pending", d.Hostname))
+				if err := printSiteRecords(p, d); err != nil {
+					return err
+				}
+				return errors.New(i18n.T("dom.verify.failed", d.Hostname))
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("dom.verify.ok", d.Hostname))
+			p.Success(i18n.T("dom.verify.ok", d.Hostname))
+			if !d.Pointing {
+				p.Warn(i18n.T("wl.dom.not_pointing", d.Hostname))
+			}
 			return nil
 		},
 	}, &cobra.Command{
@@ -131,9 +149,18 @@ func newDomains() *cobra.Command {
 			if err := cl.DeleteDomain(cmd.Context(), project, site.ID.String(), d.ID.String()); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("dom.remove.ok", d.Hostname))
+			printer(cmd).Success(i18n.T("dom.remove.ok", d.Hostname))
 			return nil
 		},
 	})
 	return c
+}
+
+func printSiteRecords(p *ui.Printer, d *api.Domain) error {
+	p.Println(i18n.T("wl.dom.records"))
+	t := p.Table(i18n.T("col.dns.type"), i18n.T("col.dns.name"), i18n.T("col.dns.value"))
+	for _, r := range d.Records {
+		t.Row(r.Type, r.Name, r.Value)
+	}
+	return t.Flush()
 }

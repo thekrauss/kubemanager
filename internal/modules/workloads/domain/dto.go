@@ -3,9 +3,9 @@ package domain
 import "time"
 
 type CreateWorkloadRequest struct {
-	ProjectID string `json:"project_id" binding:"required" desc:"ID du projet parent"`
-	Name      string `json:"name" binding:"required,min=3,max=30" desc:"Nom de la release Helm"`
-	Image     string `json:"image" binding:"required" desc:"Image Docker (ex: nginx:latest)"`
+	ProjectID string `json:"project_id" binding:"required" description:"ID du projet parent"`
+	Name      string `json:"name" binding:"required,min=3,max=30" description:"Nom du conteneur"`
+	Image     string `json:"image" binding:"required" description:"Image Docker (ex: nginx:latest)"`
 	Replicas  int    `json:"replicas" default:"1"`
 
 	// Resources
@@ -53,7 +53,7 @@ type CreateWorkloadRequest struct {
 	// ServiceAccount : compte de service du projet sous lequel le workload
 	// s'exécute ("serviceAccount:<uuid>" ou uuid). Ses pods obtiennent des
 	// jetons betorun sans aucune clé. actAs exigé sur le compte.
-	ServiceAccount string `json:"service_account,omitempty" desc:"Compte de service sous lequel le workload s'exécute (actAs requis)"`
+	ServiceAccount string `json:"service_account,omitempty" description:"Compte de service sous lequel le conteneur s'exécute (actAs requis)"`
 }
 
 // AutoscalingConfig : policy HPA simple (CPU + mémoire).
@@ -83,9 +83,18 @@ type WorkloadStatusResponse struct {
 }
 
 type UpdateWorkloadRequest struct {
-	Image       string            `json:"image"`
-	StorageSize string            `json:"storage_size" desc:"Nouvelle taille du disque (ex: 5Gi)"`
-	EnvVars     map[string]string `json:"env_vars"`
+	Image       string `json:"image"`
+	StorageSize string `json:"storage_size" description:"Nouvelle taille du disque (ex: 5Gi)"`
+	// EnvVars : remplace les variables non secrètes (absent : inchangées).
+	EnvVars map[string]string `json:"env_vars"`
+	// SecretData : secrets créés ou modifiés ; les autres sont conservés.
+	SecretData map[string]string `json:"secret_data"`
+	// Champs absents : valeurs en place conservées.
+	Replicas    int    `json:"replicas" description:"Nombre de répliques"`
+	TargetPort  int    `json:"target_port" description:"Port d'écoute du conteneur"`
+	CPULimit    string `json:"cpu_limit" description:"Limite CPU (ex: 500m)"`
+	MemoryLimit string `json:"memory_limit" description:"Limite mémoire (ex: 512Mi)"`
+	TLSEnabled  *bool  `json:"tls_enabled" description:"Certificat HTTPS"`
 }
 
 // ── Observabilité ────────────────────────────────────────────────────────

@@ -56,6 +56,14 @@ type Workload struct {
 	// (jeton Kubernetes projeté, échangé auprès du STS ; iam.md §7.2).
 	ServiceAccountID *uuid.UUID `gorm:"type:uuid"`
 
+	// Spec : spec déclarative (CreateWorkloadRequest sans variables ni
+	// secrets), base de chaque déploiement. Vide : conteneur antérieur.
+	Spec []byte `gorm:"type:jsonb"`
+
+	// EnvRevision : version des variables (domain.Variable), seule information
+	// transmise aux workflows. 0 : variables pas encore importées.
+	EnvRevision int64 `gorm:"not null;default:0"`
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

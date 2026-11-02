@@ -19,13 +19,19 @@ import (
 // voir access.go et docs/architecture/iam.md §5.
 
 var (
-	IdentityGroup = RootGroup.NewGroup("/identity", "Authentification Keycloak et bootstrap utilisateur")
-	RBACGroup     = RootGroup.NewGroup("/rbac", "Configuration globale des rôles")
-	ProjectGroup  = RootGroup.NewGroup("/projects", "Gestion des projets et de leurs membres")
-	APIKeyGroup   = RootGroup.NewGroup("/users/api-keys", "Gestion des clés API utilisateur")
-	WorkloadGroup = RootGroup.NewGroup("/workloads", "Gestion des déploiements Helm (Workloads)")
-	RealtimeGroup = RootGroup.NewGroup("/realtime", "Tokens Centrifugo (WebSocket events)")
-	ClustersGroup = RootGroup.NewGroup("/clusters", "API watcher (pod events depuis chaque cluster K3s géré)")
+	IdentityGroup = RootGroup.NewGroup("/identity", "Authentification et comptes").
+			Named("Authentification", "Inscription, connexion, sessions, second facteur, connexion de la CLI et comptes Google/GitHub liés.")
+	RBACGroup = RootGroup.NewGroup("/rbac", "Configuration globale des rôles").
+			Named("Membres de projet", "Membres d'un projet et rôles attribués (modèle historique ; voir IAM).")
+	ProjectGroup = RootGroup.NewGroup("/projects", "Gestion des projets et de leurs membres").
+			Named("Projets", "Création, état et consommation des projets.")
+	APIKeyGroup = RootGroup.NewGroup("/users/api-keys", "Gestion des clés API utilisateur").
+			Named("Clés API personnelles", "Clés API rattachées à votre compte.")
+	WorkloadGroup = RootGroup.NewGroup("/workloads", "Gestion des conteneurs").
+			Named("Conteneurs", "Déployer une image, la mettre à jour, la redémarrer, l'arrêter ; état, événements et métriques.")
+	RealtimeGroup = RootGroup.NewGroup("/realtime", "Jetons temps réel").
+			Named("Temps réel", "Jetons d'abonnement aux événements en direct (WebSocket).")
+	ClustersGroup = RootGroup.NewGroup("/clusters", "API watcher (pod events depuis chaque cluster K3s géré)").Internal()
 )
 
 func addClusterRoutes(app *App) {
@@ -54,7 +60,7 @@ func addClusterRoutes(app *App) {
 			watcher, tonic.Handler(iamCtl.ReportServiceAccountKeys, http.StatusNoContent))
 	}
 
-	adminClusters := RootGroup.NewGroup("/admin/clusters", "Admin — registry des clusters enrollés")
+	adminClusters := RootGroup.NewGroup("/admin/clusters", "Admin — registry des clusters enrollés").Internal()
 	adminClusters.AddRoute("", http.MethodGet,
 		"Liste les clusters enrollés (ClusterID, Version, LastSeenAt, EnrolledAt)",
 		g.Perm(iam.PlatformClustersList, security.PlatformResource), tonic.Handler(r.ListClusters, http.StatusOK))
@@ -65,11 +71,11 @@ func addRealtimeRoutes(app *App) {
 	if r == nil {
 		return
 	}
-	RealtimeGroup.AddRoute("/token", http.MethodGet, "Connection token JWT (ouverture WebSocket)",
+	RealtimeGroup.AddRoute("/token", http.MethodGet, "Jeton de connexion au flux d'événements en direct (ouverture du WebSocket)",
 		Authenticated(), tonic.Handler(r.GetConnectionToken, http.StatusOK))
 	// Le projet est dans le nom du canal : le contrôleur vérifie
 	// resourcemanager.projects.get via l'IAM avant de signer.
-	RealtimeGroup.AddRoute("/subscribe", http.MethodGet, "Subscription token scopé à un canal (vérifie authz projet)",
+	RealtimeGroup.AddRoute("/subscribe", http.MethodGet, "Jeton d'abonnement à un canal (accès au projet vérifié)",
 		Authenticated(), tonic.Handler(r.GetSubscriptionToken, http.StatusOK))
 }
 
@@ -85,7 +91,7 @@ func addAuthRoutes(app *App) {
 	IdentityGroup.AddRoute("/verify-email", http.MethodPost, "Confirmer l'adresse email (lien reçu)", Public(), tonic.Handler(a.VerifyEmail, http.StatusNoContent))
 	IdentityGroup.AddRoute("/reset-password", http.MethodPost, "Nouveau mot de passe depuis le lien reçu (toutes les sessions sont fermées)", Public(), tonic.Handler(a.ResetPassword, http.StatusNoContent))
 
-	IdentityGroup.AddRoute("/session/verify", http.MethodPost, "Confirmer son identité (code du second facteur) avant une action sensible", Authenticated(), tonic.Handler(a.StepUp, http.StatusOK))
+	IdentityGroup.AddRoute("/session/verify", http.MethodPost, "Confirmer son identité avant une action sensible (code du second facteur)", Authenticated(), tonic.Handler(a.StepUp, http.StatusOK))
 	IdentityGroup.AddRoute("/sessions", http.MethodGet, "Sessions actives (appareils)", Authenticated(), tonic.Handler(a.ListSessions, http.StatusOK))
 	IdentityGroup.AddRoute("/sessions/:id", http.MethodDelete, "Fermer une session", Authenticated(), tonic.Handler(a.RevokeSession, http.StatusNoContent))
 	IdentityGroup.AddRoute("/sessions/revoke-others", http.MethodPost, "Fermer toutes les autres sessions", Authenticated(), tonic.Handler(a.RevokeOtherSessions, http.StatusNoContent))
@@ -94,6 +100,16 @@ func addAuthRoutes(app *App) {
 	IdentityGroup.AddRoute("/mfa/totp", http.MethodPost, "Activer une application d'authentification : secret et QR code (à confirmer)", Authenticated(), tonic.Handler(a.StartTOTP, http.StatusOK))
 	IdentityGroup.AddRoute("/mfa/totp/confirm", http.MethodPost, "Confirmer l'application (premier code) : codes de secours remis une fois", Authenticated(), tonic.Handler(a.ConfirmTOTP, http.StatusOK))
 	IdentityGroup.AddRoute("/mfa/totp", http.MethodDelete, "Désactiver le second facteur (vérification récente exigée)", Authenticated(), tonic.Handler(a.DisableTOTP, http.StatusNoContent))
+	IdentityGroup.AddRoute("/social/providers", http.MethodGet, "Fournisseurs de connexion configurés (Google, GitHub)", Public(), tonic.Handler(a.SocialProviders, http.StatusOK))
+	IdentityGroup.AddRoute("/social/:provider/authorize", http.MethodGet, "Connexion Google/GitHub : page du fournisseur (state, PKCE, nonce gardés côté serveur)", Public(), tonic.Handler(a.SocialAuthorize, http.StatusOK))
+	IdentityGroup.AddRoute("/social/:provider/callback", http.MethodPost, "Connexion Google/GitHub : code du fournisseur contre une session (ou second facteur demandé)", Public(), tonic.Handler(a.SocialCallback, http.StatusOK))
+	IdentityGroup.AddRoute("/identities", http.MethodGet, "Comptes Google/GitHub liés", Authenticated(), tonic.Handler(a.ListIdentities, http.StatusOK))
+	IdentityGroup.AddRoute("/identities/:provider", http.MethodDelete, "Délier un compte Google/GitHub (il doit rester un moyen de connexion)", Authenticated(), tonic.Handler(a.UnlinkIdentity, http.StatusNoContent))
+	IdentityGroup.AddRoute("/cli/authorize-url", http.MethodGet, "CLI : page de la console où autoriser la CLI (PKCE généré par la CLI)", Public(), tonic.Handler(a.CLIAuthorizeURL, http.StatusOK))
+	IdentityGroup.AddRoute("/cli/authorize", http.MethodPost, "CLI : autoriser la CLI depuis la console (second facteur récent exigé s'il est actif)", Authenticated(), tonic.Handler(a.AuthorizeCLI, http.StatusOK))
+	IdentityGroup.AddRoute("/cli/token", http.MethodPost, "CLI : échanger le code contre une session (preuve PKCE)", Public(), tonic.Handler(a.CLIToken, http.StatusOK))
+	IdentityGroup.AddRoute("/device", http.MethodGet, "Code d'appareil : origine de la demande (IP, appareil), affichée avant validation", Authenticated(), tonic.Handler(a.DeviceInfo, http.StatusOK))
+	IdentityGroup.AddRoute("/device/approve", http.MethodPost, "Code d'appareil : valider ou refuser la demande (second facteur récent exigé s'il est actif)", Authenticated(), tonic.Handler(a.ApproveDevice, http.StatusNoContent))
 	IdentityGroup.AddRoute("/mfa/recovery-codes", http.MethodPost, "Nouveaux codes de secours (vérification récente exigée)", Authenticated(), tonic.Handler(a.RegenerateRecoveryCodes, http.StatusOK))
 }
 
@@ -103,25 +119,20 @@ func addIdentityRoutes(app *App) {
 		return
 	}
 	IdentityGroup.AddRoute("/register", http.MethodPost, "Créer un compte (email de confirmation ; réponse identique si l'adresse a déjà un compte)", Public(), tonic.Handler(r.Register, http.StatusCreated))
-	IdentityGroup.AddRoute("/refresh", http.MethodPost, "Renouveler les tokens via refresh_token", Public(), tonic.Handler(r.RefreshToken, http.StatusOK))
-	IdentityGroup.AddRoute("/forgot-password", http.MethodPost, "Envoyer un email de reset password", Public(), tonic.Handler(r.ForgotPassword, http.StatusAccepted))
+	IdentityGroup.AddRoute("/refresh", http.MethodPost, "Renouveler la session avec le jeton de rafraîchissement", Public(), tonic.Handler(r.RefreshToken, http.StatusOK))
+	IdentityGroup.AddRoute("/forgot-password", http.MethodPost, "Envoyer un email de réinitialisation du mot de passe", Public(), tonic.Handler(r.ForgotPassword, http.StatusAccepted))
 	IdentityGroup.AddRoute("/resend-verification", http.MethodPost, "Renvoyer l'email de vérification (par email)", Public(), tonic.Handler(r.ResendVerificationEmailForEmail, http.StatusAccepted))
 
-	// Login hébergé Keycloak (Authorization Code + PKCE). Le callback partage
-	// le handler du social (state + verifier en Redis).
-	// CLI : flux device (RFC 8628) relayé vers Keycloak ; la validation (avec MFA) se fait dans le navigateur.
-	IdentityGroup.AddRoute("/device/code", http.MethodPost, "CLI : démarrer une connexion par code (RFC 8628)", Public(), r.DeviceCode)
-	IdentityGroup.AddRoute("/device/token", http.MethodPost, "CLI : récupérer les jetons une fois le code validé (authorization_pending tant que non validé)", Public(), r.DeviceToken)
-	IdentityGroup.AddRoute("/oidc/authorize", http.MethodGet, "URL de la page de login Keycloak (PKCE S256)", Public(), tonic.Handler(r.LoginURL, http.StatusOK))
-	IdentityGroup.AddRoute("/oidc/callback", http.MethodGet, "Callback login hébergé (échange code + verifier → tokens)", Public(), tonic.Handler(r.SocialCallback, http.StatusOK))
-	IdentityGroup.AddRoute("/social/:provider", http.MethodGet, "URL d'autorisation sociale (kc_idp_hint)", Public(), tonic.Handler(r.SocialLoginURL, http.StatusOK))
-	IdentityGroup.AddRoute("/social/callback", http.MethodGet, "Callback OAuth2 (échange code → tokens)", Public(), tonic.Handler(r.SocialCallback, http.StatusOK))
+	// CLI : connexion par code d'appareil (RFC 8628) gérée par betorun ; la
+	// validation se fait dans la console (/device).
+	IdentityGroup.AddRoute("/device/code", http.MethodPost, "CLI : démarrer une connexion par code d'appareil (RFC 8628)", Public(), r.DeviceCode)
+	IdentityGroup.AddRoute("/device/token", http.MethodPost, "CLI : session une fois le code validé dans la console (authorization_pending tant que non validé)", Public(), r.DeviceToken)
 
-	IdentityGroup.AddRoute("/logout", http.MethodPost, "Déconnexion (révoque refresh_token + blacklist JTI)", Authenticated(), tonic.Handler(r.Logout, http.StatusOK))
-	IdentityGroup.AddRoute("/validate", http.MethodGet, "Valider le token courant", Authenticated(), tonic.Handler(r.ValidateToken, http.StatusOK))
+	IdentityGroup.AddRoute("/logout", http.MethodPost, "Déconnexion (jeton de rafraîchissement révoqué, jeton d'accès invalidé)", Authenticated(), tonic.Handler(r.Logout, http.StatusOK))
+	IdentityGroup.AddRoute("/validate", http.MethodGet, "Valider le jeton courant", Authenticated(), tonic.Handler(r.ValidateToken, http.StatusOK))
 	IdentityGroup.AddRoute("/change-password", http.MethodPost, "Changer le mot de passe courant", Authenticated(), tonic.Handler(r.ChangePassword, http.StatusOK))
-	IdentityGroup.AddRoute("/bootstrap", http.MethodPost, "Provisionner le profil local + projet initial", Authenticated(), tonic.Handler(r.Bootstrap, http.StatusOK))
-	IdentityGroup.AddRoute("/bootstrap/status", http.MethodGet, "État du bootstrap local", Authenticated(), tonic.Handler(r.BootstrapStatus, http.StatusOK))
+	IdentityGroup.AddRoute("/bootstrap", http.MethodPost, "Préparer le compte : profil et projet initial", Authenticated(), tonic.Handler(r.Bootstrap, http.StatusOK))
+	IdentityGroup.AddRoute("/bootstrap/status", http.MethodGet, "État de la préparation du compte", Authenticated(), tonic.Handler(r.BootstrapStatus, http.StatusOK))
 
 	addAuthRoutes(app)
 }
@@ -146,8 +157,8 @@ func addAPIKeyRoutes(app *App) {
 	// Clés de l'appelant uniquement (le service filtre par userID).
 	APIKeyGroup.AddRoute("", http.MethodGet, "Lister les clés API", Authenticated(), tonic.Handler(r.ListKeys, http.StatusOK))
 	APIKeyGroup.AddRoute("", http.MethodPost, "Créer une nouvelle clé API", Authenticated(), tonic.Handler(r.CreateKey, http.StatusCreated))
-	APIKeyGroup.AddRoute("/audit", http.MethodGet, "Vue audit des clés API (usage, status, last_used_at)", Authenticated(), tonic.Handler(r.ListAudit, http.StatusOK))
-	APIKeyGroup.AddRoute("/:id", http.MethodGet, "Introspection d'une clé API", Authenticated(), tonic.Handler(r.GetKey, http.StatusOK))
+	APIKeyGroup.AddRoute("/audit", http.MethodGet, "Audit des clés API (utilisation, statut, dernière utilisation)", Authenticated(), tonic.Handler(r.ListAudit, http.StatusOK))
+	APIKeyGroup.AddRoute("/:id", http.MethodGet, "Détails d'une clé API", Authenticated(), tonic.Handler(r.GetKey, http.StatusOK))
 	APIKeyGroup.AddRoute("/:id", http.MethodDelete, "Révoquer une clé API", Authenticated(), tonic.Handler(r.RevokeKey, http.StatusOK))
 
 }
@@ -159,7 +170,7 @@ func addProjectRoutes(app *App) {
 
 	// Création dans l'organisation personnelle de l'appelant, qui en devient owner.
 	ProjectGroup.AddRoute("", http.MethodPost, "Créer un projet", Authenticated(), tonic.Handler(r.CreateProject, http.StatusCreated))
-	ProjectGroup.AddRoute("/:id/status", http.MethodGet, "Statut K8s d'un projet",
+	ProjectGroup.AddRoute("/:id/status", http.MethodGet, "État d'un projet",
 		g.Perm(iam.ProjectsGet, project), tonic.Handler(r.GetProjectStatus, http.StatusOK))
 	ProjectGroup.AddRoute("/:id/metrics", http.MethodGet, "Métriques de consommation",
 		g.Perm(iam.ProjectsGet, project), tonic.Handler(r.GetProjectMetrics, http.StatusOK))
@@ -173,24 +184,30 @@ func addWorkloadRoutes(app *App) {
 	workload := workloadResource(app.Repos.Workload)
 	on := func(p iam.Permission) Access { return g.Perm(p, workload) }
 
-	WorkloadGroup.AddRoute("", http.MethodPost, "Déployer un nouveau workload",
+	WorkloadGroup.AddRoute("", http.MethodPost, "Déployer un nouveau conteneur",
 		g.Perm(iam.WorkloadsCreate, security.ProjectJSONBody("project_id")), tonic.Handler(r.CreateWorkload, http.StatusAccepted))
-	WorkloadGroup.AddRoute("", http.MethodGet, "Lister les workloads d'un projet",
+	WorkloadGroup.AddRoute("", http.MethodGet, "Lister les conteneurs d'un projet",
 		g.Perm(iam.WorkloadsList, security.ProjectQuery("project_id")), tonic.Handler(r.ListWorkloads, http.StatusOK))
-	WorkloadGroup.AddRoute("/:id", http.MethodGet, "Détails d'un workload (état DB)", on(iam.WorkloadsGet), tonic.Handler(r.GetWorkload, http.StatusOK))
-	WorkloadGroup.AddRoute("/:id", http.MethodPatch, "Mettre à jour un workload (image, env, storage)", on(iam.WorkloadsUpdate), tonic.Handler(r.UpdateWorkload, http.StatusAccepted))
-	WorkloadGroup.AddRoute("/:id", http.MethodDelete, "Supprimer un workload (Helm uninstall + DB)", on(iam.WorkloadsDelete), tonic.Handler(r.DeleteWorkload, http.StatusAccepted))
+	WorkloadGroup.AddRoute("/:id", http.MethodGet, "Détails d'un conteneur", on(iam.WorkloadsGet), tonic.Handler(r.GetWorkload, http.StatusOK))
+	WorkloadGroup.AddRoute("/:id", http.MethodPatch, "Mettre à jour un conteneur (image, variables, stockage)", on(iam.WorkloadsUpdate), tonic.Handler(r.UpdateWorkload, http.StatusAccepted))
+	WorkloadGroup.AddRoute("/:id", http.MethodDelete, "Supprimer un conteneur et ses ressources", on(iam.WorkloadsDelete), tonic.Handler(r.DeleteWorkload, http.StatusAccepted))
 
-	WorkloadGroup.AddRoute("/:id/stop", http.MethodPost, "Stop (scale to 0)", on(iam.WorkloadsStop), tonic.Handler(r.StopWorkload, http.StatusOK))
-	WorkloadGroup.AddRoute("/:id/start", http.MethodPost, "Start (scale back to N)", on(iam.WorkloadsStart), tonic.Handler(r.StartWorkload, http.StatusOK))
-	WorkloadGroup.AddRoute("/:id/restart", http.MethodPost, "Restart (rollout restart)", on(iam.WorkloadsRestart), tonic.Handler(r.RestartWorkload, http.StatusOK))
-	WorkloadGroup.AddRoute("/:id/rollback", http.MethodPost, "Rollback à une révision Helm", on(iam.WorkloadsRollback), tonic.Handler(r.RollbackWorkload, http.StatusOK))
+	WorkloadGroup.AddRoute("/:id/domains", http.MethodGet, "Domaines personnalisés et enregistrements DNS à créer", on(iam.WorkloadDomainsList), tonic.Handler(r.ListDomains, http.StatusOK))
+	WorkloadGroup.AddRoute("/:id/domains", http.MethodPost, "Ajouter un domaine (rien n'est routé avant la preuve de propriété)", on(iam.WorkloadDomainsUpdate), tonic.Handler(r.AddDomain, http.StatusCreated))
+	WorkloadGroup.AddRoute("/:id/domains/:domainID/verify", http.MethodPost, "Vérifier la preuve de propriété et router le domaine (enregistrement TXT)", on(iam.WorkloadDomainsUpdate), tonic.Handler(r.VerifyDomain, http.StatusOK))
+	WorkloadGroup.AddRoute("/:id/domains/:domainID", http.MethodDelete, "Retirer un domaine et sa route", on(iam.WorkloadDomainsUpdate), tonic.Handler(r.RemoveDomain, http.StatusNoContent))
+	WorkloadGroup.AddRoute("/:id/variables", http.MethodGet, "Variables et secrets du conteneur (la valeur d'un secret n'est jamais renvoyée)", on(iam.WorkloadVariablesList), tonic.Handler(r.ListVariables, http.StatusOK))
+	WorkloadGroup.AddRoute("/:id/variables", http.MethodPatch, "Créer, modifier ou supprimer des variables et des secrets (nouveau déploiement si une valeur change)", on(iam.WorkloadVariablesUpdate), tonic.Handler(r.PatchVariables, http.StatusOK))
+	WorkloadGroup.AddRoute("/:id/stop", http.MethodPost, "Arrêter un conteneur (plus aucune réplique en service)", on(iam.WorkloadsStop), tonic.Handler(r.StopWorkload, http.StatusOK))
+	WorkloadGroup.AddRoute("/:id/start", http.MethodPost, "Démarrer un conteneur (retour au nombre de répliques configuré)", on(iam.WorkloadsStart), tonic.Handler(r.StartWorkload, http.StatusOK))
+	WorkloadGroup.AddRoute("/:id/restart", http.MethodPost, "Redémarrer un conteneur (remplacement progressif des répliques)", on(iam.WorkloadsRestart), tonic.Handler(r.RestartWorkload, http.StatusOK))
+	WorkloadGroup.AddRoute("/:id/rollback", http.MethodPost, "Revenir à une révision précédente", on(iam.WorkloadsRollback), tonic.Handler(r.RollbackWorkload, http.StatusOK))
 
-	WorkloadGroup.AddRoute("/:id/status", http.MethodGet, "Statut live (DB + K8s runtime)", on(iam.WorkloadsGet), tonic.Handler(r.GetWorkloadStatus, http.StatusOK))
-	WorkloadGroup.AddRoute("/:id/events", http.MethodGet, "Events K8s du workload", on(iam.WorkloadsGet), tonic.Handler(r.GetWorkloadEvents, http.StatusOK))
-	WorkloadGroup.AddRoute("/:id/metrics", http.MethodGet, "Metrics CPU/RAM live (metrics-server) + reserved (DB)", on(iam.WorkloadMetrics), tonic.Handler(r.GetWorkloadMetrics, http.StatusOK))
+	WorkloadGroup.AddRoute("/:id/status", http.MethodGet, "État en direct du conteneur", on(iam.WorkloadsGet), tonic.Handler(r.GetWorkloadStatus, http.StatusOK))
+	WorkloadGroup.AddRoute("/:id/events", http.MethodGet, "Événements récents du conteneur", on(iam.WorkloadsGet), tonic.Handler(r.GetWorkloadEvents, http.StatusOK))
+	WorkloadGroup.AddRoute("/:id/metrics", http.MethodGet, "Consommation CPU et mémoire en direct, et ressources réservées", on(iam.WorkloadMetrics), tonic.Handler(r.GetWorkloadMetrics, http.StatusOK))
 	// Logs : streaming direct sur c.Writer (pas tonic — on contrôle la réponse).
-	WorkloadGroup.AddRoute("/:id/logs", http.MethodGet, "Stream logs du pod (chunked HTTP)", on(iam.WorkloadLogsRead), wrapRawHandler(r.GetWorkloadLogs))
+	WorkloadGroup.AddRoute("/:id/logs", http.MethodGet, "Journaux du conteneur, en flux (HTTP chunked)", on(iam.WorkloadLogsRead), wrapRawHandler(r.GetWorkloadLogs))
 }
 
 // workloadResource : "projects/{p}/workloads/{id}" pour le workload ":id".
@@ -218,7 +235,8 @@ func addSiteRoutes(app *App) {
 		return
 	}
 	g := newGuards(app)
-	sites := RootGroup.NewGroup("/projects/:id/sites", "Sites statiques")
+	sites := RootGroup.NewGroup("/projects/:id/sites", "Sites statiques").
+		Named("Sites statiques", "Sites statiques, déploiements (et retour arrière) et domaines personnalisés.")
 	project := security.ProjectParam("id")
 	site := security.ProjectChild("id", "sites", "siteID")
 	on := func(p iam.Permission) Access { return g.Perm(p, site) }
@@ -232,12 +250,78 @@ func addSiteRoutes(app *App) {
 	sites.AddRoute("/:siteID/deployments", http.MethodGet, "Historique des déploiements", on(iam.SiteDeploymentsList), tonic.Handler(r.ListDeployments, http.StatusOK))
 	// Upload multipart (champ "archive") : hors tonic.
 	sites.AddRoute("/:siteID/deployments", http.MethodPost, "Déployer une archive .zip (multipart, champ archive)", on(iam.SiteDeploymentsCreate), wrapRawHandler(r.UploadDeployment))
-	sites.AddRoute("/:siteID/deployments/:deploymentID/activate", http.MethodPost, "Activer un déploiement (rollback)", on(iam.SiteDeploymentsActive), tonic.Handler(r.ActivateDeployment, http.StatusOK))
+	sites.AddRoute("/:siteID/deployments/:deploymentID/activate", http.MethodPost, "Activer un déploiement (retour arrière)", on(iam.SiteDeploymentsActive), tonic.Handler(r.ActivateDeployment, http.StatusOK))
 
 	sites.AddRoute("/:siteID/domains", http.MethodGet, "Domaines personnalisés du site", on(iam.SiteDomainsList), tonic.Handler(r.ListDomains, http.StatusOK))
 	sites.AddRoute("/:siteID/domains", http.MethodPost, "Ajouter un domaine personnalisé", on(iam.SiteDomainsCreate), tonic.Handler(r.AddDomain, http.StatusCreated))
 	sites.AddRoute("/:siteID/domains/:domainID/verify", http.MethodPost, "Vérifier le DNS d'un domaine", on(iam.SiteDomainsVerify), tonic.Handler(r.VerifyDomain, http.StatusOK))
 	sites.AddRoute("/:siteID/domains/:domainID", http.MethodDelete, "Retirer un domaine personnalisé", on(iam.SiteDomainsDelete), tonic.Handler(r.DeleteDomain, http.StatusNoContent))
+}
+
+// addBuildRoutes : images construites depuis le code, sous le projet.
+func addBuildRoutes(app *App) {
+	r := app.Controllers.Builds
+	if r == nil {
+		return
+	}
+	g := newGuards(app)
+	b := RootGroup.NewGroup("/projects/:id/builds", "Builds").
+		Named("Builds", "Construire une image depuis le code (archive .tar.gz ou dépôt Git public), suivre son journal, l'annuler. L'image obtenue se déploie ensuite comme conteneur.")
+	project := security.ProjectParam("id")
+	build := security.ProjectChild("id", "builds", "buildID")
+
+	b.AddRoute("", http.MethodGet, "Lister les builds récents", g.Perm(iam.BuildsList, project), tonic.Handler(r.List, http.StatusOK))
+	b.AddRoute("", http.MethodPost, "Construire depuis un dépôt Git public", g.Perm(iam.BuildsCreate, project), tonic.Handler(r.CreateFromGit, http.StatusAccepted))
+	// Upload multipart (champs archive, name, dockerfile) : hors tonic.
+	b.AddRoute("/upload", http.MethodPost, "Construire depuis une archive .tar.gz (multipart : archive, name, dockerfile)", g.Perm(iam.BuildsCreate, project), wrapRawHandler(r.Upload))
+	b.AddRoute("/:buildID", http.MethodGet, "Détails d'un build", g.Perm(iam.BuildsGet, build), tonic.Handler(r.Get, http.StatusOK))
+	b.AddRoute("/:buildID/logs", http.MethodGet, "Journal du build, en flux (?follow=true jusqu'à la fin)", g.Perm(iam.BuildsGet, build), wrapRawHandler(r.Logs))
+	b.AddRoute("/:buildID/cancel", http.MethodPost, "Annuler un build en cours", g.Perm(iam.BuildsCancel, build), tonic.Handler(r.Cancel, http.StatusNoContent))
+
+	// Internes, sans session : les Jobs et le registre y accèdent avec leurs
+	// propres preuves (URL signée, identifiant du registre).
+	internal := RootGroup.NewGroup("/builds", "Archive d'un build pour son Job").Internal()
+	internal.AddRoute("/:buildID/source", http.MethodGet, "Archive d'un build (URL signée)", Public(), wrapRawHandler(r.Source))
+	reg := RootGroup.NewGroup("/registry", "Authentification du registre").Internal()
+	reg.AddRoute("/token", http.MethodGet, "Jeton du registre (Docker token auth)", Public(), r.RegistryToken)
+}
+
+// addGitHubRoutes : connexion GitHub (installations par projet, dépôts, liens).
+func addGitHubRoutes(app *App) {
+	r := app.Controllers.GitHub
+	if r == nil {
+		return
+	}
+	g := newGuards(app)
+	project := security.ProjectParam("id")
+	workload := workloadResource(app.Repos.Workload)
+	manage := g.Perm(iam.WorkloadsGitHubManage, project)
+
+	integrations := RootGroup.NewGroup("/integrations/github", "Connexion GitHub").
+		Named("Connexion GitHub", "Relier un compte GitHub à un projet, déployer un dépôt (privé compris) et le redéployer à chaque push.")
+	integrations.AddRoute("/status", http.MethodGet, "La connexion GitHub est-elle disponible sur cette plateforme ?", Authenticated(), tonic.Handler(r.Status, http.StatusOK))
+	// Le projet vient de l'état conservé côté serveur : le droit y est vérifié par le service.
+	integrations.AddRoute("/callback", http.MethodPost, "Retour de GitHub : lie l'installation au projet si votre compte y a accès (état à usage unique et code vérifiés)", Authenticated(), tonic.Handler(r.Callback, http.StatusOK))
+
+	// Authentifié par la signature HMAC de la livraison, vérifiée sur le corps brut.
+	hook := RootGroup.NewGroup("/integrations/github", "Webhook de l'application GitHub").Internal()
+	hook.AddRoute("/webhook", http.MethodPost, "Livraison de GitHub (signature X-Hub-Signature-256)", Public(), r.Webhook)
+
+	p := RootGroup.NewGroup("/projects/:id/github", "Connexion GitHub d'un projet").
+		Named("Dépôts GitHub", "Comptes GitHub reliés au projet, dépôts et branches accessibles, création d'un conteneur depuis un dépôt.")
+	p.AddRoute("/installations", http.MethodGet, "Comptes GitHub reliés au projet", manage, tonic.Handler(r.ListInstallations, http.StatusOK))
+	p.AddRoute("/installations/url", http.MethodPost, "Adresse de la page GitHub où installer l'application (valable 10 minutes, pour vous seul)", manage, tonic.Handler(r.InstallURL, http.StatusOK))
+	p.AddRoute("/installations/:installationID", http.MethodDelete, "Délier un compte GitHub : les liens des conteneurs disparaissent, les conteneurs continuent de tourner", manage, tonic.Handler(r.DeleteInstallation, http.StatusNoContent))
+	p.AddRoute("/installations/:installationID/repositories", http.MethodGet, "Dépôts accessibles à un compte relié (paginés, recherche par nom)", manage, tonic.Handler(r.ListRepositories, http.StatusOK))
+	p.AddRoute("/installations/:installationID/repositories/:repoID/branches", http.MethodGet, "Branches d'un dépôt", manage, tonic.Handler(r.ListBranches, http.StatusOK))
+	// Déployer un conteneur est vérifié en plus par le service (workloads.workloads.create).
+	p.AddRoute("/workloads", http.MethodPost, "Créer un conteneur depuis un dépôt : conteneur, lien et première construction en une action", manage, tonic.Handler(r.CreateWorkload, http.StatusAccepted))
+
+	WorkloadGroup.AddRoute("/:id/github", http.MethodGet, "Dépôt lié au conteneur, dernier commit déployé et dernier build", g.Perm(iam.WorkloadsGet, workload), tonic.Handler(r.GetLink, http.StatusOK))
+	WorkloadGroup.AddRoute("/:id/github", http.MethodPut, "Lier le conteneur à un dépôt (ou remplacer le lien)", g.Perm(iam.WorkloadsGitHubManage, workload), tonic.Handler(r.PutLink, http.StatusOK))
+	WorkloadGroup.AddRoute("/:id/github", http.MethodPatch, "Modifier le lien : branche, sous-dossier, Dockerfile, déploiement à chaque push", g.Perm(iam.WorkloadsGitHubManage, workload), tonic.Handler(r.PatchLink, http.StatusOK))
+	WorkloadGroup.AddRoute("/:id/github", http.MethodDelete, "Supprimer le lien (le conteneur continue de tourner)", g.Perm(iam.WorkloadsGitHubManage, workload), tonic.Handler(r.DeleteLink, http.StatusNoContent))
+	WorkloadGroup.AddRoute("/:id/github/deploy", http.MethodPost, "Construire et déployer maintenant le dernier commit de la branche suivie", g.Perm(iam.WorkloadsUpdate, workload), tonic.Handler(r.DeployNow, http.StatusAccepted))
 }
 
 // addIAMRoutes : API publique de l'IAM (docs/architecture/iam.md §14).
@@ -247,7 +331,8 @@ func addIAMRoutes(app *App) {
 		return
 	}
 	g := newGuards(app)
-	grp := RootGroup.NewGroup("/iam", "IAM : policies, permissions, rôles")
+	grp := RootGroup.NewGroup("/iam", "IAM : policies, permissions, rôles").
+		Named("IAM", "Policies (qui a quel rôle sur quelle ressource), rôles, permissions et journal d'audit.")
 
 	grp.AddRoute("/policy", http.MethodGet, "Lire la policy d'une ressource (bindings, etag, membres)",
 		g.PermFor(iam.GetPolicyPermission, security.ResourceQuery("resource")), tonic.Handler(r.GetPolicy, http.StatusOK))
@@ -269,7 +354,7 @@ func addIAMRoutes(app *App) {
 	grp.AddRoute("/.well-known/openid-configuration", http.MethodGet, "STS : métadonnées de l'émetteur",
 		Public(), r.Discovery)
 
-	grp.AddRoute("/session", http.MethodGet, "État d'authentification de l'appelant (double authentification, validité du step-up)",
+	grp.AddRoute("/session", http.MethodGet, "État d'authentification de l'appelant (double authentification, validité de la confirmation récente)",
 		Authenticated(), tonic.Handler(r.Session, http.StatusOK))
 	grp.AddRoute("/ancestry", http.MethodGet, "Ascendance d'une ressource (projet → organisation → platform)",
 		g.PermFor(iamapi.AncestryPermission, security.ResourceQuery("resource")), tonic.Handler(r.Ancestry, http.StatusOK))
@@ -290,7 +375,7 @@ func addIAMRoutes(app *App) {
 		g.Perm(iam.AuditLogsRead, security.ResourceQuery("resource")), tonic.Handler(r.ListAuditLogs, http.StatusOK))
 
 	// Clés des watchers : comptes de service système des clusters (staff).
-	ck := RootGroup.NewGroup("/admin/cluster-keys", "Admin — clés des watchers (comptes de service système des clusters)")
+	ck := RootGroup.NewGroup("/admin/cluster-keys", "Admin — clés des watchers (comptes de service système des clusters)").Internal()
 	ck.AddRoute("", http.MethodPost, "Créer une clé de watcher (crée le compte système du cluster au besoin ; secret affiché une seule fois)",
 		g.Perm(iam.PlatformClusterKeysCreate, security.PlatformResource), tonic.Handler(r.CreateClusterKey, http.StatusCreated))
 	ck.AddRoute("", http.MethodGet, "Lister les clés de watcher, v2 et legacy (active|expiring|expired|revoked)",
@@ -301,14 +386,16 @@ func addIAMRoutes(app *App) {
 		g.Perm(iam.PlatformClusterKeysRevoke, security.PlatformResource), tonic.Handler(r.RevokeClusterKey, http.StatusNoContent))
 
 	// Politique de sécurité d'une organisation (iam.md §9, §13).
-	orgs := RootGroup.NewGroup("/organizations/:id", "Organisation")
+	orgs := RootGroup.NewGroup("/organizations/:id", "Organisation").
+		Named("Organisations", "Politique de sécurité de l'organisation.")
 	orgs.AddRoute("/securityPolicy", http.MethodGet, "Politique de sécurité (double authentification exigée…)",
 		g.Perm(iam.OrganizationsGet, security.OrganizationParam("id")), tonic.Handler(r.GetOrgSecurityPolicy, http.StatusOK))
-	orgs.AddRoute("/securityPolicy", http.MethodPut, "Modifier la politique de sécurité (step-up requis)",
+	orgs.AddRoute("/securityPolicy", http.MethodPut, "Modifier la politique de sécurité (confirmation récente du second facteur requise)",
 		g.Perm(iam.OrganizationsUpdate, security.OrganizationParam("id")), tonic.Handler(r.SetOrgSecurityPolicy, http.StatusOK))
 
 	// Groupes d'une organisation (iam.md §4).
-	groups := RootGroup.NewGroup("/organizations/:id/groups", "Groupes : personnes et comptes de service, membres de policies")
+	groups := RootGroup.NewGroup("/organizations/:id/groups", "Groupes : personnes et comptes de service, membres de policies").
+		Named("Groupes", "Groupes de personnes et de comptes de service, à qui attribuer des rôles en une fois.")
 	org := security.OrganizationParam("id")
 	group := security.OrganizationChild("id", "groups", "groupID")
 	groups.AddRoute("", http.MethodGet, "Lister les groupes de l'organisation", g.Perm(iam.GroupsList, org), tonic.Handler(r.ListGroups, http.StatusOK))
@@ -321,7 +408,8 @@ func addIAMRoutes(app *App) {
 	groups.AddRoute("/:groupID/members", http.MethodDelete, "Retirer un membre (?member=…)", g.Perm(iam.GroupsUpdate, group), tonic.Handler(r.RemoveGroupMember, http.StatusNoContent))
 
 	// Comptes de service et clés API v2, sous le projet.
-	sas := RootGroup.NewGroup("/projects/:id/serviceAccounts", "Comptes de service et clés API")
+	sas := RootGroup.NewGroup("/projects/:id/serviceAccounts", "Comptes de service et clés API").
+		Named("Comptes de service", "Identités pour les scripts et la CI : clés API, clés asymétriques, fédération OIDC (sans secret).")
 	project := security.ProjectParam("id")
 	sa := security.ProjectChild("id", "serviceAccounts", "saID")
 	sas.AddRoute("", http.MethodGet, "Lister les comptes de service", g.Perm(iam.ServiceAccountsList, project), tonic.Handler(r.ListServiceAccounts, http.StatusOK))

@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/thekrauss/kubemanager/internal/auth"
+	"github.com/thekrauss/kubemanager/internal/auth/social"
+	"github.com/thekrauss/kubemanager/internal/core/configs"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/mail"
 	identitySvc "github.com/thekrauss/kubemanager/internal/modules/identity/service"
 )
@@ -24,6 +26,8 @@ func (a *App) authDeps(deps *identitySvc.Deps) error {
 	deps.EmailTokens = &auth.EmailTokens{DB: a.DB}
 	deps.Limiter = a.Cache
 	deps.Logger = a.Logger
+	deps.Identities = &auth.Identities{DB: a.DB}
+	deps.SocialProviders = socialProviders(a.Config.Social)
 
 	m := a.Config.Mail
 	if !m.Enabled {
@@ -37,4 +41,20 @@ func (a *App) authDeps(deps *identitySvc.Deps) error {
 	}
 	deps.Mailer = sender
 	return nil
+}
+
+// socialProviders : fournisseurs dont l'application OAuth est configurée.
+func socialProviders(cfg configs.SocialConfig) map[string]social.Provider {
+	out := map[string]social.Provider{}
+	conv := func(p configs.SocialProviderConfig) social.Config {
+		return social.Config{ClientID: p.ClientID, ClientSecret: p.ClientSecret, AuthURL: p.AuthURL, TokenURL: p.TokenURL,
+			APIURL: p.APIURL, JWKSURL: p.JWKSURL, Issuer: p.Issuer}
+	}
+	if cfg.Google.ClientID != "" && cfg.Google.ClientSecret != "" {
+		out[social.Google] = social.NewGoogle(conv(cfg.Google))
+	}
+	if cfg.GitHub.ClientID != "" && cfg.GitHub.ClientSecret != "" {
+		out[social.GitHub] = social.NewGitHub(conv(cfg.GitHub))
+	}
+	return out
 }

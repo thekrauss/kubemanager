@@ -1,9 +1,12 @@
 package service
 
 import (
+	"slices"
+
 	"context"
 	"errors"
 	"fmt"
+	"github.com/thekrauss/kubemanager/internal/auth"
 	"io"
 	"net"
 	"strings"
@@ -51,7 +54,11 @@ type ISiteService interface {
 type DNSResolver interface {
 	LookupCNAME(ctx context.Context, host string) (string, error)
 	LookupHost(ctx context.Context, host string) ([]string, error)
+	LookupTXT(ctx context.Context, name string) ([]string, error)
 }
+
+// challengePrefixValue : préfixe de la valeur TXT.
+const challengePrefixValue = "betorun-verify="
 
 type Config struct {
 	BaseDomain string
@@ -60,6 +67,9 @@ type Config struct {
 }
 
 type SiteService struct {
+	// HostnameInUse : nom déjà vérifié ailleurs sur la plateforme (optionnel).
+	HostnameInUse func(ctx context.Context, host string) (bool, error)
+
 	repo        repository.SiteRepository
 	store       objectstore.Store
 	distributor temporal.TaskDistributor
@@ -263,10 +273,14 @@ func (s *SiteService) AddDomain(ctx context.Context, projectID, siteID uuid.UUID
 	if err != nil {
 		return nil, betoerrors.New(betoerrors.CodeInvalidInput, err.Error())
 	}
-	d := &domain.SiteDomain{ID: uuid.New(), SiteID: site.ID, Hostname: host}
+	token, err := auth.RandomToken()
+	if err != nil {
+		return nil, err
+	}
+	d := &domain.SiteDomain{ID: uuid.New(), SiteID: site.ID, Hostname: host, Token: challengePrefixValue + token}
 	if err := s.repo.CreateDomain(ctx, d); err != nil {
 		if isUniqueViolation(err) {
-			return nil, betoerrors.New(betoerrors.CodeConflict, "ce domaine est déjà rattaché à un site")
+			return nil, betoerrors.New(betoerrors.CodeConflict, "ce domaine est déjà rattaché à ce site")
 		}
 		return nil, err
 	}
@@ -289,10 +303,11 @@ func (s *SiteService) ListDomains(ctx context.Context, projectID, siteID uuid.UU
 	return out, nil
 }
 
-// VerifyDomain vérifie que le domaine pointe vers l'edge : CNAME vers la cible
-// edge (ou le sous-domaine du site), ou — pour un domaine apex sans CNAME —
-// mêmes adresses IP que la cible edge. Un domaine non vérifié n'est jamais
-// servi ni certifié : empêche de capter le domaine d'un autre.
+// VerifyDomain : vérifie la preuve de propriété (TXT propre à la demande).
+// Pointer vers la plateforme ne suffit pas : n'importe quel client pourrait
+// capter un domaine qui nous vise déjà. Un domaine déjà vérifié reste servi si
+// la preuve disparaît (une erreur DNS passagère ne doit pas couper un site),
+// jusqu'à ce qu'un autre apporte la sienne : le domaine a changé de mains.
 func (s *SiteService) VerifyDomain(ctx context.Context, projectID, siteID, domainID uuid.UUID) (*domain.DomainResponse, error) {
 	site, err := s.getLiveSite(ctx, projectID, siteID)
 	if err != nil {
@@ -305,17 +320,53 @@ func (s *SiteService) VerifyDomain(ctx context.Context, projectID, siteID, domai
 
 	lookupCtx, cancel := context.WithTimeout(ctx, domainLookupTimeout)
 	defer cancel()
-	ok := s.pointsToEdge(lookupCtx, d.Hostname, site.Subdomain+"."+s.cfg.BaseDomain)
+	pointing := s.pointsToEdge(lookupCtx, d.Hostname, site.Subdomain+"."+s.cfg.BaseDomain)
+	txt, _ := s.resolver.LookupTXT(lookupCtx, domain.ChallengePrefix+d.Hostname)
+	for i := range txt {
+		txt[i] = strings.TrimSpace(txt[i])
+	}
 
 	now := time.Now()
-	if err := s.repo.SetDomainVerification(ctx, d.ID, ok, now); err != nil {
+	if d.Token == "" || !slices.Contains(txt, d.Token) {
+		if err := s.repo.TouchDomain(ctx, d.ID, now); err != nil {
+			return nil, err
+		}
+		d.CheckedAt = &now
+		return s.domainView(d, pointing), nil
+	}
+	if d.Verified {
+		return s.domainView(d, pointing), nil
+	}
+	claimed := betoerrors.New(betoerrors.CodeConflict, "ce domaine est déjà rattaché à un site")
+	if s.HostnameInUse != nil {
+		used, err := s.HostnameInUse(ctx, d.Hostname)
+		if err != nil {
+			return nil, err
+		}
+		if used {
+			return nil, claimed
+		}
+	}
+	previous, err := s.repo.VerifiedDomain(ctx, d.Hostname, d.ID)
+	if err != nil {
 		return nil, err
 	}
-	d.Verified, d.CheckedAt = ok, &now
-	if ok {
-		d.VerifiedAt = &now
+	if previous != nil {
+		if previous.Token != "" && slices.Contains(txt, previous.Token) {
+			return nil, claimed
+		}
+		if err := s.repo.SetDomainVerification(ctx, previous.ID, false, now); err != nil {
+			return nil, err
+		}
 	}
-	return s.domainResponse(d), nil
+	if err := s.repo.SetDomainVerification(ctx, d.ID, true, now); err != nil {
+		if isUniqueViolation(err) {
+			return nil, claimed
+		}
+		return nil, err
+	}
+	d.Verified, d.CheckedAt, d.VerifiedAt = true, &now, &now
+	return s.domainView(d, pointing), nil
 }
 
 func (s *SiteService) pointsToEdge(ctx context.Context, host, siteHost string) bool {
@@ -382,7 +433,18 @@ func (s *SiteService) siteResponse(site *domain.Site) *domain.SiteResponse {
 }
 
 func (s *SiteService) domainResponse(d *domain.SiteDomain) *domain.DomainResponse {
-	return &domain.DomainResponse{SiteDomain: *d, CNAMETarget: s.cfg.EdgeTarget}
+	records := []domain.DNSRecord{}
+	if d.Token != "" {
+		records = append(records, domain.DNSRecord{Type: "TXT", Name: domain.ChallengePrefix + d.Hostname, Value: d.Token})
+	}
+	records = append(records, domain.DNSRecord{Type: "CNAME", Name: d.Hostname, Value: s.cfg.EdgeTarget})
+	return &domain.DomainResponse{SiteDomain: *d, CNAMETarget: s.cfg.EdgeTarget, Records: records}
+}
+
+func (s *SiteService) domainView(d *domain.SiteDomain, pointing bool) *domain.DomainResponse {
+	view := s.domainResponse(d)
+	view.Pointing = pointing
+	return view
 }
 
 // publicURL : http en dev local (*.localhost), https partout ailleurs.

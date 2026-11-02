@@ -132,10 +132,10 @@ func (a *ClusterAgents) ClusterOf(ctx context.Context, p Principal) (string, err
 
 // CreateKeyRequest : nouvelle clé pour le watcher d'un cluster.
 type CreateClusterKeyRequest struct {
-	ClusterID     string `json:"cluster_id" binding:"required" desc:"Identifiant du cluster (ex: prod-fr-north-1)"`
-	DisplayName   string `json:"display_name" desc:"Libellé de la clé"`
-	ExpiresInDays int    `json:"expires_in_days" desc:"Clé API : 1 à 90 ; fichier de clé : 1 à 365 (défaut 90)"`
-	Type          string `json:"type" desc:"api_key (défaut) ou key_file (recommandé : jetons courts, aucun secret sur le réseau)"`
+	ClusterID     string `json:"cluster_id" binding:"required" description:"Identifiant du cluster (ex: prod-fr-north-1)"`
+	DisplayName   string `json:"display_name" description:"Libellé de la clé"`
+	ExpiresInDays int    `json:"expires_in_days" description:"Clé API : 1 à 90 ; fichier de clé : 1 à 365 (défaut 90)"`
+	Type          string `json:"type" description:"api_key (défaut) ou key_file (recommandé : jetons courts, aucun secret sur le réseau)"`
 }
 
 // CreateKey : crée au besoin le compte système du cluster, puis une clé
@@ -288,12 +288,12 @@ func (a *ClusterAgents) List(ctx context.Context) ([]ClusterKey, error) {
 type RotateClusterKeyRequest struct {
 	// GraceDays : validité restante de l'ancienne clé (défaut 7, 0 = immédiat
 	// si Immediate, au plus 30).
-	GraceDays int  `json:"grace_days" desc:"Jours de validité restants pour l'ancienne clé (défaut 7, max 30)"`
-	Immediate bool `json:"immediate" desc:"Invalider l'ancienne clé tout de suite (clé compromise)"`
+	GraceDays int  `json:"grace_days" description:"Jours de validité restants pour l'ancienne clé (défaut 7, max 30)"`
+	Immediate bool `json:"immediate" description:"Invalider l'ancienne clé tout de suite (clé compromise)"`
 	// Type : type de la nouvelle clé ; par défaut celui de l'ancienne (une
 	// clé legacy devient une clé API). Permet de passer d'une clé API à un
 	// fichier de clé sans coupure.
-	Type string `json:"type" desc:"api_key ou key_file (défaut : type de l'ancienne clé)"`
+	Type string `json:"type" description:"api_key ou key_file (défaut : type de l'ancienne clé)"`
 }
 
 const maxClusterKeyGraceDays = 30

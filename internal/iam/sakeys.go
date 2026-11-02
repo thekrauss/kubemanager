@@ -68,9 +68,9 @@ func (ServiceAccountKey) TableName() string { return "service_account_keys" }
 
 // CreateSAKeyRequest : sans public_key_pem, betorun génère la paire (ES256).
 type CreateSAKeyRequest struct {
-	DisplayName   string `json:"display_name" desc:"Libellé de la clé"`
-	PublicKeyPEM  string `json:"public_key_pem" desc:"Clé publique PEM à enregistrer (la clé privée ne quitte pas le client). Vide : betorun génère la paire et remet la clé privée une seule fois."`
-	ExpiresInDays int    `json:"expires_in_days" desc:"1 à 365 (défaut 90)"`
+	DisplayName   string `json:"display_name" description:"Libellé de la clé"`
+	PublicKeyPEM  string `json:"public_key_pem" description:"Clé publique PEM à enregistrer (la clé privée ne quitte pas le client). Vide : betorun génère la paire et remet la clé privée une seule fois."`
+	ExpiresInDays int    `json:"expires_in_days" description:"1 à 365 (défaut 90)"`
 }
 
 // KeyFile : fichier de clé remis une seule fois au client (clé générée).

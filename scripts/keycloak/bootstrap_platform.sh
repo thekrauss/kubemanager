@@ -361,6 +361,19 @@ ensure_password_policy() {
     "length(12) and maxLength(128) and notUsername(undefined) and notEmail(undefined) and passwordHistory(3)"}')" >/dev/null
 }
 
+# Profil utilisateur : betorun gère les profils (nom complet, pays…) ;
+# l'annuaire n'exige ni prénom ni nom. Sinon (Keycloak 24+), un compte au nom
+# d'un seul mot est « pas entièrement configuré » et ne peut pas se connecter.
+ensure_user_profile() {
+  local realm="$1" profile
+  log "Relaxing user profile (first/last name optional)"
+  profile="$(api GET "/admin/realms/${realm}/users/profile")"
+  api PUT "/admin/realms/${realm}/users/profile" "$(echo "$profile" | jq '
+    .attributes |= map(if (.name == "firstName" or .name == "lastName") then del(.required) else . end)')" >/dev/null
+  api PUT "/admin/realms/${realm}/authentication/required-actions/VERIFY_PROFILE" \
+    "$(api GET "/admin/realms/${realm}/authentication/required-actions/VERIFY_PROFILE" | jq '.enabled = false')" >/dev/null
+}
+
 ensure_admin_client() {
   local realm="$1" clientId="$2"
   local uuid
@@ -725,6 +738,7 @@ main() {
   auth_uuid="$(ensure_auth_client "$KEYCLOAK_REALM" "$AUTH_CLIENT_ID")"
   ensure_brute_force_protection "$KEYCLOAK_REALM"
   ensure_password_policy "$KEYCLOAK_REALM"
+  ensure_user_profile "$KEYCLOAK_REALM"
 
   log "Configuring social identity providers"
   configure_social_idps "$KEYCLOAK_REALM"

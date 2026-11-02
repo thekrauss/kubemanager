@@ -7,13 +7,13 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"github.com/thekrauss/kubemanager/internal/cli/api"
 	"github.com/thekrauss/kubemanager/internal/cli/i18n"
+	"github.com/thekrauss/kubemanager/internal/cli/ui"
 )
 
 // Gestion des identités : groupes (organisation), rôles personnalisés et
@@ -171,9 +171,32 @@ func (x *iamCtx) customRole(ctx context.Context, raw string) (*api.CustomRole, e
 	return nil, errors.New(i18n.T("iam.role.not_found", raw))
 }
 
-func newTable(cmd *cobra.Command) *tabwriter.Writer {
-	return tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
+// newTable : tableau mis en forme (en-têtes, couleurs) ; les lignes s'y
+// écrivent comme dans un tabwriter (colonnes séparées par des tabulations).
+func newTable(cmd *cobra.Command, headers ...string) *rowWriter {
+	return &rowWriter{t: printer(cmd).Table(headers...)}
 }
+
+type rowWriter struct {
+	t   *ui.Table
+	buf strings.Builder
+}
+
+func (r *rowWriter) Write(b []byte) (int, error) {
+	r.buf.Write(b)
+	for {
+		s := r.buf.String()
+		i := strings.IndexByte(s, '\n')
+		if i < 0 {
+			return len(b), nil
+		}
+		r.t.Row(strings.Split(s[:i], "\t")...)
+		r.buf.Reset()
+		r.buf.WriteString(s[i+1:])
+	}
+}
+
+func (r *rowWriter) Flush() error { return r.t.Flush() }
 
 // ── Groupes ──────────────────────────────────────────────────────────────
 
@@ -201,10 +224,10 @@ func newGroupsList() *cobra.Command {
 				return err
 			}
 			if len(groups) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), i18n.T("grp.list.empty"))
+				printer(cmd).Hint(i18n.T("grp.list.empty"))
 				return nil
 			}
-			tw := newTable(cmd)
+			tw := newTable(cmd, i18n.T("col.group"), i18n.T("col.display_name"), i18n.T("col.members"))
 			for _, g := range groups {
 				fmt.Fprintf(tw, "%s\t%s\t%s\n", g.GroupID, g.DisplayName, i18n.T("grp.members_count", g.MemberCount))
 			}
@@ -231,8 +254,8 @@ func newGroupsCreate() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("grp.create.ok", g.GroupID))
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("grp.create.next", g.GroupID))
+			printer(cmd).Success(i18n.T("grp.create.ok", g.GroupID))
+			printer(cmd).Hint(i18n.T("grp.create.next", g.GroupID))
 			return nil
 		},
 	}
@@ -260,7 +283,7 @@ func newGroupsDelete() *cobra.Command {
 			if err := x.cl.DeleteGroup(cmd.Context(), x.org, g.ID); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("grp.delete.ok", g.GroupID))
+			printer(cmd).Success(i18n.T("grp.delete.ok", g.GroupID))
 			return nil
 		},
 	}
@@ -285,10 +308,10 @@ func newGroupsMembers() *cobra.Command {
 				return err
 			}
 			if len(members) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), i18n.T("grp.members.empty", g.GroupID))
+				printer(cmd).Hint(i18n.T("grp.members.empty", g.GroupID))
 				return nil
 			}
-			tw := newTable(cmd)
+			tw := newTable(cmd, i18n.T("col.member"), i18n.T("col.identity"))
 			for _, m := range members {
 				fmt.Fprintf(tw, "%s\t%s\n", firstNonEmpty(m.Email, m.DisplayName, m.Principal), m.Principal)
 			}
@@ -319,7 +342,7 @@ func newGroupsAddMember() *cobra.Command {
 			if _, err := x.cl.AddGroupMember(cmd.Context(), x.org, g.ID, member); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("grp.add.ok", args[1], g.GroupID))
+			printer(cmd).Success(i18n.T("grp.add.ok", args[1], g.GroupID))
 			return nil
 		},
 	}
@@ -345,7 +368,7 @@ func newGroupsRemoveMember() *cobra.Command {
 			if err := x.cl.RemoveGroupMember(cmd.Context(), x.org, g.ID, member); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("grp.remove.ok", args[1], g.GroupID))
+			printer(cmd).Success(i18n.T("grp.remove.ok", args[1], g.GroupID))
 			return nil
 		},
 	}
@@ -368,7 +391,7 @@ func newRoles() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			tw := newTable(cmd)
+			tw := newTable(cmd, i18n.T("col.role"), i18n.T("col.description"))
 			for _, r := range roles {
 				fmt.Fprintf(tw, "%s\t%s\n", strings.TrimPrefix(r.Name, prefixRoles), r.Description)
 			}
@@ -393,7 +416,7 @@ func newRoles() *cobra.Command {
 				return nil
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "\n"+i18n.T("roles.custom_header"))
-			tw = newTable(cmd)
+			tw = newTable(cmd, i18n.T("col.role"), i18n.T("col.title"), i18n.T("col.scope"))
 			for _, r := range custom {
 				fmt.Fprintf(tw, "%s\t%s\t%s\n", r.RoleID, r.Title, scopeOf(r.Parent))
 			}
@@ -463,7 +486,7 @@ func newRolesCreate() *cobra.Command {
 		Use: "create " + i18n.T("arg.role_id"), Short: i18n.T("roles.create.short"), Args: cobra.ExactArgs(1),
 		Example: "  betorun iam roles create ciDeployer --title \"Déploiement CI\" \\\n" +
 			"      --permission workloads.workloads.update,sites.deployments.create\n" +
-			"  betorun iam permissions --filter workloads   # permissions disponibles",
+			"  betorun iam permissions --filter workloads  # " + i18n.T("ex.perms.available"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.Permissions = splitList(perms)
 			if len(in.Permissions) == 0 {
@@ -486,8 +509,8 @@ func newRolesCreate() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("roles.create.ok", r.RoleID, len(r.Permissions)))
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("roles.create.next", r.RoleID))
+			printer(cmd).Success(i18n.T("roles.create.ok", r.RoleID, len(r.Permissions)))
+			printer(cmd).Hint(i18n.T("roles.create.next", r.RoleID))
 			return nil
 		},
 	}
@@ -536,7 +559,7 @@ func newRolesUpdate() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("roles.update.ok", updated.RoleID, len(updated.Permissions)))
+			printer(cmd).Success(i18n.T("roles.update.ok", updated.RoleID, len(updated.Permissions)))
 			return nil
 		},
 	}
@@ -567,7 +590,7 @@ func newRolesDelete() *cobra.Command {
 			if err := x.cl.DeleteCustomRole(cmd.Context(), r.Name); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("roles.delete.ok", r.RoleID))
+			printer(cmd).Success(i18n.T("roles.delete.ok", r.RoleID))
 			return nil
 		},
 	}
@@ -589,7 +612,7 @@ func newPermissions() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			tw := newTable(cmd)
+			tw := newTable(cmd, i18n.T("col.permission"), i18n.T("col.description"))
 			for _, p := range perms {
 				if (!all && !p.CustomRoles) || (filter != "" && !strings.Contains(p.Name, filter)) {
 					continue
@@ -625,10 +648,10 @@ func newSAList() *cobra.Command {
 				return err
 			}
 			if len(list) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), i18n.T("sa.list.empty"))
+				printer(cmd).Hint(i18n.T("sa.list.empty"))
 				return nil
 			}
-			tw := newTable(cmd)
+			tw := newTable(cmd, i18n.T("col.account"), i18n.T("col.display_name"), i18n.T("col.identity"), i18n.T("wl.col.status"))
 			for _, sa := range list {
 				state := ""
 				if sa.Disabled {
@@ -655,8 +678,8 @@ func newSACreate() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("sa.create.ok", sa.AccountID, sa.Principal))
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("sa.create.next", sa.AccountID))
+			printer(cmd).Success(i18n.T("sa.create.ok", sa.AccountID, sa.Principal))
+			printer(cmd).Hint(i18n.T("sa.create.next", sa.AccountID))
 			return nil
 		},
 	}
@@ -684,7 +707,7 @@ func newSADelete() *cobra.Command {
 			if err := x.cl.DeleteServiceAccount(cmd.Context(), x.project, sa.ID); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("sa.delete.ok", sa.AccountID))
+			printer(cmd).Success(i18n.T("sa.delete.ok", sa.AccountID))
 			return nil
 		},
 	}
@@ -715,10 +738,10 @@ func newSAKeysList() *cobra.Command {
 				return err
 			}
 			if len(keys) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), i18n.T("sa.keys.empty", sa.AccountID))
+				printer(cmd).Hint(i18n.T("sa.keys.empty", sa.AccountID))
 				return nil
 			}
-			tw := newTable(cmd)
+			tw := newTable(cmd, i18n.T("col.key"), i18n.T("col.algorithm"), i18n.T("col.validity"), i18n.T("col.usage"), i18n.T("col.display_name"))
 			for _, k := range keys {
 				state := i18n.T("sa.keys.until", k.ValidBefore.Format("2006-01-02"))
 				if k.DisabledAt != nil {
@@ -776,10 +799,9 @@ func newSAKeysCreate() *cobra.Command {
 			if err := f.Close(); err != nil {
 				return err
 			}
-			out := cmd.OutOrStdout()
-			fmt.Fprintln(out, i18n.T("sa.keys.create.ok", created.KeyID, output, created.ValidBefore.Format("2006-01-02")))
-			fmt.Fprintln(out, i18n.T("sa.keys.create.warn"))
-			fmt.Fprintln(out, i18n.T("sa.keys.create.use", output))
+			printer(cmd).Success(i18n.T("sa.keys.create.ok", created.KeyID, output, created.ValidBefore.Format("2006-01-02")))
+			printer(cmd).Warn(i18n.T("sa.keys.create.warn"))
+			printer(cmd).Hint(i18n.T("sa.keys.create.use", output))
 			return nil
 		},
 	}
@@ -806,7 +828,7 @@ func newSAKeysDisable() *cobra.Command {
 			if err := x.cl.DisableServiceAccountKey(cmd.Context(), x.project, sa.ID, args[1]); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), i18n.T("sa.keys.disable.ok", args[1], sa.AccountID))
+			printer(cmd).Success(i18n.T("sa.keys.disable.ok", args[1], sa.AccountID))
 			return nil
 		},
 	}

@@ -31,17 +31,26 @@ const (
 	ProjectsSetIamPolicy      Permission = "resourcemanager.projects.setIamPolicy"
 
 	// workloads
-	WorkloadsList     Permission = "workloads.workloads.list"
-	WorkloadsGet      Permission = "workloads.workloads.get"
-	WorkloadsCreate   Permission = "workloads.workloads.create"
-	WorkloadsUpdate   Permission = "workloads.workloads.update"
-	WorkloadsDelete   Permission = "workloads.workloads.delete"
-	WorkloadsStart    Permission = "workloads.workloads.start"
-	WorkloadsStop     Permission = "workloads.workloads.stop"
-	WorkloadsRestart  Permission = "workloads.workloads.restart"
-	WorkloadsRollback Permission = "workloads.workloads.rollback"
-	WorkloadLogsRead  Permission = "workloads.logs.read"
-	WorkloadMetrics   Permission = "workloads.metrics.read"
+	WorkloadsList           Permission = "workloads.workloads.list"
+	WorkloadsGet            Permission = "workloads.workloads.get"
+	WorkloadsCreate         Permission = "workloads.workloads.create"
+	WorkloadsUpdate         Permission = "workloads.workloads.update"
+	WorkloadsDelete         Permission = "workloads.workloads.delete"
+	WorkloadsStart          Permission = "workloads.workloads.start"
+	WorkloadsStop           Permission = "workloads.workloads.stop"
+	WorkloadsRestart        Permission = "workloads.workloads.restart"
+	WorkloadsRollback       Permission = "workloads.workloads.rollback"
+	WorkloadLogsRead        Permission = "workloads.logs.read"
+	WorkloadMetrics         Permission = "workloads.metrics.read"
+	WorkloadDomainsList     Permission = "workloads.domains.list"
+	WorkloadDomainsUpdate   Permission = "workloads.domains.update"
+	WorkloadVariablesList   Permission = "workloads.variables.list"
+	WorkloadVariablesUpdate Permission = "workloads.variables.update"
+	BuildsList              Permission = "workloads.builds.list"
+	BuildsGet               Permission = "workloads.builds.get"
+	BuildsCreate            Permission = "workloads.builds.create"
+	BuildsCancel            Permission = "workloads.builds.cancel"
+	WorkloadsGitHubManage   Permission = "workloads.github.manage"
 
 	// sites
 	SitesList             Permission = "sites.sites.list"
@@ -123,17 +132,26 @@ var catalog = map[Permission]PermissionInfo{
 	ProjectsGetIamPolicy:      {Title: "Voir les accès d'un projet", CustomRoles: true},
 	ProjectsSetIamPolicy:      {Title: "Modifier les accès d'un projet", CustomRoles: true, Sensitive: true},
 
-	WorkloadsList:     {Title: "Lister les conteneurs", CustomRoles: true},
-	WorkloadsGet:      {Title: "Voir un conteneur", CustomRoles: true},
-	WorkloadsCreate:   {Title: "Déployer un conteneur", CustomRoles: true},
-	WorkloadsUpdate:   {Title: "Modifier un conteneur", CustomRoles: true},
-	WorkloadsDelete:   {Title: "Supprimer un conteneur", CustomRoles: true},
-	WorkloadsStart:    {Title: "Démarrer un conteneur", CustomRoles: true},
-	WorkloadsStop:     {Title: "Arrêter un conteneur", CustomRoles: true},
-	WorkloadsRestart:  {Title: "Redémarrer un conteneur", CustomRoles: true},
-	WorkloadsRollback: {Title: "Revenir à une version d'un conteneur", CustomRoles: true},
-	WorkloadLogsRead:  {Title: "Lire les logs d'un conteneur", CustomRoles: true},
-	WorkloadMetrics:   {Title: "Voir les métriques d'un conteneur", CustomRoles: true},
+	WorkloadsList:           {Title: "Lister les conteneurs", CustomRoles: true},
+	WorkloadsGet:            {Title: "Voir un conteneur", CustomRoles: true},
+	WorkloadsCreate:         {Title: "Déployer un conteneur", CustomRoles: true},
+	WorkloadsUpdate:         {Title: "Modifier un conteneur", CustomRoles: true},
+	WorkloadsDelete:         {Title: "Supprimer un conteneur", CustomRoles: true},
+	WorkloadsStart:          {Title: "Démarrer un conteneur", CustomRoles: true},
+	WorkloadsStop:           {Title: "Arrêter un conteneur", CustomRoles: true},
+	WorkloadsRestart:        {Title: "Redémarrer un conteneur", CustomRoles: true},
+	WorkloadsRollback:       {Title: "Revenir à une version d'un conteneur", CustomRoles: true},
+	WorkloadLogsRead:        {Title: "Lire les logs d'un conteneur", CustomRoles: true},
+	WorkloadDomainsList:     {Title: "Voir les domaines d'un conteneur", CustomRoles: true},
+	WorkloadDomainsUpdate:   {Title: "Modifier les domaines d'un conteneur", CustomRoles: true},
+	WorkloadVariablesList:   {Title: "Voir les variables d'un conteneur (jamais la valeur des secrets)", CustomRoles: true},
+	WorkloadVariablesUpdate: {Title: "Modifier les variables et les secrets d'un conteneur", CustomRoles: true},
+	BuildsList:              {Title: "Lister les builds", CustomRoles: true},
+	BuildsGet:               {Title: "Voir un build et son journal", CustomRoles: true},
+	BuildsCreate:            {Title: "Construire une image", CustomRoles: true},
+	BuildsCancel:            {Title: "Annuler un build", CustomRoles: true},
+	WorkloadsGitHubManage:   {Title: "Gérer la connexion GitHub et les dépôts liés aux conteneurs", CustomRoles: true},
+	WorkloadMetrics:         {Title: "Voir les métriques d'un conteneur", CustomRoles: true},
 
 	SitesList:             {Title: "Lister les sites", CustomRoles: true},
 	SitesGet:              {Title: "Voir un site", CustomRoles: true},

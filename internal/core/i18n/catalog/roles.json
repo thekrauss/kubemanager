@@ -370,5 +370,41 @@
  {
   "fr": "Lire le journal d'audit",
   "en": "Read the audit log"
+ },
+ {
+  "fr": "Lister les builds",
+  "en": "List builds"
+ },
+ {
+  "fr": "Voir un build et son journal",
+  "en": "View a build and its log"
+ },
+ {
+  "fr": "Construire une image",
+  "en": "Build an image"
+ },
+ {
+  "fr": "Gérer la connexion GitHub et les dépôts liés aux conteneurs",
+  "en": "Manage the GitHub connection and the repositories linked to containers"
+ },
+ {
+  "fr": "Annuler un build",
+  "en": "Cancel a build"
+ },
+ {
+  "fr": "Voir les variables d'un conteneur (jamais la valeur des secrets)",
+  "en": "View a container's variables (never secret values)"
+ },
+ {
+  "fr": "Modifier les variables et les secrets d'un conteneur",
+  "en": "Change a container's variables and secrets"
+ },
+ {
+  "fr": "Voir les domaines d'un conteneur",
+  "en": "View a container's domains"
+ },
+ {
+  "fr": "Modifier les domaines d'un conteneur",
+  "en": "Change a container's domains"
  }
 ]

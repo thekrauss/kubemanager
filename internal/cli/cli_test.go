@@ -72,8 +72,8 @@ func newFakeAPI(t *testing.T) *fakeAPI {
 		return true
 	}
 	mux.HandleFunc("POST /kmanager/v1/identity/device/code", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"device_code":"dc","user_code":"ABCD-EFGH","verification_uri":"https://kc/device",
-			"verification_uri_complete":"https://kc/device?user_code=ABCD-EFGH","expires_in":60,"interval":0}`))
+		_, _ = w.Write([]byte(`{"device_code":"dc","user_code":"ABCD-EFGH","verification_uri":"https://console.betorun.app/device",
+			"verification_uri_complete":"https://console.betorun.app/device?user_code=ABCD-EFGH","expires_in":60,"interval":0}`))
 	})
 	mux.HandleFunc("POST /kmanager/v1/identity/device/token", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]string
@@ -189,7 +189,7 @@ func run(t *testing.T, args ...string) (string, error) {
 	root.SetOut(&out)
 	root.SetErr(&out)
 	root.SetArgs(args)
-	flagAPI, flagProject = "", ""
+	flagAPI, flagProject, flagJSON = "", "", false
 	err := root.Execute()
 	return out.String(), err
 }
@@ -208,10 +208,10 @@ func TestCLI_EndToEnd(t *testing.T) {
 	assert.Contains(t, describe(err), "URL de l'API inconnue")
 
 	// ── login : code affiché, attente, session enregistrée en 0600 ──
-	out, err := run(t, "login", "--api", api.url(), "--no-browser")
+	out, err := run(t, "login", "--device", "--api", api.url(), "--no-browser")
 	require.NoError(t, err, out)
 	assert.Contains(t, out, "ABCD-EFGH")
-	assert.Contains(t, out, "https://kc/device?user_code=ABCD-EFGH")
+	assert.Contains(t, out, "https://console.betorun.app/device")
 	assert.Contains(t, out, "Connecté en tant que awa@ex.sn")
 	assert.Contains(t, out, "sunupay ("+projectID+")")
 	dir, _ := config.Dir()
@@ -264,14 +264,14 @@ func TestCLI_EndToEnd(t *testing.T) {
 	// ── erreurs de l'API, dans la langue de l'utilisateur ──
 	api.failNext = "step_up"
 	_, err = run(t, "sites", "list")
-	assert.Contains(t, describe(err), "double authentification récente")
+	assert.Contains(t, describe(err), "confirmer votre identité")
 	api.failNext = "forbidden"
 	_, err = run(t, "sites", "list")
 	assert.Contains(t, describe(err), "accès refusé : permission refusée")
 	t.Setenv("BETORUN_LANG", "en")
 	api.failNext = "step_up"
 	_, err = run(t, "sites", "list")
-	assert.Contains(t, describe(err), "recent two-factor authentication")
+	assert.Contains(t, describe(err), "confirm your identity")
 	t.Setenv("BETORUN_LANG", "fr")
 
 	// ── CI : jeton fourni, aucune session lue ──

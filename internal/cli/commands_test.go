@@ -92,7 +92,10 @@ func newFakeOps(t *testing.T) (*httptest.Server, *fakeOps) {
 		case r.Method == "POST" && p == "/projects/"+projectID+"/sites/"+siteID+"/domains":
 			var body map[string]string
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			d := map[string]any{"id": uuid.NewString(), "hostname": body["hostname"], "verified": false, "cname_target": "edge.betorun.app"}
+			d := map[string]any{"id": uuid.NewString(), "hostname": body["hostname"], "verified": false, "cname_target": "edge.betorun.app", "records": []map[string]string{
+				{"type": "TXT", "name": "_betorun-challenge.www.sunupay.sn", "value": "betorun-verify=abc"},
+				{"type": "CNAME", "name": "www.sunupay.sn", "value": "edge.betorun.app"},
+			}}
 			f.domains = append(f.domains, d)
 			write(w, 201, d)
 		case r.Method == "POST" && strings.HasSuffix(p, "/verify"):
@@ -167,8 +170,17 @@ func TestCLI_WorkloadsDomainsAccess(t *testing.T) {
 
 	out, err = run(t, "workloads", "list")
 	require.NoError(t, err)
-	assert.Contains(t, out, "api")
-	assert.Contains(t, out, "RUNNING")
+	assert.Contains(t, out, "NOM  ÉTAT", "en-têtes")
+	assert.Contains(t, out, "api  ● en service", "état traduit")
+	assert.NotContains(t, out, "\x1b", "aucune couleur hors terminal")
+
+	// --json : sortie machine (scripts, CI), sans mise en forme.
+	out, err = run(t, "workloads", "list", "--json")
+	require.NoError(t, err)
+	var listed []map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out), &listed), out)
+	require.Len(t, listed, 1)
+	assert.Equal(t, "RUNNING", listed[0]["Status"])
 
 	out, err = run(t, "workloads", "logs", "api", "-f", "--tail", "50", "--since", "10m")
 	require.NoError(t, err)
@@ -187,7 +199,7 @@ func TestCLI_WorkloadsDomainsAccess(t *testing.T) {
 
 	out, err = run(t, "workloads", "status", "api")
 	require.NoError(t, err)
-	assert.Contains(t, out, "RUNNING (READY)")
+	assert.Contains(t, out, "● en service (READY)")
 
 	// Nouvelle version : image seule (variables conservées côté API : null),
 	// puis variables seules (remplacent l'ensemble).
@@ -223,7 +235,9 @@ func TestCLI_WorkloadsDomainsAccess(t *testing.T) {
 	assert.Contains(t, describe(err), "--site")
 	out, err = run(t, "sites", "domains", "add", "www.sunupay.sn", "--site", "vitrine")
 	require.NoError(t, err)
-	assert.Contains(t, out, "www.sunupay.sn  CNAME  edge.betorun.app")
+	assert.Contains(t, out, "_betorun-challenge.www.sunupay.sn")
+	assert.Contains(t, out, "betorun-verify=abc")
+	assert.Contains(t, out, "edge.betorun.app")
 	assert.Contains(t, out, "betorun sites domains verify --site vitrine www.sunupay.sn")
 	out, err = run(t, "sites", "domains", "list", "--site", "vitrine")
 	require.NoError(t, err)

@@ -47,6 +47,10 @@ func (f *fakeDistributor) QueryWorkflow(_ context.Context, _ string, _ string, _
 	return nil, nil
 }
 
+func (f *fakeDistributor) IsRunning(context.Context, string) (bool, error) {
+	return false, nil
+}
+
 func (f *fakeDistributor) CancelWorkflow(_ context.Context, _ string, _ string) error {
 	return nil
 }

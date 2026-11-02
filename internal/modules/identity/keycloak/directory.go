@@ -71,9 +71,14 @@ func (c *Client) VerifyPassword(ctx context.Context, email, password string) (*P
 			Description string `json:"error_description"`
 		}
 		_ = json.Unmarshal(raw, &e)
+		desc := strings.ToLower(e.Description)
 		switch {
-		case strings.Contains(strings.ToLower(e.Description), "disabled"):
+		case strings.Contains(desc, "disabled"):
 			return nil, ErrAccountDisabled
+		case strings.Contains(desc, "not fully set up"):
+			// Configuration de l'annuaire (action requise) : erreur technique,
+			// jamais déguisée en mauvais mot de passe.
+			return nil, fmt.Errorf("keycloak: account requires setup (realm configuration): %s", e.Description)
 		case e.Error == "invalid_grant" || resp.StatusCode == http.StatusUnauthorized:
 			return nil, ErrInvalidCredentials
 		}
@@ -153,6 +158,35 @@ func (c *Client) SetPassword(ctx context.Context, subject, password string) erro
 		return ErrUserNotFound
 	}
 	return fmt.Errorf("set password failed with status %d", status)
+}
+
+// HasPassword : le compte a-t-il un mot de passe (sinon : connexion par
+// Google/GitHub uniquement) ?
+func (c *Client) HasPassword(ctx context.Context, subject string) (bool, error) {
+	token, err := c.adminAccessToken(ctx)
+	if err != nil {
+		return false, err
+	}
+	status, body, err := c.adminDo(ctx, token, http.MethodGet,
+		fmt.Sprintf("/admin/realms/%s/users/%s/credentials", url.PathEscape(c.realm), url.PathEscape(subject)), nil)
+	if err != nil {
+		return false, err
+	}
+	if status != http.StatusOK {
+		return false, fmt.Errorf("list credentials failed with status %d", status)
+	}
+	var creds []struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(body, &creds); err != nil {
+		return false, err
+	}
+	for _, cr := range creds {
+		if cr.Type == "password" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (c *Client) updateUser(ctx context.Context, subject string, fields map[string]any) error {

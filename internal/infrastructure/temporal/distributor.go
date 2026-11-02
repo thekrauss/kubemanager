@@ -1,11 +1,13 @@
-
 package temporal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"go.temporal.io/api/enums/v1"
+	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 )
@@ -23,6 +25,9 @@ type TaskDistributor interface {
 
 	// CancelWorkflow annule un workflow en cours (graceful).
 	CancelWorkflow(ctx context.Context, workflowID, runID string) error
+
+	// IsRunning : une exécution de ce workflow est en cours.
+	IsRunning(ctx context.Context, workflowID string) (bool, error)
 
 	// TerminateWorkflow arrête immédiatement un workflow (hard kill).
 	TerminateWorkflow(ctx context.Context, workflowID, runID, reason string) error
@@ -119,4 +124,17 @@ func (d *TemporalDistributor) TerminateWorkflow(ctx context.Context, workflowID,
 		return fmt.Errorf("temporal distributor not initialized")
 	}
 	return d.client.TerminateWorkflow(ctx, workflowID, runID, reason)
+}
+
+// IsRunning : sans exécution connue, la réponse est non.
+func (d *TemporalDistributor) IsRunning(ctx context.Context, workflowID string) (bool, error) {
+	res, err := d.client.DescribeWorkflowExecution(ctx, workflowID, "")
+	if err != nil {
+		var notFound *serviceerror.NotFound
+		if errors.As(err, &notFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return res.GetWorkflowExecutionInfo().GetStatus() == enums.WORKFLOW_EXECUTION_STATUS_RUNNING, nil
 }

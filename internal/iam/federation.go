@@ -106,9 +106,9 @@ func claimString(v any) string {
 // FederationTrustInput : création d'une relation de confiance.
 type FederationTrustInput struct {
 	DisplayName    string            `json:"display_name"`
-	Issuer         string            `json:"issuer" desc:"Émetteur OIDC (https://token.actions.githubusercontent.com, https://gitlab.com, ou GitLab auto-hébergé)"`
-	SubjectPattern string            `json:"subject_pattern" desc:"Sujet exact ou préfixe terminé par '*' (ex: repo:sunupay/api:ref:refs/heads/main)"`
-	Conditions     map[string]string `json:"conditions" desc:"Claims qui doivent valoir exactement ces valeurs (ex: repository_owner_id)"`
+	Issuer         string            `json:"issuer" description:"Émetteur OIDC (https://token.actions.githubusercontent.com, https://gitlab.com, ou GitLab auto-hébergé)"`
+	SubjectPattern string            `json:"subject_pattern" description:"Sujet exact ou préfixe terminé par '*' (ex: repo:sunupay/api:ref:refs/heads/main)"`
+	Conditions     map[string]string `json:"conditions" description:"Claims qui doivent valoir exactement ces valeurs (ex: repository_owner_id)"`
 }
 
 // NormalizeIssuer : URL https canonique (sans « / » final).

@@ -212,6 +212,16 @@ func Known(text string) bool {
 	return false
 }
 
+// Lookup rend la traduction d'un texte entier présent tel quel au catalogue,
+// sans les gabarits de Translate : « Connexion : code » ne doit pas passer pour
+// le gabarit « %s : %s » (documentation de l'API).
+func Lookup(l Locale, text string) (string, bool) {
+	if e, ok := get().exact[normalize(text)]; ok {
+		return e.In(l), true
+	}
+	return "", false
+}
+
 // Translate rend msg dans la langue l, ou msg inchangé s'il est inconnu du
 // catalogue (code machine, texte utilisateur, détail technique).
 func Translate(l Locale, msg string) string {

@@ -99,6 +99,12 @@ func (a *ProjectK8sActivities) ReconcileProjectResources(ctx context.Context, ns
 			if err != nil {
 				return struct{}{}, fmt.Errorf("invalid memory limit %q: %w", mem, err)
 			}
+			// La limite du projet est appliquée par l'API, seul chemin pour
+			// créer des conteneurs. Le quota Kubernetes est un garde-fou avec
+			// de la marge : à la limite exacte, le pod supplémentaire d'une
+			// mise à jour progressive était refusé et le déploiement restait
+			// bloqué, sans erreur, pour tout projet proche de son quota.
+			cpuQ, memQ = withRollingMargin(cpuQ), withRollingMargin(memQ)
 			quotaName := projectQuotaName
 			newQuotas := &corev1.ResourceQuota{
 				ObjectMeta: metav1.ObjectMeta{Name: quotaName, Namespace: nsName},
@@ -160,4 +166,9 @@ func (a *ProjectK8sActivities) GetNamespaceMetrics(ctx context.Context, projectN
 		CPUUsage:    fmt.Sprintf("%dm", totalCPU),
 		MemoryUsage: fmt.Sprintf("%dMi", totalMem/utils.BytesPerMi),
 	}, nil
+}
+
+// withRollingMargin : quota Kubernetes pour une limite de projet.
+func withRollingMargin(q resource.Quantity) resource.Quantity {
+	return *resource.NewMilliQuantity(q.MilliValue()*quotaRollingMargin, q.Format)
 }

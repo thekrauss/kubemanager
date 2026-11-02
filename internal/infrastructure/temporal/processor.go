@@ -17,6 +17,8 @@ import (
 	"github.com/thekrauss/kubemanager/internal/infrastructure/objectstore"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/realtime"
 	authSvc "github.com/thekrauss/kubemanager/internal/modules/auth/service"
+	buildActivities "github.com/thekrauss/kubemanager/internal/modules/builds/activities"
+	buildWorkflows "github.com/thekrauss/kubemanager/internal/modules/builds/workflows"
 	projectActivities "github.com/thekrauss/kubemanager/internal/modules/projects/activities"
 	projectRepo "github.com/thekrauss/kubemanager/internal/modules/projects/repository"
 	projectWorkflows "github.com/thekrauss/kubemanager/internal/modules/projects/workflows"
@@ -29,16 +31,19 @@ import (
 )
 
 type WorkerConfig struct {
-	Client      client.Client
-	Config      *configs.GlobalConfig
-	Logger      *zap.SugaredLogger
-	K8sClient   *kubernetes.Clientset
-	K8sConfig   *rest.Config
-	DB          *gorm.DB
-	RBACSvc     authSvc.IRBACService
-	Idempotency idempotency.AtomicManager
-	Publisher   realtime.Publisher
-	ObjectStore objectstore.Store // nil si sites statiques désactivés
+	Client       client.Client
+	Config       *configs.GlobalConfig
+	Logger       *zap.SugaredLogger
+	K8sClient    *kubernetes.Clientset
+	K8sConfig    *rest.Config
+	DB           *gorm.DB
+	RBACSvc      authSvc.IRBACService
+	Idempotency  idempotency.AtomicManager
+	Publisher    realtime.Publisher
+	ObjectStore  objectstore.Store                // nil si sites statiques désactivés
+	Builds       *buildActivities.Activities      // nil si builds désactivés
+	RegistryPull *workloadActivities.RegistryPull // nil si builds désactivés
+	Variables    workloadRepository.VariableStore
 }
 
 type TemporalProcessor struct {
@@ -95,6 +100,8 @@ func (p *TemporalProcessor) Start() (<-chan error, error) {
 		K8sConfig:   p.cfg.K8sConfig,
 		K8sClient:   p.cfg.K8sClient,
 		Idempotency: p.cfg.Idempotency,
+		Registry:    p.cfg.RegistryPull,
+		Variables:   p.cfg.Variables,
 	}
 
 	p.registerWorkflows(w)
@@ -117,6 +124,11 @@ func (p *TemporalProcessor) Start() (<-chan error, error) {
 			},
 			Logger: p.cfg.Logger,
 		})
+	}
+
+	if p.cfg.Builds != nil {
+		w.RegisterWorkflow(buildWorkflows.BuildImageWorkflow)
+		p.registerActivities(w, p.cfg.Builds)
 	}
 
 	p.worker = w

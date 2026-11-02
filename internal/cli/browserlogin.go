@@ -2,25 +2,30 @@ package cli
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"html"
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"time"
 
 	"github.com/thekrauss/kubemanager/internal/cli/api"
 	"github.com/thekrauss/kubemanager/internal/cli/config"
 	"github.com/thekrauss/kubemanager/internal/cli/i18n"
+	"github.com/thekrauss/kubemanager/internal/cli/ui"
 	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 )
 
 // Connexion par le navigateur avec retour vers un serveur local éphémère
-// (RFC 8252 : http://127.0.0.1:<port libre>/callback). Sert au step-up :
-// le flux device ne permet pas d'exiger une double authentification récente.
+// (RFC 8252 : http://127.0.0.1:<port libre>/callback). La personne autorise
+// la CLI dans la console betorun (avec son second facteur s'il est actif) ;
+// le code reçu n'est utilisable qu'avec le vérificateur PKCE, généré ici et
+// jamais transmis avant l'échange.
 
 // browserLoginTimeout : temps laissé pour se connecter dans le navigateur.
 var browserLoginTimeout = 5 * time.Minute
@@ -28,7 +33,18 @@ var browserLoginTimeout = 5 * time.Minute
 // openURL : ouverture du navigateur (remplacée dans les tests).
 var openURL = openBrowser
 
-func browserLogin(ctx context.Context, cl *api.Client, out io.Writer, stepUp, open bool) (*config.Credentials, error) {
+// newPKCE : vérificateur (32 octets aléatoires) et son empreinte S256 (RFC 7636).
+func newPKCE() (verifier, challenge string, err error) {
+	b := make([]byte, 32)
+	if _, err = rand.Read(b); err != nil {
+		return "", "", err
+	}
+	verifier = base64.RawURLEncoding.EncodeToString(b)
+	sum := sha256.Sum256([]byte(verifier))
+	return verifier, base64.RawURLEncoding.EncodeToString(sum[:]), nil
+}
+
+func browserLogin(ctx context.Context, cl *api.Client, out io.Writer, open bool) (*config.Credentials, error) {
 	ln, err := net.Listen("tcp", loopbackListenAddr)
 	if err != nil {
 		return nil, err
@@ -36,13 +52,17 @@ func browserLogin(ctx context.Context, cl *api.Client, out io.Writer, stepUp, op
 	defer ln.Close()
 	redirect := fmt.Sprintf(loopbackRedirectFormat, ln.Addr().(*net.TCPAddr).Port)
 
-	link, err := cl.BrowserLoginURL(ctx, redirect, stepUp)
+	verifier, challenge, err := newPKCE()
 	if err != nil {
 		return nil, err
 	}
-	expectedState := ""
-	if u, err := url.Parse(link); err == nil {
-		expectedState = u.Query().Get("state")
+	expectedState, _, err := newPKCE() // valeur aléatoire, liée à cette demande
+	if err != nil {
+		return nil, err
+	}
+	link, err := cl.BrowserLoginURL(ctx, redirect, challenge, expectedState)
+	if err != nil {
+		return nil, err
 	}
 
 	type result struct {
@@ -79,7 +99,8 @@ func browserLogin(ctx context.Context, cl *api.Client, out io.Writer, stepUp, op
 	go func() { _ = srv.Serve(ln) }()
 	defer srv.Close()
 
-	fmt.Fprintln(out, i18n.T("login.browser_open", link))
+	p := ui.New(out)
+	p.Println(i18n.T("login.browser_open", p.Link(link)))
 	if open {
 		openURL(link)
 	}
@@ -94,7 +115,7 @@ func browserLogin(ctx context.Context, cl *api.Client, out io.Writer, stepUp, op
 	if res.err != nil {
 		return nil, res.err
 	}
-	creds, err := cl.BrowserLoginCallback(ctx, res.code, res.state, redirect)
+	creds, err := cl.BrowserLoginToken(ctx, res.code, verifier, redirect)
 	if err != nil {
 		return nil, err
 	}

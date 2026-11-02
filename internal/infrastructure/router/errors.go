@@ -2,6 +2,7 @@ package router
 
 import (
 	"errors"
+	sitesDomain "github.com/thekrauss/kubemanager/internal/modules/sites/domain"
 	workloadsSvc "github.com/thekrauss/kubemanager/internal/modules/workloads/service"
 	"net/http"
 
@@ -12,11 +13,15 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/thekrauss/kubemanager/internal/auth"
+	"github.com/thekrauss/kubemanager/internal/auth/social"
 	"github.com/thekrauss/kubemanager/internal/iam"
 	idempotency "github.com/thekrauss/kubemanager/internal/infrastructure/idempotence"
 	authSvc "github.com/thekrauss/kubemanager/internal/modules/auth/service"
+	buildsDomain "github.com/thekrauss/kubemanager/internal/modules/builds/domain"
+	githubDomain "github.com/thekrauss/kubemanager/internal/modules/github/domain"
 	identityKC "github.com/thekrauss/kubemanager/internal/modules/identity/keycloak"
 	identitySvc "github.com/thekrauss/kubemanager/internal/modules/identity/service"
+	workloadsDomain "github.com/thekrauss/kubemanager/internal/modules/workloads/domain"
 )
 
 // ErrorBody : réponse d'erreur. "error" duplique "message" pour les clients
@@ -60,7 +65,47 @@ var sentinelErrors = []sentinelMapping{
 	{identitySvc.ErrAuthUnavailable, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", false},
 	{identitySvc.ErrWeakPassword, http.StatusBadRequest, "WEAK_PASSWORD", false},
 	{identitySvc.ErrCurrentPassword, http.StatusBadRequest, "INVALID_CURRENT_PASSWORD", false},
+	{identitySvc.ErrSocialUnavailable, http.StatusNotFound, "PROVIDER_UNAVAILABLE", false},
+	{identitySvc.ErrLastSignInMethod, http.StatusConflict, "LAST_SIGN_IN_METHOD", false},
+	{social.ErrProviderRefused, http.StatusUnauthorized, "PROVIDER_REFUSED", false},
+	{social.ErrEmailUnverified, http.StatusForbidden, "PROVIDER_EMAIL_UNVERIFIED", false},
+	{auth.ErrIdentityNotFound, http.StatusNotFound, betoerrors.CodeNotFound, false},
+	{identitySvc.ErrCLICodeInvalid, http.StatusBadRequest, "CLI_AUTHORIZATION_INVALID", false},
+	{identitySvc.ErrInvalidPKCE, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{identitySvc.ErrDeviceCodeUnknown, http.StatusNotFound, "DEVICE_CODE_UNKNOWN", false},
 	{auth.ErrInvalidCode, http.StatusBadRequest, "INVALID_CODE", false},
+	{workloadsDomain.ErrDomainNotFound, http.StatusNotFound, betoerrors.CodeNotFound, false},
+	{workloadsDomain.ErrDomainExists, http.StatusConflict, "CONFLICT", false},
+	{workloadsDomain.ErrDomainClaimed, http.StatusConflict, "DOMAIN_CLAIMED", false},
+	{workloadsDomain.ErrDomainLimit, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{workloadsDomain.ErrDomainsDisabled, http.StatusServiceUnavailable, "DOMAINS_UNAVAILABLE", false},
+	{sitesDomain.ErrInvalidHostname, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{sitesDomain.ErrPlatformHostname, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{workloadsDomain.ErrVariableConflict, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{workloadsDomain.ErrVariableName, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{workloadsDomain.ErrVariableTooBig, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{workloadsDomain.ErrTooManyVariable, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{workloadsDomain.ErrWorkloadStopped, http.StatusConflict, "WORKLOAD_STOPPED", false},
+	{workloadsDomain.ErrDeployInProgress, http.StatusConflict, "DEPLOY_IN_PROGRESS", false},
+	{workloadsDomain.ErrWorkloadNotBuilt, http.StatusConflict, "WORKLOAD_NOT_BUILT", false},
+	{githubDomain.ErrDisabled, http.StatusNotFound, "GITHUB_DISABLED", false},
+	{githubDomain.ErrStateInvalid, http.StatusBadRequest, "GITHUB_STATE_INVALID", false},
+	{githubDomain.ErrCodeRequired, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{githubDomain.ErrInstallationDenied, http.StatusForbidden, "GITHUB_INSTALLATION_DENIED", false},
+	{githubDomain.ErrInstallationNotLinked, http.StatusNotFound, "GITHUB_INSTALLATION_NOT_LINKED", false},
+	{githubDomain.ErrRepositoryInaccessible, http.StatusNotFound, "GITHUB_REPOSITORY_INACCESSIBLE", false},
+	{githubDomain.ErrBranchNotFound, http.StatusBadRequest, "GITHUB_BRANCH_NOT_FOUND", false},
+	{githubDomain.ErrLinkNotFound, http.StatusNotFound, "GITHUB_LINK_NOT_FOUND", false},
+	{githubDomain.ErrLinkDisabled, http.StatusConflict, "GITHUB_LINK_DISABLED", false},
+	{githubDomain.ErrUnavailable, http.StatusServiceUnavailable, "GITHUB_UNAVAILABLE", false},
+	{buildsDomain.ErrInvalidName, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{buildsDomain.ErrInvalidGitURL, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{buildsDomain.ErrInvalidGitRef, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{buildsDomain.ErrInvalidPath, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
+	{buildsDomain.ErrTooManyBuilds, http.StatusTooManyRequests, "TOO_MANY_BUILDS", false},
+	{buildsDomain.ErrBuildNotFound, http.StatusNotFound, betoerrors.CodeNotFound, false},
+	{buildsDomain.ErrBuildFinished, http.StatusConflict, "BUILD_FINISHED", false},
+	{buildsDomain.ErrForeignImage, http.StatusForbidden, "FOREIGN_IMAGE", false},
 	{auth.ErrNoFactor, http.StatusConflict, "MFA_NOT_ENROLLED", false},
 	{auth.ErrFactorExists, http.StatusConflict, "MFA_ALREADY_ENROLLED", false},
 	{auth.ErrRecentMFA, http.StatusUnauthorized, "STEP_UP_REQUIRED", false},

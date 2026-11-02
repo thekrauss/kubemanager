@@ -2,10 +2,8 @@ package cli
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
-	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -23,7 +21,11 @@ var (
 )
 
 func newSites() *cobra.Command {
-	c := &cobra.Command{Use: "sites", Short: i18n.T("sites.short")}
+	c := &cobra.Command{Use: "sites", Short: i18n.T("sites.short"),
+		Example: "# " + i18n.T("ex.sites.first") + "\n" +
+			"betorun sites deploy ./dist --site vitrine --create\n" +
+			"# " + i18n.T("ex.sites.domain") + "\n" +
+			"betorun sites domains add www.exemple.sn --site vitrine"}
 	c.AddCommand(newSitesList(), newSitesDeploy(), newDomains())
 	return c
 }
@@ -46,15 +48,19 @@ func newSitesList() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if done, err := wantJSON(cmd, sites); done {
+				return err
+			}
+			p := printer(cmd)
 			if len(sites) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), i18n.T("sites.list.empty"))
+				p.Hint(i18n.T("sites.list.empty"))
 				return nil
 			}
-			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
+			t := p.Table(i18n.T("wl.col.name"), i18n.T("wl.col.status"), i18n.T("wl.col.url"))
 			for _, site := range sites {
-				fmt.Fprintf(tw, "%s\t%s\t%s\n", site.Name, site.Status, site.URL)
+				t.Row(p.Bold(site.Name), siteStatus(p, site.Status), p.Link(site.URL))
 			}
-			return tw.Flush()
+			return t.Flush()
 		},
 	}
 }
@@ -69,7 +75,9 @@ func newSitesDeploy() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "deploy " + i18n.T("arg.dir"),
 		Short: i18n.T("sites.deploy.short"),
-		Args:  cobra.ExactArgs(1),
+		Example: "betorun sites deploy ./dist --site vitrine --create  # " + i18n.T("ex.sites.create") + "\n" +
+			"betorun sites deploy ./build --site app --spa  # " + i18n.T("ex.sites.spa"),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if siteName == "" {
 				return errors.New(i18n.T("sites.deploy.need_site"))
@@ -82,30 +90,34 @@ func newSitesDeploy() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, out, cl := cmd.Context(), cmd.OutOrStdout(), client(s)
+			ctx, cl, p := cmd.Context(), client(s), printer(cmd)
+			steps := p.Steps()
+			fail := func(err error) error { steps.Failed(); return err }
 
 			dir, _ := filepath.Abs(args[0])
-			fmt.Fprintln(out, i18n.T("sites.deploy.packing", dir))
+			p.Title(siteName, dir)
+			steps.Start(i18n.T("sites.deploy.packing", dir))
 			zipped, err := archive.Zip(dir)
 			if err != nil {
-				return err
+				return fail(err)
 			}
 			defer os.Remove(zipped.Path)
-			fmt.Fprintln(out, i18n.T("sites.deploy.packed", zipped.Files, archive.HumanSize(zipped.Size)))
+			steps.Done()
+			p.Hint("  " + i18n.T("sites.deploy.packed", zipped.Files, archive.HumanSize(zipped.Size)))
 
 			// Site visé, créé si demandé : seulement une fois l'archive prête
 			// (un dossier vide ou illisible ne laisse pas de site vide derrière lui).
 			site, err := findSite(cmd, cl, project, siteName)
 			if err != nil {
-				return err
+				return fail(err)
 			}
 			if site == nil {
 				if !create {
 					return errors.New(i18n.T("sites.deploy.not_found", siteName))
 				}
-				fmt.Fprintln(out, i18n.T("sites.deploy.creating", siteName))
+				steps.Start(i18n.T("sites.deploy.creating", siteName))
 				if site, err = cl.CreateSite(ctx, project, siteName, spa); err != nil {
-					return err
+					return fail(err)
 				}
 			}
 
@@ -114,37 +126,39 @@ func newSitesDeploy() *cobra.Command {
 				return err
 			}
 			defer f.Close()
-			fmt.Fprintln(out, i18n.T("sites.deploy.uploading"))
+			steps.Start(i18n.T("sites.deploy.uploading"))
 			dep, err := cl.UploadDeployment(ctx, project, site.ID.String(), f)
 			if err != nil {
-				return err
+				return fail(err)
 			}
 			if noWait {
+				steps.Done()
 				return nil
 			}
 
-			fmt.Fprintln(out, i18n.T("sites.deploy.processing"))
+			steps.Start(i18n.T("sites.deploy.processing"))
 			deadline := time.Now().Add(deployTimeout)
 			for dep.Status != sitesdomain.DeploymentStatusReady && dep.Status != sitesdomain.DeploymentStatusFailed {
 				if time.Now().After(deadline) {
-					return errors.New(i18n.T("sites.deploy.timeout"))
+					return fail(errors.New(i18n.T("sites.deploy.timeout")))
 				}
 				select {
 				case <-ctx.Done():
-					return ctx.Err()
+					return fail(ctx.Err())
 				case <-time.After(deployPollEvery):
 				}
 				if dep, err = cl.FindDeployment(ctx, project, site.ID.String(), dep.ID.String()); err != nil {
-					return err
+					return fail(err)
 				}
 			}
 			if dep.Status == sitesdomain.DeploymentStatusFailed {
-				return errors.New(i18n.T("sites.deploy.failed", dep.Error))
+				return fail(errors.New(i18n.T("sites.deploy.failed", dep.Error)))
 			}
+			steps.Done()
 			if site, err = cl.GetSite(ctx, project, site.ID.String()); err != nil {
 				return err
 			}
-			fmt.Fprintln(out, i18n.T("sites.deploy.ok", site.URL))
+			p.Success(i18n.T("sites.deploy.ok", p.Link(site.URL)))
 			return nil
 		},
 	}

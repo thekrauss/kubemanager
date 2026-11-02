@@ -134,5 +134,41 @@
  {
   "fr": "Votre session a expiré, reconnectez-vous",
   "en": "your session has expired, sign in again"
+ },
+ {
+  "fr": "Code de vérification PKCE invalide",
+  "en": "invalid code challenge"
+ },
+ {
+  "fr": "Cette autorisation a expiré, relancez betorun login",
+  "en": "this authorization has expired, run betorun login again"
+ },
+ {
+  "fr": "Code inconnu ou expiré : vérifiez le code affiché dans votre terminal",
+  "en": "unknown or expired code, check the code shown in your terminal"
+ },
+ {
+  "fr": "Ce mode de connexion n'est pas disponible",
+  "en": "this sign-in method is not available"
+ },
+ {
+  "fr": "Gardez au moins un moyen de vous connecter : définissez d'abord un mot de passe",
+  "en": "keep at least one way to sign in: set a password first"
+ },
+ {
+  "fr": "Aucun compte lié pour ce fournisseur",
+  "en": "no linked account for this provider"
+ },
+ {
+  "fr": "Fournisseur de connexion inconnu",
+  "en": "unknown sign-in provider"
+ },
+ {
+  "fr": "Le fournisseur n'a pas confirmé votre identité",
+  "en": "the provider did not confirm your identity"
+ },
+ {
+  "fr": "Votre adresse email n'est pas vérifiée chez ce fournisseur",
+  "en": "your email address is not verified with this provider"
  }
 ]

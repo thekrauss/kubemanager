@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,18 +30,6 @@ type KeycloakClient interface {
 	ExecuteActionsEmail(ctx context.Context, userID string, actions []string, opts *ActionEmailOptions) error
 	ResetPassword(ctx context.Context, keycloakUserID, newPassword string) error
 
-	// OAuth2 Authorization Code + PKCE (login hébergé et social).
-	// GetAuthorizationURL builds the Keycloak authorization endpoint URL; an
-	// empty idpName means the hosted login page. Pure URL construction.
-	GetAuthorizationURL(idpName, redirectURI, state, codeChallenge string, opts ...AuthRequestOptions) string
-	// StartDeviceAuthorization / PollDeviceToken : flux device (RFC 8628) de la CLI.
-	// codeChallenge / codeVerifier : PKCE (S256), exigé par le client de la CLI.
-	StartDeviceAuthorization(ctx context.Context, clientID, codeChallenge string) (*DeviceAuthorization, error)
-	PollDeviceToken(ctx context.Context, clientID, deviceCode, codeVerifier string) (*TokenPair, error)
-	// ExchangeCodeForToken : clientID facultatif (client qui a demandé le code ;
-	// défaut : le client web).
-	ExchangeCodeForToken(ctx context.Context, code, redirectURI, codeVerifier string, clientID ...string) (*TokenPair, error)
-
 	// SendVerificationEmail triggers a VERIFY_EMAIL action email for the user.
 	SendVerificationEmail(ctx context.Context, userID string, opts *ActionEmailOptions) error
 
@@ -50,6 +37,7 @@ type KeycloakClient interface {
 	VerifyPassword(ctx context.Context, email, password string) (*PasswordCheck, error)
 	MarkEmailVerified(ctx context.Context, subject string) error
 	SetPassword(ctx context.Context, subject, password string) error
+	HasPassword(ctx context.Context, subject string) (bool, error)
 }
 
 var (
@@ -141,12 +129,15 @@ type userRepresentation struct {
 }
 
 type CreateUserInput struct {
-	Email         string
-	Password      string
-	FullName      string
-	PhoneNumber   string
-	Enabled       bool
-	EmailVerified bool
+	Email    string
+	Password string
+	// WithoutPassword : compte créé par une connexion Google/GitHub, sans
+	// mot de passe (la personne pourra en définir un plus tard).
+	WithoutPassword bool
+	FullName        string
+	PhoneNumber     string
+	Enabled         bool
+	EmailVerified   bool
 }
 
 type UserProfile struct {
@@ -289,7 +280,7 @@ func (c *Client) RevokeClientRole(ctx context.Context, keycloakUserID string, cl
 func (c *Client) CreateUser(ctx context.Context, input CreateUserInput) (*UserProfile, error) {
 	email := strings.ToLower(strings.TrimSpace(input.Email))
 	password := strings.TrimSpace(input.Password)
-	if email == "" || password == "" {
+	if email == "" || (password == "" && !input.WithoutPassword) {
 		return nil, errors.New("email and password are required")
 	}
 	fullName := strings.TrimSpace(input.FullName)
@@ -306,13 +297,9 @@ func (c *Client) CreateUser(ctx context.Context, input CreateUserInput) (*UserPr
 		LastName:      lastName,
 		EmailVerified: input.EmailVerified,
 		Enabled:       true,
-		Credentials: []credentialRepresentation{
-			{
-				Type:      "password",
-				Value:     password,
-				Temporary: false,
-			},
-		},
+	}
+	if !input.WithoutPassword {
+		payload.Credentials = []credentialRepresentation{{Type: "password", Value: password, Temporary: false}}
 	}
 	if !input.Enabled {
 		payload.Enabled = false
@@ -688,100 +675,6 @@ func (c *Client) ResetPassword(ctx context.Context, keycloakUserID, newPassword 
 		return nil
 	}
 	return fmt.Errorf("reset password failed with status %d", resp.StatusCode)
-}
-
-// GetAuthorizationURL returns the Keycloak authorization URL (Authorization
-// Code + PKCE S256). A non-empty idpName sets kc_idp_hint, which pre-selects a
-// social provider so users skip the Keycloak login page; empty = hosted login.
-// AuthRequestOptions : paramètres OIDC optionnels de la demande d'autorisation.
-type AuthRequestOptions struct {
-	// ACRValues : niveau d'authentification exigé (ex. "gold" = MFA, selon
-	// le mapping ACR → LoA du realm).
-	ACRValues string
-	// MaxAge : âge maximal de l'authentification, en secondes ; 0 force une
-	// ré-authentification (step-up). nil : non envoyé.
-	MaxAge *int
-	// ClientID : client OAuth de la demande (défaut : le client web).
-	ClientID string
-}
-
-func (c *Client) GetAuthorizationURL(idpName, redirectURI, state, codeChallenge string, opts ...AuthRequestOptions) string {
-	params := url.Values{}
-	params.Set("client_id", c.authClientID())
-	params.Set("response_type", "code")
-	params.Set("scope", "openid profile email")
-	params.Set("redirect_uri", redirectURI)
-	params.Set("state", state)
-	params.Set("code_challenge", codeChallenge)
-	params.Set("code_challenge_method", "S256")
-	if idpName != "" {
-		params.Set("kc_idp_hint", idpName)
-	}
-	for _, o := range opts {
-		if o.ClientID != "" {
-			params.Set("client_id", o.ClientID)
-		}
-		if o.ACRValues != "" {
-			params.Set("acr_values", o.ACRValues)
-		}
-		if o.MaxAge != nil {
-			params.Set("max_age", strconv.Itoa(*o.MaxAge))
-		}
-	}
-	return fmt.Sprintf("%s/realms/%s/protocol/openid-connect/auth?%s",
-		c.baseURL, url.PathEscape(c.realm), params.Encode())
-}
-
-// ExchangeCodeForToken exchanges an authorization code (received from Keycloak
-// after a login redirect) and its PKCE verifier for a TokenPair.
-func (c *Client) ExchangeCodeForToken(ctx context.Context, code, redirectURI, codeVerifier string, clientID ...string) (*TokenPair, error) {
-	code = strings.TrimSpace(code)
-	if code == "" {
-		return nil, errors.New("authorization code is required")
-	}
-	form := url.Values{}
-	form.Set("grant_type", "authorization_code")
-	client := c.authClientID()
-	if len(clientID) > 0 && clientID[0] != "" {
-		client = clientID[0]
-	}
-	c.setClientCredentials(form, client)
-	form.Set("code", code)
-	form.Set("redirect_uri", redirectURI)
-	form.Set("code_verifier", codeVerifier)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		fmt.Sprintf("%s/realms/%s/protocol/openid-connect/token", c.baseURL, url.PathEscape(c.realm)),
-		strings.NewReader(form.Encode()),
-	)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusBadRequest {
-		return nil, ErrInvalidCredentials
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("keycloak code exchange failed with status %d", resp.StatusCode)
-	}
-	var t userTokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&t); err != nil {
-		return nil, err
-	}
-	return &TokenPair{AccessToken: t.AccessToken, RefreshToken: t.RefreshToken, ExpiresIn: t.ExpiresIn}, nil
-}
-
-// authClientID : client des flux Authorization Code (client web public si
-// configuré, sinon le client confidentiel historique).
-func (c *Client) authClientID() string {
-	if c.webClientID != "" {
-		return c.webClientID
-	}
-	return c.clientID
 }
 
 // setClientCredentials pose client_id, et le secret uniquement pour le client

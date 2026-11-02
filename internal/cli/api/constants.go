@@ -8,8 +8,9 @@ const (
 	pathIdentityLogout          = "/identity/logout"
 	pathIdentityDeviceCode      = "/identity/device/code"
 	pathIdentityDeviceToken     = "/identity/device/token"
-	pathIdentityOIDCAuthorize   = "/identity/oidc/authorize"
-	pathIdentityOIDCCallback    = "/identity/oidc/callback"
+	pathIdentityCLIAuthorizeURL = "/identity/cli/authorize-url"
+	pathIdentityCLIToken        = "/identity/cli/token"
+	pathIdentitySessionVerify   = "/identity/session/verify"
 	pathIdentityBootstrapStatus = "/identity/bootstrap/status"
 
 	pathIAMSession     = "/iam/session"
@@ -74,9 +75,8 @@ const (
 	deviceSlowDownStep = 5 * time.Second
 )
 
-// Connexion par navigateur.
+// Sites statiques.
 const (
-	oidcClientCLI = "cli"
 	// uploadFileName : nom de fichier de l'archive envoyée pour un site.
 	uploadFileName = "site.zip"
 )

@@ -72,15 +72,6 @@ type BootstrapStatusResponse struct {
 
 // ── Login / Logout / Refresh ──────────────────────────────────────────────
 
-type LoginResponse struct {
-	AccessToken    string `json:"access_token"      description:"JWT d'accès Keycloak"`
-	RefreshToken   string `json:"refresh_token"     description:"Jeton de rafraîchissement"`
-	ExpiresIn      int64  `json:"expires_in"        description:"Durée de validité (secondes)"`
-	KeycloakUserID string `json:"keycloak_user_id,omitempty"`
-	Email          string `json:"email,omitempty"`
-	Bootstrapped   bool   `json:"bootstrapped"      description:"True si le user local est provisionné"`
-}
-
 type RefreshTokenRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
 }
@@ -116,36 +107,6 @@ type ForgotPasswordRequest struct {
 type ChangePasswordRequest struct {
 	CurrentPassword string `json:"current_password" binding:"required"`
 	NewPassword     string `json:"new_password" binding:"required,min=8"`
-}
-
-// ── Login hébergé Keycloak (Authorization Code + PKCE) ────────────────────
-
-type LoginURLQuery struct {
-	RedirectURI string `query:"redirect_uri" description:"Redirect URI absolue (optionnelle si fournie via config)"`
-	StepUp      bool   `query:"step_up" description:"Ré-authentification avec double authentification (réponse à STEP_UP_REQUIRED)"`
-	Client      string `query:"client" description:"cli : connexion de la CLI (redirect_uri http://127.0.0.1:<port>/callback)"`
-}
-
-type LoginURLResponse struct {
-	URL string `json:"url" description:"URL Keycloak vers laquelle rediriger l'utilisateur"`
-}
-
-// ── Social login (Google, GitHub) ─────────────────────────────────────────
-
-type SocialLoginURLQuery struct {
-	Provider    string `path:"provider"     binding:"required" description:"google | github"`
-	RedirectURI string `query:"redirect_uri" description:"Redirect URI absolue (optionnelle si fournie via config)"`
-}
-
-type SocialLoginURLResponse struct {
-	URL      string `json:"url"      description:"URL Keycloak vers laquelle rediriger l'utilisateur"`
-	Provider string `json:"provider" description:"Nom du provider (google, github)"`
-}
-
-type SocialCallbackQuery struct {
-	Code        string `query:"code"         binding:"required" description:"Code OAuth2 retourné par Keycloak"`
-	State       string `query:"state"        binding:"required" description:"State CSRF à valider"`
-	RedirectURI string `query:"redirect_uri" binding:"required" description:"Redirect URI utilisée à l'étape précédente"`
 }
 
 // ── Erreur commune ────────────────────────────────────────────────────────
