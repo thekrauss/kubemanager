@@ -2,15 +2,18 @@ package activities
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+	"go.temporal.io/sdk/temporal"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"github.com/thekrauss/kubemanager/internal/infrastructure/observability"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/realtime"
 	"github.com/thekrauss/kubemanager/internal/modules/utils"
+	"github.com/thekrauss/kubemanager/internal/modules/workloads/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
 )
 
@@ -51,6 +54,10 @@ func (a *WorkloadDBActivities) UpdateWorkloadStatus(ctx context.Context, workloa
 		return err
 	}
 	if err := a.Repo.UpdateStatus(ctx, uID, status, phase); err != nil {
+		if errors.Is(err, domain.ErrWorkloadDeleting) {
+			// Définitif : le workflow s'arrête sans rien installer.
+			return temporal.NewNonRetryableApplicationError(err.Error(), errTypeWorkloadDeleting, err)
+		}
 		return err
 	}
 

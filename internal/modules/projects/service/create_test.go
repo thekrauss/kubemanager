@@ -3,20 +3,26 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/thekrauss/kubemanager/internal/modules/projects/workflows"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/converter"
 	"go.uber.org/zap"
+	"k8s.io/client-go/rest"
 
 	"github.com/thekrauss/kubemanager/internal/core/configs"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/temporal"
 	authdomain "github.com/thekrauss/kubemanager/internal/modules/auth/domain"
 	typesproject "github.com/thekrauss/kubemanager/internal/modules/projects/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/utils"
+	workloadRepo "github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
 )
 
 // ── fakes ─────────────────────────────────────────────────────────────────
@@ -177,4 +183,39 @@ func TestCreateProject_ReturnsIDAndDefaults(t *testing.T) {
 
 	_, err = svc.CreateProject(context.Background(), typesproject.CreateProjectRequest{Name: "beta", CpuLimit: "beaucoup"}, "owner-42")
 	assert.ErrorIs(t, err, ErrInvalidProjectLimits)
+}
+
+// Deuxième demande de suppression : déjà en cours, même réponse (l'option
+// d'erreur du distributeur ne doit pas la transformer en échec).
+func TestDeleteProject_AlreadyRunning(t *testing.T) {
+	projectID := uuid.NewString()
+	dist := &fakeDistributor{err: fmt.Errorf("execute workflow: %w", serviceerror.NewWorkflowExecutionAlreadyStarted("started", "", "run"))}
+	repo := &fakeProjectRepo{project: &authdomain.Project{ID: uuid.MustParse(projectID), Name: "alpha"}}
+	resp, err := newProjectServiceForTest(dist, repo).DeleteProject(context.Background(), projectID)
+	require.NoError(t, err)
+	assert.Equal(t, workflows.WorkflowIDDeletePrefix+projectID, resp.WorkflowID)
+}
+
+type failingUsage struct {
+	workloadRepo.WorkloadRepository
+	err error
+}
+
+func (f failingUsage) GetTotalUsageByProject(context.Context, uuid.UUID) (int64, int64, int64, error) {
+	return 0, 0, 0, f.err
+}
+
+// Une panne ne s'affiche pas comme une réservation nulle.
+func TestGetMetrics_UsageError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"kind":"PodMetricsList","apiVersion":"metrics.k8s.io/v1beta1","items":[]}`))
+	}))
+	defer srv.Close()
+	down := errors.New("db down")
+	svc := newProjectServiceForTest(&fakeDistributor{}, &fakeProjectRepo{project: &authdomain.Project{ID: uuid.New(), Name: "alpha"}})
+	svc.K8sConfig = &rest.Config{Host: srv.URL}
+	svc.WorkloadRepo = failingUsage{err: down}
+	_, err := svc.GetMetrics(context.Background(), uuid.NewString())
+	require.ErrorIs(t, err, down)
 }

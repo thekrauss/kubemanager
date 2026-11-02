@@ -21,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/thekrauss/kubemanager/internal/infrastructure/heartbeat"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/objectstore"
 	"github.com/thekrauss/kubemanager/internal/modules/builds/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/builds/registry"
@@ -28,6 +29,9 @@ import (
 )
 
 const pollEvery = 3 * time.Second
+
+// maxSavedLogBytes : taille maximale du journal conservé d'un build.
+const maxSavedLogBytes = 32 << 20
 
 var (
 	digestRe   = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
@@ -136,10 +140,14 @@ func (a *Activities) MarkBuilding(ctx context.Context, ref BuildRef) error {
 // RunBuild : lance le Job (s'il n'existe pas déjà : réessai après un
 // redémarrage du worker) et le suit jusqu'à la fin. Annulé, il supprime le Job.
 func (a *Activities) RunBuild(ctx context.Context, ref BuildRef) (*BuildResult, error) {
-	if err := a.ensureEnvironment(ctx); err != nil {
-		return nil, err
-	}
-	if err := a.ensureJob(ctx, ref); err != nil {
+	// Avec un cluster distant lent, ces appels dépassent le délai de heartbeat :
+	// sans signal, toutes les tentatives s'épuiseraient ici.
+	if err := heartbeat.While(ctx, pollEvery, func() error {
+		if err := a.ensureEnvironment(ctx); err != nil {
+			return err
+		}
+		return a.ensureJob(ctx, ref)
+	}); err != nil {
 		return nil, err
 	}
 	ticker := time.NewTicker(pollEvery)
@@ -446,12 +454,18 @@ func (a *Activities) Finish(ctx context.Context, in FinishInput) error {
 	return nil
 }
 
+// savedLogOptions : journal conservé, borné : il est lu en mémoire par le worker.
+func savedLogOptions() *corev1.PodLogOptions {
+	limit := int64(maxSavedLogBytes)
+	return &corev1.PodLogOptions{Container: containerName, LimitBytes: &limit}
+}
+
 func (a *Activities) saveLog(ctx context.Context, ref BuildRef) {
 	pod, err := a.pod(ctx, ref.BuildID)
 	if err != nil || pod == nil {
 		return
 	}
-	stream, err := a.K8s.CoreV1().Pods(a.Job.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{Container: containerName}).Stream(ctx)
+	stream, err := a.K8s.CoreV1().Pods(a.Job.Namespace).GetLogs(pod.Name, savedLogOptions()).Stream(ctx)
 	if err != nil {
 		a.Logger.Warnw("build log unavailable", "build", ref.BuildID, "error", err)
 		return

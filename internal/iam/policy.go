@@ -459,7 +459,12 @@ func (s *PolicyService) describeMembers(ctx context.Context, p *Policy) ([]Membe
 			}
 			out = append(out, MemberInfo{Principal: Principal(kind + ":" + id.String()), Email: email, DisplayName: name})
 		}
+		// Connexion coupée en cours de lecture : pas de liste de membres tronquée.
+		err = rows.Err()
 		rows.Close()
+		if err != nil {
+			return nil, err
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Principal < out[j].Principal })
 	return out, nil

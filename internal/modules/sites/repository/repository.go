@@ -78,8 +78,12 @@ func (r *siteRepository) ListSites(ctx context.Context, projectID uuid.UUID) ([]
 	return sites, err
 }
 
+// UpdateSite : réglages du site, seuls modifiables ici. Ne réécrit ni le statut
+// ni le déploiement actif : Save écrasait une suppression ou un déploiement
+// concurrents avec la copie lue avant.
 func (r *siteRepository) UpdateSite(ctx context.Context, site *domain.Site) error {
-	return r.db.WithContext(ctx).Save(site).Error
+	return r.db.WithContext(ctx).Model(&domain.Site{}).Where("id = ?", site.ID).
+		Updates(map[string]any{"spa_fallback": site.SPAFallback, "updated_at": site.UpdatedAt}).Error
 }
 
 func (r *siteRepository) SetSiteStatus(ctx context.Context, siteID uuid.UUID, status string) error {

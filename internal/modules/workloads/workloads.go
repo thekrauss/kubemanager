@@ -1,9 +1,9 @@
 package workloads
 
 import (
+	"github.com/thekrauss/kubemanager/internal/core/ginhttp"
 	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 	"github.com/thekrauss/kubemanager/internal/middleware/security"
-	"io"
 	"net/http"
 
 	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
@@ -285,7 +285,9 @@ func (h *WorkloadController) GetWorkloadLogs(c *gin.Context, in *LogsRequest) {
 		Timestamps:   in.Timestamps,
 	}
 	if opts.TailLines == 0 && opts.SinceSeconds == 0 {
-		opts = service.DefaultLogOptions()
+		// Seulement la fenêtre : follow et previous restent ceux de la requête.
+		def := service.DefaultLogOptions()
+		opts.TailLines, opts.SinceSeconds = def.TailLines, def.SinceSeconds
 	}
 
 	stream, err := h.WorkloadService.Logs(c.Request.Context(), id, opts)
@@ -298,7 +300,7 @@ func (h *WorkloadController) GetWorkloadLogs(c *gin.Context, in *LogsRequest) {
 	c.Writer.Header().Set(httpheader.ContentType, httpheader.MIMETextPlainUTF8)
 	c.Writer.Header().Set(httpheader.CacheControl, httpheader.NoCache)
 	c.Writer.WriteHeader(http.StatusOK)
-	_, _ = io.Copy(c.Writer, stream)
+	ginhttp.CopyFlushing(c, stream)
 }
 
 func (h *WorkloadController) GetWorkloadEvents(c *gin.Context, in *WorkloadIDRequest) ([]domain.WorkloadEvent, error) {

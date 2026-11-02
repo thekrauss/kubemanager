@@ -226,11 +226,7 @@ func (m *MiddlewareManager) handleBearer(c *gin.Context, tokenString string) {
 	// 3. Blacklist JTI — toujours vérifié (cache hit OU miss).
 	// Couvre le cas du logout immédiat.
 	if m.authCache != nil && claims.JTI != "" {
-		if blacklisted, _ := m.authCache.IsAccessTokenJTIBlacklisted(ctx, claims.JTI); blacklisted {
-			if m.audit != nil {
-				m.audit.LogAuthEvent(c, middleware.AuditTokenRevoked, zap.String("jti", claims.JTI))
-			}
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token has been revoked"})
+		if m.refuseRevokedJTI(c, claims.JTI) {
 			return
 		}
 	}
@@ -483,4 +479,24 @@ func splitScope(scope string) []string {
 		}
 	}
 	return out
+}
+
+// refuseRevokedJTI : vrai si la requête a été refusée. Révocation impossible à
+// vérifier : refus, comme pour le contrôle en base. Sinon un jeton révoqué
+// (déconnexion) resterait valable pendant toute la panne.
+func (m *MiddlewareManager) refuseRevokedJTI(c *gin.Context, jti string) bool {
+	blacklisted, err := m.authCache.IsAccessTokenJTIBlacklisted(c.Request.Context(), jti)
+	if err != nil {
+		m.logger.Errorw("token jti revocation check failed", "error", err)
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "authentication check failed"})
+		return true
+	}
+	if blacklisted {
+		if m.audit != nil {
+			m.audit.LogAuthEvent(c, middleware.AuditTokenRevoked, zap.String("jti", jti))
+		}
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token has been revoked"})
+		return true
+	}
+	return false
 }

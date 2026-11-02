@@ -174,6 +174,15 @@ func (s *SiteService) DeleteSite(ctx context.Context, projectID, siteID uuid.UUI
 	_, err = s.distributor.ExecuteWorkflow(ctx,
 		temporal.ExecuteOptions{WorkflowID: workflows.WorkflowIDDeletePrefix + site.ID.String()},
 		workflows.DeleteSiteWorkflow, site.ID.String())
+	if temporal.IsAlreadyStarted(err) {
+		return nil // deuxième demande : la suppression est déjà en cours
+	}
+	if err != nil {
+		// Aucun workflow ne terminera ce DELETING : le site cesserait d'être servi.
+		s.compensate(ctx, "site status not restored", site.ID, func(ctx context.Context) error {
+			return s.repo.SetSiteStatus(ctx, site.ID, site.Status)
+		})
+	}
 	return err
 }
 
@@ -204,6 +213,7 @@ func (s *SiteService) Deploy(ctx context.Context, projectID, siteID uuid.UUID, u
 
 	if err := s.store.Put(ctx, dep.ArchiveKey, archive, size, httpheader.MIMEZip); err != nil {
 		s.failDeployment(ctx, dep, "l'envoi de l'archive a échoué, réessayez")
+		s.removeArchive(ctx, dep)
 		return nil, fmt.Errorf("store archive: %w", err)
 	}
 
@@ -212,16 +222,34 @@ func (s *SiteService) Deploy(ctx context.Context, projectID, siteID uuid.UUID, u
 		temporal.ExecuteOptions{WorkflowID: workflows.WorkflowIDDeployPrefix + dep.ID.String()},
 		workflows.DeploySiteWorkflow, ref); err != nil {
 		s.failDeployment(ctx, dep, "le déploiement n'a pas pu démarrer, réessayez")
+		s.removeArchive(ctx, dep)
 		return nil, fmt.Errorf("start deploy workflow: %w", err)
 	}
 	return dep, nil
 }
 
-func (s *SiteService) failDeployment(ctx context.Context, dep *domain.SiteDeployment, msg string) {
-	if err := s.repo.UpdateDeploymentStatus(ctx, dep.ID, domain.DeploymentStatusFailed, msg); err != nil {
-		s.logger.Warnw("mark site deployment failed", "deployment_id", dep.ID, "error", err)
+// compensate : annule une écriture dont la suite a échoué, y compris si la
+// requête a été interrompue. Erreur journalisée : celle de l'appelant prime.
+func (s *SiteService) compensate(ctx context.Context, msg string, id uuid.UUID, undo func(context.Context) error) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), compensationTimeout)
+	defer cancel()
+	if err := undo(ctx); err != nil && s.logger != nil {
+		s.logger.Warnw(msg, "id", id, "error", err)
 	}
+}
+
+func (s *SiteService) failDeployment(ctx context.Context, dep *domain.SiteDeployment, msg string) {
+	s.compensate(ctx, "mark site deployment failed", dep.ID, func(ctx context.Context) error {
+		return s.repo.UpdateDeploymentStatus(ctx, dep.ID, domain.DeploymentStatusFailed, msg)
+	})
 	dep.Status, dep.Error = domain.DeploymentStatusFailed, msg
+}
+
+// removeArchive : aucun workflow ne lira ni ne supprimera cette archive.
+func (s *SiteService) removeArchive(ctx context.Context, dep *domain.SiteDeployment) {
+	s.compensate(ctx, "orphan site archive not removed", dep.ID, func(ctx context.Context) error {
+		return s.store.Delete(ctx, dep.ArchiveKey)
+	})
 }
 
 func (s *SiteService) ListDeployments(ctx context.Context, projectID, siteID uuid.UUID) ([]domain.SiteDeployment, error) {

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -306,4 +307,49 @@ func TestIdempotency_HandlerFailure_MarkedAsFail(t *testing.T) {
 	_, exists := mgr.records[scopedKey]
 	mgr.mu.Unlock()
 	assert.False(t, exists, "record doit être effacé après échec")
+}
+
+// ctxManager : comme Redis, refuse d'écrire sur un contexte annulé.
+type ctxManager struct{ *fakeAtomicManager }
+
+func (m ctxManager) Complete(ctx context.Context, key, hash string, resp any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return m.fakeAtomicManager.Complete(ctx, key, hash, resp)
+}
+
+func (m ctxManager) Fail(ctx context.Context, key, hash string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return m.fakeAtomicManager.Fail(ctx, key, hash)
+}
+
+// Client parti pendant le traitement : la clé ne reste pas « en cours » jusqu'à
+// son expiration, que la réponse soit un succès ou un échec.
+func TestIdempotency_FinalizesAfterClientGone(t *testing.T) {
+	savedMgr, savedLog := globalIdempotencyMgr, globalIdempotencyLogger
+	defer func() { globalIdempotencyMgr, globalIdempotencyLogger = savedMgr, savedLog }()
+	for _, status := range []int{http.StatusOK, http.StatusInternalServerError} {
+		mgr := ctxManager{newFakeManager()}
+		SetIdempotencyManager(mgr, nil)
+		ctx, cancel := context.WithCancel(context.Background())
+		r := gin.New()
+		r.Use(func(c *gin.Context) { c.Set("userID", "user-1"); c.Next() }, Idempotency())
+		r.POST("/x", func(c *gin.Context) {
+			cancel()
+			c.JSON(status, gin.H{})
+		})
+		req := httptest.NewRequest(http.MethodPost, "/x", strings.NewReader("{}")).WithContext(ctx)
+		req.Header.Set("Idempotency-Key", "k")
+		r.ServeHTTP(httptest.NewRecorder(), req)
+
+		mgr.mu.Lock()
+		for key, rec := range mgr.records {
+			assert.NotEqual(t, "in_progress", rec.status, key)
+		}
+		mgr.mu.Unlock()
+		cancel()
+	}
 }

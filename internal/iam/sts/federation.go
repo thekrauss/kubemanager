@@ -80,6 +80,10 @@ func NewIssuers() *Issuers {
 
 var errPrivateAddress = errors.New("federation: refusing to contact a private address")
 
+// sharedAddressSpace : 100.64.0.0/10 (RFC 6598, CGNAT) : réseau interne de
+// plusieurs clouds et de Tailscale, que IsPrivate ne couvre pas.
+var sharedAddressSpace = net.IPNet{IP: net.IPv4(100, 64, 0, 0).To4(), Mask: net.CIDRMask(10, 32)}
+
 func refusePrivate(_, address string, _ syscall.RawConn) error {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
@@ -87,7 +91,7 @@ func refusePrivate(_, address string, _ syscall.RawConn) error {
 	}
 	ip := net.ParseIP(host)
 	if ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsUnspecified() || ip.IsMulticast() {
+		ip.IsUnspecified() || ip.IsMulticast() || sharedAddressSpace.Contains(ip) {
 		return errPrivateAddress
 	}
 	return nil

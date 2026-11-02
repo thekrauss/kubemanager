@@ -44,13 +44,17 @@ func ExecuteWorker[T any](ctx context.Context, mgr Manager, key string, payloadH
 		}
 
 		result, err := work()
+		// Le contexte peut être annulé pendant work : le verrou doit tout de même
+		// être libéré ou le résultat enregistré.
+		finalize, cancel := context.WithTimeout(context.WithoutCancel(ctx), finalizeTimeout)
+		defer cancel()
 		if err != nil {
-			if cleanupErr := atomic.Fail(ctx, key, payloadHash); cleanupErr != nil && opts.OnFinalizeError != nil {
+			if cleanupErr := atomic.Fail(finalize, key, payloadHash); cleanupErr != nil && opts.OnFinalizeError != nil {
 				opts.OnFinalizeError(finalizeStepFail, cleanupErr)
 			}
 			return zero, "", err
 		}
-		if completeErr := atomic.Complete(ctx, key, payloadHash, result); completeErr != nil && opts.OnFinalizeError != nil {
+		if completeErr := atomic.Complete(finalize, key, payloadHash, result); completeErr != nil && opts.OnFinalizeError != nil {
 			opts.OnFinalizeError(finalizeStepComplete, completeErr)
 		}
 		return result, WorkerExecuted, nil

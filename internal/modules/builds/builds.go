@@ -3,7 +3,6 @@ package builds
 
 import (
 	"errors"
-	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -12,6 +11,7 @@ import (
 
 	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
 
+	"github.com/thekrauss/kubemanager/internal/core/ginhttp"
 	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 	"github.com/thekrauss/kubemanager/internal/middleware/security"
 	"github.com/thekrauss/kubemanager/internal/modules/builds/domain"
@@ -75,6 +75,7 @@ func (h *Controller) Upload(c *gin.Context, in *domain.UploadPath) {
 	}
 	max := h.Service.MaxArchiveBytes()
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, max+multipartOverhead)
+	defer ginhttp.RemoveMultipart(c)
 	fh, err := c.FormFile(domain.ArchiveFormField)
 	if err != nil {
 		var tooBig *http.MaxBytesError
@@ -142,7 +143,7 @@ func (h *Controller) Logs(c *gin.Context, in *domain.LogsRequest) {
 	c.Header(httpheader.ContentType, "text/plain; charset=utf-8")
 	c.Header("X-Accel-Buffering", "no")
 	c.Status(http.StatusOK)
-	copyFlushing(c, stream)
+	ginhttp.CopyFlushing(c, stream)
 }
 
 // Source : archive pour le Job de build, protégée par une URL signée.
@@ -205,20 +206,4 @@ func (h *Controller) writeError(c *gin.Context, err error) {
 		err = errors.New("internal error")
 	}
 	c.JSON(status, gin.H{"code": code, "message": err.Error(), "error": err.Error()})
-}
-
-func copyFlushing(c *gin.Context, r io.Reader) {
-	buf := make([]byte, 32*1024)
-	for {
-		n, err := r.Read(buf)
-		if n > 0 {
-			if _, werr := c.Writer.Write(buf[:n]); werr != nil {
-				return
-			}
-			c.Writer.Flush()
-		}
-		if err != nil {
-			return
-		}
-	}
 }

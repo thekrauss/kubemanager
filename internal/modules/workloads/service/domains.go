@@ -11,7 +11,6 @@ import (
 
 	"github.com/thekrauss/kubemanager/internal/auth"
 	"github.com/thekrauss/kubemanager/internal/core/configs"
-	"github.com/thekrauss/kubemanager/internal/infrastructure/temporal"
 	sitesDomain "github.com/thekrauss/kubemanager/internal/modules/sites/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/utils"
 	"github.com/thekrauss/kubemanager/internal/modules/workloads/domain"
@@ -95,6 +94,13 @@ func (s *WorkloadService) AddDomain(ctx context.Context, workload uuid.UUID, hos
 	if err := s.domainsReady(); err != nil {
 		return nil, err
 	}
+	w, err := s.Repo.GetByID(ctx, workload)
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureNotDeleting(w); err != nil {
+		return nil, err
+	}
 	host, err := sitesDomain.NormalizeHostname(hostname, configs.AppConfig.Sites.BaseDomain)
 	if err != nil {
 		return nil, err
@@ -131,6 +137,9 @@ func (s *WorkloadService) VerifyDomain(ctx context.Context, workload, id uuid.UU
 	}
 	w, err := s.Repo.GetByID(ctx, workload)
 	if err != nil {
+		return nil, err
+	}
+	if err := ensureNotDeleting(w); err != nil {
 		return nil, err
 	}
 	lookup, cancel := context.WithTimeout(ctx, domainLookupTimeout)
@@ -225,6 +234,9 @@ func (s *WorkloadService) RemoveDomain(ctx context.Context, workload, id uuid.UU
 	if err != nil {
 		return err
 	}
+	if err := ensureNotDeleting(w); err != nil {
+		return err
+	}
 	if w.Status == utils.WorkloadStopped {
 		return domain.ErrWorkloadStopped
 	}
@@ -251,13 +263,7 @@ func (s *WorkloadService) redeploy(ctx context.Context, w *domain.Workload) erro
 	if err != nil {
 		return err
 	}
-	if err := s.Repo.UpdateStatus(ctx, w.ID, utils.WorkloadStarting, utils.PhaseHelmChartLoading); err != nil {
-		return err
-	}
-	_, err = s.Distributor.ExecuteWorkflow(ctx,
-		temporal.ExecuteOptions{WorkflowID: workflows.WorkflowIDUpdatePrefix + w.ID.String()},
-		workflows.DeployWorkloadWorkflow, in)
-	return err
+	return s.startDeploy(ctx, w, in)
 }
 
 // inputFor : entrée du workflow, avec les domaines vérifiés.

@@ -123,6 +123,10 @@ func (s *ProjectService) DeleteProject(ctx context.Context, projectID string) (*
 		temporal.ExecuteOptions{WorkflowID: workflows.WorkflowIDDeletePrefix + projectID},
 		workflows.DeleteProjectWorkflowName, projectID, project.Name,
 	)
+	if temporal.IsAlreadyStarted(err) {
+		// Deuxième demande : la suppression est déjà en cours.
+		handle, err = temporal.WorkflowHandle{WorkflowID: workflows.WorkflowIDDeletePrefix + projectID}, nil
+	}
 	if err != nil {
 		s.Logger.Errorw("Failed to start delete workflow", "error", err)
 		return nil, err

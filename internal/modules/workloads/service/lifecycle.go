@@ -16,12 +16,12 @@ import (
 
 	"github.com/google/uuid"
 	"helm.sh/helm/v3/pkg/action"
-	"helm.sh/helm/v3/pkg/cli"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metricsv1 "k8s.io/metrics/pkg/client/clientset/versioned"
 
+	"github.com/thekrauss/kubemanager/internal/infrastructure/helm"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/temporal"
 	"github.com/thekrauss/kubemanager/internal/modules/utils"
 	"github.com/thekrauss/kubemanager/internal/modules/workloads/domain"
@@ -46,21 +46,29 @@ func (s *WorkloadService) Delete(ctx context.Context, id uuid.UUID) error {
 		return &betoerrors.Error{Code: betoerrors.CodeNotFound, Message: "workload not found", Cause: err}
 	}
 
-	// Marque immédiatement DELETING pour éviter les double-deletes concurrents.
+	// Suppression déjà lancée : même résultat, rien à refaire. Sinon (workflow
+	// jamais démarré, DELETING resté en base), elle reprend ici.
+	deleteID := workflows.WorkflowIDDeletePrefix + id.String()
+	running, err := s.Distributor.IsRunning(ctx, deleteID)
+	if err != nil {
+		return err
+	}
+	if running {
+		return nil
+	}
+
+	// Marque immédiatement DELETING : plus aucun déploiement ne peut démarrer
+	// (écriture conditionnelle, y compris dans le workflow).
 	if err := s.Repo.UpdateStatus(ctx, id, utils.WorkloadDeleting, utils.PhaseHelmUninstalling); err != nil {
 		return err
 	}
 
-	// Un déploiement ou une mise à jour encore en cours réinstallerait le
-	// conteneur après sa désinstallation (nouvelles tentatives de l'activité
-	// Helm) : il resterait dans Kubernetes, hors de la base, et consommerait
-	// le quota du projet. Ils sont arrêtés d'abord (absents : rien à faire).
-	for _, prefix := range []string{workflows.WorkflowIDDeployPrefix, workflows.WorkflowIDUpdatePrefix} {
-		_ = s.Distributor.TerminateWorkflow(ctx, prefix+id.String(), "", "workload deleted")
-	}
+	// DELETING est écrit : la suite ne doit pas dépendre de la requête.
+	ctx = context.WithoutCancel(ctx)
+	s.stopDeploys(ctx, id)
 
 	_, err = s.Distributor.ExecuteWorkflow(ctx,
-		temporal.ExecuteOptions{WorkflowID: workflows.WorkflowIDDeletePrefix + id.String()},
+		temporal.ExecuteOptions{WorkflowID: deleteID},
 		workflows.DeleteWorkloadWorkflowName,
 		DeleteWorkloadInput{
 			WorkloadID:  id.String(),
@@ -69,7 +77,58 @@ func (s *WorkloadService) Delete(ctx context.Context, id uuid.UUID) error {
 			ReleaseName: workload.Name,
 		},
 	)
+	if err == nil || temporal.IsAlreadyStarted(err) {
+		return nil
+	}
+	s.compensate(ctx, "workload delete failure not recorded", id, func(ctx context.Context) error {
+		return s.Repo.UpdateStatus(ctx, id, utils.WorkloadDeleteFailed, utils.PhaseHelmUninstallErr)
+	})
 	return err
+}
+
+// stopDeploys : un déploiement encore en cours réinstallerait le conteneur après
+// sa désinstallation : il resterait dans Kubernetes, hors de la base, et
+// consommerait le quota du projet. Annulation plutôt qu'arrêt brutal : l'activité
+// Helm reçoit l'annulation et s'interrompt, et le workflow ne se ferme qu'ensuite
+// (WaitForCancellation). L'arrêt brutal ne sert que si rien ne répond (worker
+// tombé) : le prochain heartbeat d'une activité encore vivante l'interrompra.
+func (s *WorkloadService) stopDeploys(ctx context.Context, id uuid.UUID) {
+	for _, prefix := range []string{workflows.WorkflowIDDeployPrefix, workflows.WorkflowIDUpdatePrefix} {
+		wfID := prefix + id.String()
+		running, err := s.Distributor.IsRunning(ctx, wfID)
+		if err != nil {
+			s.warn("deploy state unavailable before delete", "workflow", wfID, "error", err)
+		} else if !running {
+			continue
+		}
+		if err := s.Distributor.CancelWorkflow(ctx, wfID, ""); err != nil {
+			s.warn("deploy not cancelled before delete", "workflow", wfID, "error", err)
+		}
+		if s.waitStopped(ctx, wfID) {
+			continue
+		}
+		s.warn("deploy still running after cancel, terminating", "workflow", wfID)
+		if err := s.Distributor.TerminateWorkflow(ctx, wfID, "", "workload deleted"); err != nil {
+			s.warn("deploy not terminated before delete", "workflow", wfID, "error", err)
+		}
+	}
+}
+
+// waitStopped : attend la fin du workflow, dans la limite de deployStopWait.
+func (s *WorkloadService) waitStopped(ctx context.Context, workflowID string) bool {
+	deadline := time.After(deployStopWait)
+	ticker := time.NewTicker(deployStopPoll)
+	defer ticker.Stop()
+	for {
+		if running, err := s.Distributor.IsRunning(ctx, workflowID); err == nil && !running {
+			return true
+		}
+		select {
+		case <-deadline:
+			return false
+		case <-ticker.C:
+		}
+	}
 }
 
 // DeleteWorkloadInput : signature partagée entre service et workflow.
@@ -90,6 +149,9 @@ func (s *WorkloadService) Stop(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
+	if err := ensureNotDeleting(w); err != nil {
+		return err
+	}
 	if err := ensureBuilt(w); err != nil {
 		return err
 	}
@@ -103,6 +165,9 @@ func (s *WorkloadService) Stop(ctx context.Context, id uuid.UUID) error {
 func (s *WorkloadService) Start(ctx context.Context, id uuid.UUID) error {
 	w, err := s.Repo.GetByID(ctx, id)
 	if err != nil {
+		return err
+	}
+	if err := ensureNotDeleting(w); err != nil {
 		return err
 	}
 	if err := ensureBuilt(w); err != nil {
@@ -123,6 +188,9 @@ func (s *WorkloadService) Start(ctx context.Context, id uuid.UUID) error {
 func (s *WorkloadService) Restart(ctx context.Context, id uuid.UUID) error {
 	w, err := s.Repo.GetByID(ctx, id)
 	if err != nil {
+		return err
+	}
+	if err := ensureNotDeleting(w); err != nil {
 		return err
 	}
 	if err := ensureBuilt(w); err != nil {
@@ -151,6 +219,9 @@ func (s *WorkloadService) Restart(ctx context.Context, id uuid.UUID) error {
 func (s *WorkloadService) Rollback(ctx context.Context, id uuid.UUID, toRevision int) error {
 	w, err := s.Repo.GetByID(ctx, id)
 	if err != nil {
+		return err
+	}
+	if err := ensureNotDeleting(w); err != nil {
 		return err
 	}
 	if err := ensureBuilt(w); err != nil {
@@ -381,10 +452,7 @@ func (s *WorkloadService) scaleTo(ctx context.Context, w *domain.Workload, repli
 }
 
 func (s *WorkloadService) newHelmActionConfig(namespace string) (*action.Configuration, error) {
-	settings := cli.New()
-	cfg := new(action.Configuration)
-	err := cfg.Init(settings.RESTClientGetter(), namespace, helmStorageDriver, func(format string, v ...interface{}) {
+	return helm.NewActionConfig(s.K8sConfig, namespace, func(format string, v ...interface{}) {
 		s.Logger.Debugf(format, v...)
 	})
-	return cfg, err
 }

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -213,6 +214,11 @@ func Idempotency() gin.HandlerFunc {
 
 		c.Header(httpheader.IdempotencyStatus, idempotencyStatusMiss)
 		c.Next()
+
+		// Client parti pendant le traitement : la clé doit tout de même être
+		// libérée ou enregistrée, sinon elle resterait bloquée jusqu'à expiration.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), idempotencyFinalizeTimeout)
+		defer cancel()
 
 		switch {
 		case cw.overflowed:

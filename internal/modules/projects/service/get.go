@@ -89,7 +89,11 @@ func (s *ProjectService) GetMetrics(ctx context.Context, projectID string) (*dom
 		}
 	}
 
-	resCPU, resMem, resStorage, _ := s.WorkloadRepo.GetTotalUsageByProject(ctx, project.ID)
+	// Une panne ne s'affiche pas comme une réservation nulle.
+	resCPU, resMem, resStorage, err := s.WorkloadRepo.GetTotalUsageByProject(ctx, project.ID)
+	if err != nil {
+		return nil, fmt.Errorf("project usage: %w", err)
+	}
 
 	return &domain.NamespaceMetrics{
 		CPUUsage:    fmt.Sprintf("%dm", totalCPU),

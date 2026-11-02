@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/sdk/temporal"
 	"go.uber.org/zap"
 
 	"github.com/thekrauss/kubemanager/internal/modules/workloads/domain"
@@ -207,4 +208,14 @@ func TestSoftDeleteWorkload_DBFailure_NoBroadcast(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Empty(t, pub.events)
+}
+
+// Transition refusée (conteneur en suppression) : erreur définitive, le workflow
+// s'arrête au lieu de relancer l'activité.
+func TestUpdateWorkloadStatus_DeletingIsNotRetried(t *testing.T) {
+	acts := newActs(&fakeRepo{updateErr: domain.ErrWorkloadDeleting}, nil)
+	err := acts.UpdateWorkloadStatus(context.Background(), uuid.NewString(), uuid.NewString(), "RUNNING", "DEPLOYED")
+	var appErr *temporal.ApplicationError
+	require.ErrorAs(t, err, &appErr)
+	assert.True(t, appErr.NonRetryable())
 }

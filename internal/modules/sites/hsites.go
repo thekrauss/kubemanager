@@ -10,6 +10,7 @@ import (
 	betoerrors "github.com/thekrauss/beto-shared/pkg/errors"
 	"go.uber.org/zap"
 
+	"github.com/thekrauss/kubemanager/internal/core/ginhttp"
 	"github.com/thekrauss/kubemanager/internal/core/httpheader"
 	"github.com/thekrauss/kubemanager/internal/modules/sites/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/sites/service"
@@ -109,6 +110,7 @@ func (h *SiteController) UploadDeployment(c *gin.Context, in *domain.UploadPath)
 	}
 	max := h.Service.MaxArchiveBytes()
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, max+multipartOverhead)
+	defer ginhttp.RemoveMultipart(c)
 
 	fh, err := c.FormFile(domain.ArchiveFormField)
 	if err != nil {

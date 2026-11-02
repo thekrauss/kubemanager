@@ -39,6 +39,11 @@ var ErrActivityInProgress = errors.New("idempotent activity already in progress 
 type ActivityOptions struct {
 	ProcessingTTL   time.Duration
 	OnFinalizeError func(stage string, err error)
+	// RetakeOnRetry : à une nouvelle tentative, reprend le verrou « en cours »
+	// laissé par la précédente. Pour une activité avec heartbeat : Temporal ne
+	// relance qu'une tentative tenue pour morte, et le verrou d'un worker tombé
+	// ferait échouer toutes les suivantes jusqu'à son expiration.
+	RetakeOnRetry bool
 }
 
 // ExecuteActivity exécute `work` de manière idempotente dans une activity Temporal.
@@ -80,6 +85,10 @@ func ExecuteActivity[T any](
 		return result, WorkerExecuted, nil
 	}
 
+	if opts.RetakeOnRetry && info.Attempt > 1 {
+		retakeLock(ctx, mgr, key, hash, opts)
+	}
+
 	result, status, err := ExecuteWorker(ctx, mgr, key, hash, WorkerExecutionOptions{
 		ProcessingTTL:   opts.ProcessingTTL,
 		OnFinalizeError: opts.OnFinalizeError,
@@ -94,6 +103,18 @@ func ExecuteActivity[T any](
 		return zero, status, ErrActivityInProgress
 	}
 	return result, status, nil
+}
+
+// retakeLock : Fail ne retire qu'un verrou « en cours » : un résultat déjà
+// enregistré reste servi à cette tentative.
+func retakeLock(ctx context.Context, mgr Manager, key, hash string, opts ActivityOptions) {
+	atomic, ok := mgr.(AtomicManager)
+	if !ok {
+		return
+	}
+	if err := atomic.Fail(ctx, key, hash); err != nil && opts.OnFinalizeError != nil {
+		opts.OnFinalizeError(finalizeStepFail, err)
+	}
 }
 
 // activityKey : une clé par exécution d'activité, partagée par ses tentatives.

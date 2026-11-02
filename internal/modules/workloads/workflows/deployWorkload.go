@@ -70,14 +70,24 @@ type DeployWorkloadInput struct {
 }
 
 func DeployWorkloadWorkflow(ctx workflow.Context, input DeployWorkloadInput) error {
+	retry := &temporal.RetryPolicy{
+		InitialInterval: activityRetryInitialInterval,
+		MaximumAttempts: activityRetryMaximumAttempts,
+	}
+	// WaitForCancellation : annulé, le workflow ne se ferme qu'une fois l'activité
+	// terminée. Rien n'écrit plus dans le cluster quand la suppression commence.
 	options := workflow.ActivityOptions{
 		StartToCloseTimeout: activityStartToCloseTimeout,
-		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval: activityRetryInitialInterval,
-			MaximumAttempts: activityRetryMaximumAttempts,
-		},
+		WaitForCancellation: true,
+		RetryPolicy:         retry,
 	}
 	ctx = workflow.WithActivityOptions(ctx, options)
+	install := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: installActivityTimeout,
+		HeartbeatTimeout:    installHeartbeatTimeout,
+		WaitForCancellation: true,
+		RetryPolicy:         retry,
+	})
 
 	localOptions := workflow.LocalActivityOptions{
 		StartToCloseTimeout: localActivityStartToCloseTimeout,
@@ -87,42 +97,59 @@ func DeployWorkloadWorkflow(ctx workflow.Context, input DeployWorkloadInput) err
 	var dbActs *activities.WorkloadDBActivities
 	var helmActs *activities.WorkloadActivities
 
+	// finalStatus : sur un contexte détaché, pour que l'état soit écrit même
+	// après une annulation. L'écriture est conditionnelle en base : elle ne
+	// remplace jamais DELETING.
+	finalStatus := func(status, phase string) error {
+		cleanup, cancel := workflow.NewDisconnectedContext(ctx)
+		defer cancel()
+		cleanup = workflow.WithActivityOptions(cleanup, workflow.ActivityOptions{
+			StartToCloseTimeout: activityStartToCloseTimeout,
+			RetryPolicy: &temporal.RetryPolicy{
+				InitialInterval: activityRetryInitialInterval,
+				MaximumAttempts: finalStatusMaximumAttempts,
+			},
+		})
+		return workflow.ExecuteActivity(cleanup, dbActs.UpdateWorkloadStatus,
+			input.WorkloadID, input.ProjectID, status, phase).Get(cleanup, nil)
+	}
+	fail := func(phase string, cause error) error {
+		if err := finalStatus(utils.WorkloadFailed, phase); err != nil {
+			workflow.GetLogger(ctx).Warn("workload failure not recorded", "workload", input.WorkloadID, "error", err)
+		}
+		return cause
+	}
+
 	err := workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
 		input.WorkloadID, input.ProjectID, utils.WorkloadStarting, utils.PhaseHelmPreparing).Get(ctx, nil)
 	if err != nil {
-		return err
+		return fail(utils.PhaseHelmError, err)
 	}
 
-	var imgInfo activities.ImageInfo
-	if err := workflow.SideEffect(ctx, func(workflow.Context) interface{} {
-		info, _ := activities.ParseImage(input.Image)
-		return info
-	}).Get(&imgInfo); err != nil {
-		workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
-			input.WorkloadID, input.ProjectID, utils.WorkloadFailed, utils.PhaseImageParseError)
-		return err
+	imgInfo, err := activities.ParseImage(input.Image)
+	if err != nil {
+		return fail(utils.PhaseImageParseError, err)
 	}
 
 	err = workflow.ExecuteActivity(ctx, helmActs.SyncEnvSecret,
 		input.Namespace, input.ReleaseName, input.ProjectID, input.WorkloadID, input.EnvRevision).Get(ctx, nil)
 	if err != nil {
-		workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
-			input.WorkloadID, input.ProjectID, utils.WorkloadFailed, utils.PhaseSecretCreateError)
-		return err
+		return fail(utils.PhaseSecretCreateError, err)
 	}
 
 	var pullSecrets []string
 	if input.PlatformImage {
 		if err := workflow.ExecuteActivity(ctx, helmActs.EnsureRegistryPullSecret, input.Namespace, input.ProjectID).Get(ctx, nil); err != nil {
-			workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
-				input.WorkloadID, input.ProjectID, utils.WorkloadFailed, utils.PhaseSecretCreateError)
-			return err
+			return fail(utils.PhaseSecretCreateError, err)
 		}
 		pullSecrets = []string{registry.PullSecretName}
 	}
 
-	workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
+	err = workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
 		input.WorkloadID, input.ProjectID, utils.WorkloadStarting, utils.PhaseHelmReleaseInstalling).Get(ctx, nil)
+	if err != nil {
+		return fail(utils.PhaseHelmError, err)
+	}
 
 	helmInput := activities.InstallWorkloadInput{
 		ProjectID:            input.ProjectID,
@@ -162,15 +189,15 @@ func DeployWorkloadWorkflow(ctx workflow.Context, input DeployWorkloadInput) err
 		ReadinessPath:        input.ReadinessPath,
 		Identity:             input.Identity,
 	}
-	err = workflow.ExecuteActivity(ctx, helmActs.InstallChart, helmInput).Get(ctx, nil)
+	err = workflow.ExecuteActivity(install, helmActs.InstallChart, helmInput).Get(install, nil)
 	if err != nil {
-		workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
-			input.WorkloadID, input.ProjectID, utils.WorkloadFailed, utils.PhaseHelmError)
-		return err
+		return fail(utils.PhaseHelmError, err)
 	}
 
-	workflow.ExecuteActivity(ctx, dbActs.UpdateWorkloadStatus,
-		input.WorkloadID, input.ProjectID, utils.WorkloadRunning, utils.PhaseDeployed).Get(ctx, nil)
-
+	// La release est en place : RUNNING est vrai même si une annulation arrive
+	// maintenant. Sans cet enregistrement, le conteneur resterait STARTING.
+	if err := finalStatus(utils.WorkloadRunning, utils.PhaseDeployed); err != nil {
+		return fail(utils.PhaseHelmError, err)
+	}
 	return nil
 }

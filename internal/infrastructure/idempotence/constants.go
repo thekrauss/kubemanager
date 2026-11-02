@@ -22,3 +22,7 @@ const (
 	finalizeStepComplete = "complete"
 	finalizeStepStore    = "store"
 )
+
+// finalizeTimeout : libération du verrou ou enregistrement du résultat, sur un
+// contexte détaché de celui de l'activité (possiblement annulé).
+const finalizeTimeout = 5 * time.Second

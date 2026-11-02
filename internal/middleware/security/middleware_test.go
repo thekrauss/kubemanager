@@ -324,3 +324,38 @@ func TestAuthMiddleware_DeclaredPublicRoutes(t *testing.T) {
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/kmanager/v1/identity/validate", nil))
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }
+
+// jtiCache : contrôle de révocation en panne ou positif.
+type jtiCache struct {
+	authcache.AuthCache
+	blacklisted bool
+	err         error
+}
+
+func (j jtiCache) IsAccessTokenJTIBlacklisted(context.Context, string) (bool, error) {
+	return j.blacklisted, j.err
+}
+
+// Révocation invérifiable : refus, un jeton révoqué ne passe pas pendant la panne.
+func TestRefuseRevokedJTI(t *testing.T) {
+	cases := []struct {
+		name    string
+		cache   jtiCache
+		refused bool
+		status  int
+	}{
+		{"valide", jtiCache{}, false, http.StatusOK},
+		{"révoqué", jtiCache{blacklisted: true}, true, http.StatusUnauthorized},
+		{"cache en panne", jtiCache{err: context.DeadlineExceeded}, true, http.StatusServiceUnavailable},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+			m := &MiddlewareManager{authCache: tc.cache, logger: zap.NewNop().Sugar()}
+			assert.Equal(t, tc.refused, m.refuseRevokedJTI(c, "jti"))
+			assert.Equal(t, tc.status, w.Code)
+		})
+	}
+}

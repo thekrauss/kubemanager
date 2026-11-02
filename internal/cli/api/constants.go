@@ -53,7 +53,8 @@ const (
 	userAgent = "betorun-cli"
 	// bearerPrefix : schéma de l'en-tête Authorization.
 	bearerPrefix = "Bearer "
-	// httpTimeout : délai maximal d'un appel (hors flux de logs).
+	// httpTimeout : délai maximal d'un appel (hors flux de logs et envois) et
+	// d'attente de la réponse une fois la requête envoyée.
 	httpTimeout = 5 * time.Minute
 	// sessionRefreshBefore : la session est renouvelée avant son expiration.
 	sessionRefreshBefore = 30 * time.Second

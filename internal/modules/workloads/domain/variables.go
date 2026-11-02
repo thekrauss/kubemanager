@@ -66,6 +66,8 @@ var (
 	ErrVariableTooBig   = errors.New("variable value too large (64 KiB maximum)")
 	ErrTooManyVariable  = errors.New("too many variables for this container (200 maximum, 768 KiB in total)")
 	ErrDeployInProgress = errors.New("a deployment of this container is in progress: wait for it to finish")
+	// ErrWorkloadDeleting : une suppression est en cours (ou le conteneur n'existe plus).
+	ErrWorkloadDeleting = errors.New("this container is being deleted")
 	// ErrWorkloadNotBuilt : première image pas encore construite.
 	ErrWorkloadNotBuilt = errors.New("this container is not deployed yet: its first image is still being built")
 	ErrWorkloadStopped  = errors.New("this container is stopped: start it before changing its variables")

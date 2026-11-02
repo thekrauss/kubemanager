@@ -4,16 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/thekrauss/kubemanager/internal/infrastructure/heartbeat"
+	"github.com/thekrauss/kubemanager/internal/infrastructure/helm"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/helm/charts"
 	"helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/storage/driver"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 	"helm.sh/helm/v3/pkg/action"
-	"helm.sh/helm/v3/pkg/cli"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -110,16 +114,16 @@ type InstallWorkloadInput struct {
 	ReadinessPath string
 }
 
+func helmLog(format string, v ...interface{}) {
+	fmt.Printf(format, v...)
+}
+
 func (a *WorkloadActivities) InstallChart(ctx context.Context, input InstallWorkloadInput) error {
 	_, _, err := idempotency.ExecuteActivity(ctx, a.Idempotency, input,
-		idempotency.ActivityOptions{ProcessingTTL: installChartProcessingTTL},
+		idempotency.ActivityOptions{ProcessingTTL: InstallChartProcessingTTL, RetakeOnRetry: true},
 		func() (struct{}, error) {
-			settings := cli.New()
-
-			actionConfig := new(action.Configuration)
-			if err := actionConfig.Init(settings.RESTClientGetter(), input.Namespace, helmStorageDriver, func(format string, v ...interface{}) {
-				fmt.Printf(format, v...)
-			}); err != nil {
+			actionConfig, err := helm.NewActionConfig(a.K8sConfig, input.Namespace, helmLog)
+			if err != nil {
 				return struct{}{}, err
 			}
 
@@ -130,7 +134,12 @@ func (a *WorkloadActivities) InstallChart(ctx context.Context, input InstallWork
 			}
 			vals := buildHelmValues(input)
 
-			if err := upgradeOrInstall(actionConfig, input.Namespace, input.ReleaseName, chart, vals); err != nil {
+			// Une tentative suivante ne démarre qu'une fois la précédente tenue
+			// pour morte par Temporal (délai de heartbeat ou d'activité).
+			retried := activity.GetInfo(ctx).Attempt > 1
+			if err := heartbeat.While(ctx, installHeartbeatEvery, func() error {
+				return upgradeOrInstall(ctx, actionConfig, input.Namespace, input.ReleaseName, chart, vals, retried)
+			}); err != nil {
 				return struct{}{}, fmt.Errorf("helm release failed: %w", err)
 			}
 			return struct{}{}, nil
@@ -143,36 +152,60 @@ func (a *WorkloadActivities) InstallChart(ctx context.Context, input InstallWork
 // Upgrade.Install n'a aucun effet (la logique est dans la commande helm) :
 // sans ce choix explicite, le premier déploiement d'un conteneur échouait
 // toujours (« has no deployed releases »).
-func upgradeOrInstall(cfg *action.Configuration, namespace, name string, ch *chart.Chart, vals map[string]any) error {
+func upgradeOrInstall(ctx context.Context, cfg *action.Configuration, namespace, name string, ch *chart.Chart, vals map[string]any, retried bool) error {
 	history := action.NewHistory(cfg)
 	history.Max = 1
 	releases, err := history.Run(name)
 	switch {
 	case errors.Is(err, driver.ErrReleaseNotFound) || (err == nil && len(releases) == 0):
-		return install(cfg, namespace, name, ch, vals, false)
+		return install(ctx, cfg, namespace, name, ch, vals, false)
 	case err != nil:
+		return err
+	}
+	if err := releasePendingLock(cfg, name, retried); err != nil {
 		return err
 	}
 	upgrade := action.NewUpgrade(cfg)
 	upgrade.Namespace = namespace
 	upgrade.Wait = true
-	upgrade.Timeout = helmInstallTimeout
-	_, err = upgrade.Run(name, ch, vals)
+	upgrade.Timeout = HelmInstallTimeout
+	_, err = upgrade.RunWithContext(ctx, name, ch, vals)
 	if err != nil && strings.Contains(err.Error(), helmErrNoDeployedReleases) {
 		// Seulement des tentatives en échec : on réinstalle par-dessus.
-		return install(cfg, namespace, name, ch, vals, true)
+		return install(ctx, cfg, namespace, name, ch, vals, true)
 	}
 	return err
 }
 
-func install(cfg *action.Configuration, namespace, name string, ch *chart.Chart, vals map[string]any, replace bool) error {
+// releasePendingLock : une release restée pending-* (worker mort en pleine
+// opération) refuse toute mise à jour (« another operation is in progress »).
+// Elle passe en échec si plus rien ne peut tourner : soit l'état est trop ancien,
+// soit c'est une nouvelle tentative de cette même opération. Un retour arrière
+// récent (lancé par l'API, hors Temporal) reste protégé.
+func releasePendingLock(cfg *action.Configuration, name string, retried bool) error {
+	last, err := cfg.Releases.Last(name)
+	if err != nil {
+		return err
+	}
+	if !last.Info.Status.IsPending() {
+		return nil
+	}
+	stale := time.Since(last.Info.LastDeployed.Time) > helmPendingStaleAfter
+	if !stale && (!retried || last.Info.Status == release.StatusPendingRollback) {
+		return nil
+	}
+	last.SetStatus(release.StatusFailed, "interrupted before completion")
+	return cfg.Releases.Update(last)
+}
+
+func install(ctx context.Context, cfg *action.Configuration, namespace, name string, ch *chart.Chart, vals map[string]any, replace bool) error {
 	in := action.NewInstall(cfg)
 	in.Namespace = namespace
 	in.ReleaseName = name
 	in.Wait = true
-	in.Timeout = helmInstallTimeout
+	in.Timeout = HelmInstallTimeout
 	in.Replace = replace
-	_, err := in.Run(ch, vals)
+	_, err := in.RunWithContext(ctx, ch, vals)
 	return err
 }
 
@@ -183,16 +216,15 @@ func (a *WorkloadActivities) UninstallChart(ctx context.Context, namespace, rele
 	_, _, err := idempotency.ExecuteActivity(ctx, a.Idempotency, payload,
 		idempotency.ActivityOptions{ProcessingTTL: uninstallChartProcessingTTL},
 		func() (struct{}, error) {
-			settings := cli.New()
-			actionConfig := new(action.Configuration)
-			if err := actionConfig.Init(settings.RESTClientGetter(), namespace, helmStorageDriver, func(format string, v ...interface{}) {
-				fmt.Printf(format, v...)
-			}); err != nil {
+			actionConfig, err := helm.NewActionConfig(a.K8sConfig, namespace, helmLog)
+			if err != nil {
 				return struct{}{}, err
 			}
 			u := action.NewUninstall(actionConfig)
 			u.Wait = true
 			u.Timeout = helmUninstallTimeout
+			// Uninstall n'accepte pas de contexte (Helm 3.22) : borné par son
+			// délai, lui-même inférieur à celui de l'activité.
 			if _, err := u.Run(releaseName); err != nil {
 				// "release: not found" → considéré idempotent (déjà supprimée).
 				if strings.Contains(err.Error(), helmErrReleaseNotFound) {
@@ -223,8 +255,8 @@ func buildHelmValues(input InstallWorkloadInput) map[string]any {
 			"memory": requestWithin(input.MemoryRequest, defaultMemoryRequest, input.MemoryLimit),
 		},
 		"limits": map[string]any{
-			"cpu":    fallback(input.CPULimit, defaultCPULimit),
-			"memory": fallback(input.MemoryLimit, defaultMemoryLimit),
+			"cpu":    fallback(input.CPULimit, DefaultCPULimit),
+			"memory": fallback(input.MemoryLimit, DefaultMemoryLimit),
 		},
 	}
 

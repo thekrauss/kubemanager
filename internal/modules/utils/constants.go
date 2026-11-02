@@ -84,6 +84,8 @@ const (
 	EnvSecretSuffix = "-env"
 	// DefaultStorageClass : classe de stockage des volumes si non précisée.
 	DefaultStorageClass = "local-path"
+	// DefaultStorageSize : taille d'un volume si non précisée.
+	DefaultStorageSize = "1Gi"
 )
 
 // Labels et annotations Kubernetes posés par la plateforme.
@@ -104,6 +106,8 @@ const (
 
 	// AnnotationRestartedAt : annotation de pod modifiée pour un rollout restart.
 	AnnotationRestartedAt = "kubemanager.io/restartedAt"
+	// AnnotationEnvChecksum : révision des variables posée par le chart sur les pods.
+	AnnotationEnvChecksum = "checksum/env"
 )
 
 // ProjectNamespace : espace de noms Kubernetes d'un projet.

@@ -30,6 +30,8 @@ const (
 
 	// imageTagLength : caractères de l'identifiant du build dans le tag.
 	imageTagLength = 12
+	// compensationTimeout : écritures détachées de la requête.
+	compensationTimeout = 10 * time.Second
 )
 
 var gzipMagic = []byte{0x1f, 0x8b}
@@ -212,10 +214,28 @@ func (s *Service) FromArchive(ctx context.Context, project uuid.UUID, name, dock
 		return nil, err
 	}
 	b.SourceType = domain.SourceUpload
-	if err := s.Store.Put(ctx, activities.SourceKey(project.String(), b.ID.String()), r, size, "application/gzip"); err != nil {
+	key := activities.SourceKey(project.String(), b.ID.String())
+	if err := s.Store.Put(ctx, key, r, size, "application/gzip"); err != nil {
 		return nil, err
 	}
-	return b, s.start(ctx, b)
+	if err := s.start(ctx, b); err != nil {
+		// Aucun workflow ne lira ni ne supprimera cette archive.
+		s.compensate(ctx, "orphan build archive not removed", b.ID, func(ctx context.Context) error {
+			return s.Store.Delete(ctx, key)
+		})
+		return nil, err
+	}
+	return b, nil
+}
+
+// compensate : annule une écriture dont la suite a échoué, y compris si la
+// requête a été interrompue. Erreur journalisée : celle de l'appelant prime.
+func (s *Service) compensate(ctx context.Context, msg string, id uuid.UUID, undo func(context.Context) error) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), compensationTimeout)
+	defer cancel()
+	if err := undo(ctx); err != nil && s.Logger != nil {
+		s.Logger.Warnw(msg, "build", id, "error", err)
+	}
 }
 
 func (s *Service) start(ctx context.Context, b *domain.Build) error {
@@ -230,7 +250,10 @@ func (s *Service) start(ctx context.Context, b *domain.Build) error {
 	_, err := s.Distributor.ExecuteWorkflow(ctx, temporal.ExecuteOptions{WorkflowID: workflows.WorkflowIDPrefix + b.ID.String()},
 		workflows.BuildImageWorkflow, in)
 	if err != nil {
-		_ = s.Repo.Finish(ctx, b.ID, domain.StatusFailed, domain.FailureInternal, "", "")
+		// Sinon QUEUED à vie : il compterait pour toujours dans ErrTooManyBuilds.
+		s.compensate(ctx, "build failure not recorded", b.ID, func(ctx context.Context) error {
+			return s.Repo.Finish(ctx, b.ID, domain.StatusFailed, domain.FailureInternal, "", "")
+		})
 		return err
 	}
 	return nil

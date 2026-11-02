@@ -59,7 +59,19 @@ type Client struct {
 }
 
 func New(baseURL string) *Client {
-	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), HTTP: &http.Client{Timeout: httpTimeout}, now: time.Now}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Vaut aussi pour les envois, sans délai global : serveur muet une fois le
+	// corps reçu.
+	transport.ResponseHeaderTimeout = httpTimeout
+	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), HTTP: &http.Client{Timeout: httpTimeout, Transport: transport}, now: time.Now}
+}
+
+// uploadClient : même transport, sans délai global. Sa durée dépend du débit de
+// l'utilisateur (100 Mo à 1 Mbit/s : 13 min) ; il s'interrompt par le contexte.
+func (c *Client) uploadClient() *http.Client {
+	upload := *c.HTTP
+	upload.Timeout = 0
+	return &upload
 }
 
 // token : jeton d'accès valide, renouvelé 30 s avant son expiration.
@@ -169,7 +181,7 @@ func (c *Client) UploadWithFields(ctx context.Context, path string, fields map[s
 		return err
 	}
 	req.Header.Set(httpheader.ContentType, mw.contentType())
-	return c.send(req, tok, out)
+	return c.sendWith(c.uploadClient(), req, tok, out)
 }
 
 func (c *Client) do(ctx context.Context, method, path, tok string, body, out any) error {
@@ -192,13 +204,17 @@ func (c *Client) do(ctx context.Context, method, path, tok string, body, out any
 }
 
 func (c *Client) send(req *http.Request, tok string, out any) error {
+	return c.sendWith(c.HTTP, req, tok, out)
+}
+
+func (c *Client) sendWith(client *http.Client, req *http.Request, tok string, out any) error {
 	req.Header.Set(httpheader.Accept, httpheader.MIMEJSON)
 	req.Header.Set(httpheader.AcceptLanguage, i18n.Lang())
 	req.Header.Set(httpheader.UserAgent, userAgent)
 	if tok != "" {
 		req.Header.Set(httpheader.Authorization, bearerPrefix+tok)
 	}
-	resp, err := c.HTTP.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("%s", i18n.T("err.network", c.BaseURL, err))
 	}

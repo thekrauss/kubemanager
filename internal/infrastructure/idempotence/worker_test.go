@@ -52,3 +52,46 @@ func TestExecuteWorker_PanicReleasesLock(t *testing.T) {
 	assert.Equal(t, WorkerExecuted, status)
 	assert.Equal(t, 42, got)
 }
+
+// ctxAtomic : n'accepte Fail et Complete que sur un contexte encore valide,
+// comme Redis.
+type ctxAtomic struct{ fakeAtomic }
+
+func (f *ctxAtomic) Fail(ctx context.Context, key, hash string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return f.fakeAtomic.Fail(ctx, key, hash)
+}
+
+func (f *ctxAtomic) Complete(ctx context.Context, key, hash string, v any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return f.fakeAtomic.Complete(ctx, key, hash, v)
+}
+
+// Annulée pendant le travail, une activité libère quand même son verrou (avant :
+// « en cours » jusqu'à l'expiration).
+func TestExecuteWorker_FinalizesOnCanceledContext(t *testing.T) {
+	for _, workErr := range []error{context.Canceled, nil} {
+		mgr := &ctxAtomic{fakeAtomic{inProgress: map[string]bool{}}}
+		ctx, cancel := context.WithCancel(context.Background())
+		_, _, err := ExecuteWorker(ctx, mgr, "k", "h", WorkerExecutionOptions{}, func() (int, error) {
+			cancel()
+			return 1, workErr
+		})
+		assert.ErrorIs(t, err, workErr)
+		assert.Empty(t, mgr.inProgress)
+	}
+}
+
+// Une nouvelle tentative reprend le verrou d'un worker tombé, s'il s'agit bien
+// d'une tentative suivante d'une activité qui le demande.
+func TestRetakeLock(t *testing.T) {
+	mgr := &fakeAtomic{inProgress: map[string]bool{"k": true}}
+	retakeLock(context.Background(), mgr, "k", "h", ActivityOptions{})
+	status, err := mgr.Begin(context.Background(), "k", "h", time.Minute, nil)
+	require.NoError(t, err)
+	assert.Equal(t, BeginStarted, status)
+}

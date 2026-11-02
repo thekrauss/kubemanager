@@ -44,6 +44,8 @@ const (
 const (
 	// idempotencyProcessingTTL : durée de la marque « en cours » d'une requête.
 	idempotencyProcessingTTL = 2 * time.Minute
+	// idempotencyFinalizeTimeout : enregistrement du résultat, hors de la requête.
+	idempotencyFinalizeTimeout = 5 * time.Second
 	// idempotencyRetryAfter : Retry-After (secondes) d'une requête en cours.
 	idempotencyRetryAfter = "5"
 )

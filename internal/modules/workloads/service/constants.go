@@ -36,9 +36,15 @@ const (
 	// patchTypeMergePatch : constante locale pour éviter un import explicite
 	// de k8s.io/apimachinery/pkg/types (qui n'est utilisé qu'ici).
 	patchTypeMergePatch = "application/strategic-merge-patch+json"
-	// helmStorageDriver : stockage de l'état des releases Helm (Secrets K8s).
-	helmStorageDriver   = "secret"
 	helmRollbackTimeout = 2 * time.Minute
+
+	// compensationTimeout : écritures en base détachées de la requête.
+	compensationTimeout = 10 * time.Second
+
+	// Arrêt d'un déploiement avant une suppression. L'annulation arrive à
+	// l'activité avec son prochain heartbeat (8 s au plus).
+	deployStopWait = 30 * time.Second
+	deployStopPoll = 500 * time.Millisecond
 )
 
 // Valeurs des métriques quand le Metrics Server ne répond pas.

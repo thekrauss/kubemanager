@@ -87,6 +87,7 @@ var sentinelErrors = []sentinelMapping{
 	{workloadsDomain.ErrTooManyVariable, http.StatusBadRequest, betoerrors.CodeInvalidInput, false},
 	{workloadsDomain.ErrWorkloadStopped, http.StatusConflict, "WORKLOAD_STOPPED", false},
 	{workloadsDomain.ErrDeployInProgress, http.StatusConflict, "DEPLOY_IN_PROGRESS", false},
+	{workloadsDomain.ErrWorkloadDeleting, http.StatusConflict, "WORKLOAD_DELETING", false},
 	{workloadsDomain.ErrWorkloadNotBuilt, http.StatusConflict, "WORKLOAD_NOT_BUILT", false},
 	{githubDomain.ErrDisabled, http.StatusNotFound, "GITHUB_DISABLED", false},
 	{githubDomain.ErrStateInvalid, http.StatusBadRequest, "GITHUB_STATE_INVALID", false},

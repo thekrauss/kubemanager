@@ -7,6 +7,7 @@ import (
 	"fmt"
 	buildsDomain "github.com/thekrauss/kubemanager/internal/modules/builds/domain"
 	"github.com/thekrauss/kubemanager/internal/modules/builds/registry"
+	"strconv"
 	"strings"
 
 	"github.com/thekrauss/kubemanager/internal/iam"
@@ -132,8 +133,58 @@ func (s *WorkloadService) Deploy(ctx context.Context, in *WorkloadServiceRequest
 	_, err = s.Distributor.ExecuteWorkflow(ctx,
 		temporal.ExecuteOptions{WorkflowID: workflows.WorkflowIDDeployPrefix + workload.ID.String()},
 		workflows.DeployWorkloadWorkflowName, wfInput)
+	if err != nil {
+		// Rien n'est installé : la ligne STARTING garderait le nom et le quota.
+		s.compensate(ctx, "workload creation not undone", workload.ID, func(ctx context.Context) error {
+			return s.Repo.Delete(ctx, workload.ID)
+		})
+		return nil, err
+	}
+	return workload, nil
+}
 
-	return workload, err
+// compensate : annule une écriture dont la suite a échoué, y compris si la
+// requête a été interrompue. Erreur journalisée : celle de l'appelant prime.
+func (s *WorkloadService) compensate(ctx context.Context, msg string, id uuid.UUID, undo func(context.Context) error) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), compensationTimeout)
+	defer cancel()
+	if err := undo(ctx); err != nil {
+		s.warn(msg, "workload", id, "error", err)
+	}
+}
+
+func (s *WorkloadService) warn(msg string, kv ...any) {
+	if s.Logger != nil {
+		s.Logger.Warnw(msg, kv...)
+	}
+}
+
+// startDeploy : passe le conteneur à STARTING (écriture conditionnelle, refusée
+// s'il est en suppression) puis lance le workflow de mise à jour. S'il ne démarre
+// pas, le statut précédent est rétabli.
+func (s *WorkloadService) startDeploy(ctx context.Context, w *domain.Workload, in workflows.DeployWorkloadInput) error {
+	if err := s.Repo.UpdateStatus(ctx, w.ID, utils.WorkloadStarting, utils.PhaseHelmChartLoading); err != nil {
+		return err
+	}
+	_, err := s.Distributor.ExecuteWorkflow(ctx,
+		temporal.ExecuteOptions{WorkflowID: workflows.WorkflowIDUpdatePrefix + w.ID.String()},
+		workflows.DeployWorkloadWorkflow, in)
+	if err == nil {
+		return nil
+	}
+	status, phase := w.Status, w.CurrentPhase
+	alreadyStarted := temporal.IsAlreadyStarted(err)
+	if !alreadyStarted && status == utils.WorkloadStarting {
+		// Aucun workflow ne terminera ce STARTING.
+		status, phase = utils.WorkloadFailed, utils.PhaseHelmError
+	}
+	s.compensate(ctx, "workload status not restored", w.ID, func(ctx context.Context) error {
+		return s.Repo.UpdateStatus(ctx, w.ID, status, phase)
+	})
+	if alreadyStarted {
+		return domain.ErrDeployInProgress
+	}
+	return err
 }
 
 // CreateAwaitingBuild : mêmes contrôles et même réservation de quota qu'un
@@ -180,8 +231,11 @@ func (s *WorkloadService) DeployBuiltImage(ctx context.Context, project, id uuid
 		return buildsDomain.ErrWorkloadGone
 	}
 	err = s.Update(ctx, id.String(), domain.UpdateWorkloadRequest{Image: image})
-	if errors.Is(err, domain.ErrDeployInProgress) {
+	switch {
+	case errors.Is(err, domain.ErrDeployInProgress):
 		return buildsDomain.ErrWorkloadBusy
+	case errors.Is(err, domain.ErrWorkloadDeleting):
+		return buildsDomain.ErrWorkloadGone
 	}
 	return err
 }
@@ -196,7 +250,19 @@ func (s *WorkloadService) MarkBuildFailed(ctx context.Context, project, id uuid.
 	if err != nil || current.ProjectID != project || current.Image != "" || current.Status == utils.WorkloadDeleting {
 		return err
 	}
-	return s.Repo.UpdateStatus(ctx, id, utils.WorkloadFailed, utils.PhaseBuildFailed)
+	err = s.Repo.UpdateStatus(ctx, id, utils.WorkloadFailed, utils.PhaseBuildFailed)
+	if errors.Is(err, domain.ErrWorkloadDeleting) {
+		return nil
+	}
+	return err
+}
+
+// ensureNotDeleting : un conteneur en suppression n'accepte plus aucune opération.
+func ensureNotDeleting(w *domain.Workload) error {
+	if w.Status == utils.WorkloadDeleting || w.Status == utils.WorkloadDeleted {
+		return domain.ErrWorkloadDeleting
+	}
+	return nil
 }
 
 // ensureBuilt : un conteneur sans image n'a encore rien à arrêter, relancer ou
@@ -212,7 +278,11 @@ func (s *WorkloadService) create(ctx context.Context, in *WorkloadServiceRequest
 	var none domain.CreateWorkloadRequest
 	pID, _ := uuid.Parse(in.ProjectID)
 
-	currentCPU, currentMem, currentStorage, _ := s.Repo.GetTotalUsageByProject(ctx, pID)
+	// Une panne ne doit pas compter pour 0 : le contrôle laisserait tout passer.
+	currentCPU, currentMem, currentStorage, err := s.Repo.GetTotalUsageByProject(ctx, pID)
+	if err != nil {
+		return nil, none, fmt.Errorf("project usage: %w", err)
+	}
 
 	project, err := s.ProjectRepo.GetProjectByID(ctx, pID.String())
 	if err != nil {
@@ -226,6 +296,9 @@ func (s *WorkloadService) create(ctx context.Context, in *WorkloadServiceRequest
 	}
 
 	if err := s.validateNetwork(in.TargetPort); err != nil {
+		return nil, none, err
+	}
+	if err := normalizeResources(&in.CreateWorkloadRequest); err != nil {
 		return nil, none, err
 	}
 
@@ -327,6 +400,32 @@ func (s *WorkloadService) create(ctx context.Context, in *WorkloadServiceRequest
 	return workload, spec, nil
 }
 
+// normalizeResources : limites valides et valeurs par défaut, posées une seule
+// fois ici. Le contrôle du quota, la base et Helm voient ainsi la même chose
+// (avant, sans limites : 0 au contrôle, 200m en base, 500m dans Helm).
+func normalizeResources(in *domain.CreateWorkloadRequest) error {
+	in.CPULimit = defaultIfEmpty(in.CPULimit, activities.DefaultCPULimit)
+	if !positiveQuantity(in.CPULimit) {
+		return betoerrors.Newf(betoerrors.CodeInvalidInput, "invalid CPU limit: %s", in.CPULimit)
+	}
+	in.MemoryLimit = defaultIfEmpty(in.MemoryLimit, activities.DefaultMemoryLimit)
+	if !positiveQuantity(in.MemoryLimit) {
+		return betoerrors.Newf(betoerrors.CodeInvalidInput, "invalid memory limit: %s", in.MemoryLimit)
+	}
+	if in.PersistenceEnabled {
+		in.StorageSize = defaultIfEmpty(in.StorageSize, utils.DefaultStorageSize)
+		if !positiveQuantity(in.StorageSize) {
+			return betoerrors.Newf(betoerrors.CodeInvalidInput, "invalid storage size: %s", in.StorageSize)
+		}
+	}
+	return nil
+}
+
+func positiveQuantity(v string) bool {
+	q, err := resource.ParseQuantity(v)
+	return err == nil && q.Sign() > 0
+}
+
 // Update : nouvelle version (image, disque, variables). Le reste de la
 // configuration est repris du workload enregistré : avant, le workflow était
 // relancé avec la seule image, et perdait port, ressources, réplicas, TLS,
@@ -338,6 +437,9 @@ func (s *WorkloadService) Update(ctx context.Context, id string, req domain.Upda
 	}
 	current, err := s.Repo.GetByID(ctx, wID)
 	if err != nil {
+		return err
+	}
+	if err := ensureNotDeleting(current); err != nil {
 		return err
 	}
 	if err := s.ensureNoDeployRunning(ctx, current.ID); err != nil {
@@ -384,28 +486,30 @@ func (s *WorkloadService) Update(ctx context.Context, id string, req domain.Upda
 	if err != nil {
 		return err
 	}
-	if runtimeChanged {
-		if err := s.Repo.UpdateRuntime(ctx, current.ID, current.Replicas, current.CPULimit, current.MemoryLimit, current.TargetPort, current.TLSEnabled); err != nil {
-			return err
-		}
-	}
-	url := publicRoute(current.Name, current.ProjectID, spec.TLSEnabled).URL
-	if err := s.Repo.UpdateSpec(ctx, current.ID, current.Image, current.StorageSize, url, raw); err != nil {
-		return err
-	}
 	in, err := s.inputFor(ctx, current, spec)
 	if err != nil {
 		return err
 	}
-	_, err = s.Distributor.ExecuteWorkflow(ctx,
-		temporal.ExecuteOptions{WorkflowID: workflows.WorkflowIDUpdatePrefix + id},
-		workflows.DeployWorkloadWorkflow, in)
-	return err
+	// Le workflow d'abord : si un autre déploiement a pris la place ou si
+	// Temporal est indisponible, la base ne doit pas annoncer une version qui ne
+	// sera jamais déployée.
+	if err := s.startDeploy(ctx, current, in); err != nil {
+		return err
+	}
+	// Lancé : la nouvelle version est enregistrée même si la requête s'interrompt.
+	save, cancel := context.WithTimeout(context.WithoutCancel(ctx), compensationTimeout)
+	defer cancel()
+	if runtimeChanged {
+		if err := s.Repo.UpdateRuntime(save, current.ID, current.Replicas, current.CPULimit, current.MemoryLimit, current.TargetPort, current.TLSEnabled); err != nil {
+			return err
+		}
+	}
+	url := publicRoute(current.Name, current.ProjectID, spec.TLSEnabled).URL
+	return s.Repo.UpdateSpec(save, current.ID, current.Image, current.StorageSize, url, raw)
 }
 
-// ensureNoDeployRunning : Temporal rattache sans erreur une demande à
-// l'exécution en cours du même identifiant : la nouvelle version ne serait
-// jamais déployée, alors que la base la donnerait pour acquise.
+// ensureNoDeployRunning : refus clair avant toute écriture. Le démarrage du
+// workflow reste protégé si deux demandes passent ce contrôle ensemble.
 func (s *WorkloadService) ensureNoDeployRunning(ctx context.Context, id uuid.UUID) error {
 	for _, prefix := range []string{workflows.WorkflowIDDeployPrefix, workflows.WorkflowIDUpdatePrefix} {
 		running, err := s.Distributor.IsRunning(ctx, prefix+id.String())
@@ -415,6 +519,13 @@ func (s *WorkloadService) ensureNoDeployRunning(ctx context.Context, id uuid.UUI
 		if running {
 			return domain.ErrDeployInProgress
 		}
+	}
+	deleting, err := s.Distributor.IsRunning(ctx, workflows.WorkflowIDDeletePrefix+id.String())
+	if err != nil {
+		return err
+	}
+	if deleting {
+		return domain.ErrWorkloadDeleting
 	}
 	return nil
 }
@@ -460,6 +571,9 @@ func (s *WorkloadService) PatchVariables(ctx context.Context, id uuid.UUID, req 
 	if err != nil {
 		return nil, err
 	}
+	if err := ensureNotDeleting(current); err != nil {
+		return nil, err
+	}
 	if current.Status == utils.WorkloadStopped {
 		return nil, domain.ErrWorkloadStopped
 	}
@@ -475,7 +589,9 @@ func (s *WorkloadService) PatchVariables(ctx context.Context, id uuid.UUID, req 
 		return nil, err
 	}
 	// Sans image : la valeur sera prise en compte au premier déploiement.
-	if changed && current.Image != "" {
+	// Renvoyer les mêmes valeurs ne change rien, mais doit relancer un
+	// déploiement qui n'a jamais eu lieu (échec au lancement).
+	if (changed || s.revisionBehind(ctx, current)) && current.Image != "" {
 		if err := s.redeploy(ctx, current); err != nil {
 			return nil, err
 		}
@@ -485,6 +601,23 @@ func (s *WorkloadService) PatchVariables(ctx context.Context, id uuid.UUID, req 
 		return nil, err
 	}
 	return &domain.VariablesResponse{Variables: views, Changed: changed}, nil
+}
+
+// revisionBehind : le Deployment ne porte pas la révision courante des variables
+// (ou n'existe pas). En cas de doute (cluster injoignable), on ne redéploie pas.
+func (s *WorkloadService) revisionBehind(ctx context.Context, w *domain.Workload) bool {
+	if s.K8sClient == nil || w.Image == "" {
+		return false
+	}
+	dep, err := s.K8sClient.AppsV1().Deployments(w.Namespace).Get(ctx, w.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return true
+	}
+	if err != nil {
+		s.warn("deployed revision unavailable", "workload", w.ID, "error", err)
+		return false
+	}
+	return dep.Spec.Template.Annotations[utils.AnnotationEnvChecksum] != strconv.FormatInt(w.EnvRevision, 10)
 }
 
 // specOf : spec déclarative enregistrée (sans variables ni secrets, qui
@@ -589,7 +722,9 @@ func (s *WorkloadService) deployInput(w *domain.Workload, spec domain.CreateWork
 		Image: w.Image, EnvRevision: w.EnvRevision, Replicas: spec.Replicas,
 		PersistenceEnabled: spec.PersistenceEnabled, StorageSize: w.StorageSize, StorageClass: spec.StorageClass,
 		MountPath: spec.MountPath, TargetPort: spec.TargetPort, ServiceType: spec.ServiceType,
-		CPURequest: spec.CPURequest, MemoryRequest: spec.MemoryRequest, CPULimit: spec.CPULimit, MemoryLimit: spec.MemoryLimit,
+		CPURequest: spec.CPURequest, MemoryRequest: spec.MemoryRequest,
+		// Spec antérieure sans limites : celles de la base, comptées au quota.
+		CPULimit: defaultIfEmpty(spec.CPULimit, w.CPULimit), MemoryLimit: defaultIfEmpty(spec.MemoryLimit, w.MemoryLimit),
 		RunAsUser: spec.RunAsUser, RunAsGroup: spec.RunAsGroup, ReadOnlyRootFS: spec.ReadOnlyRootFS,
 		PDBEnabled: spec.PDBEnabled, TLSEnabled: spec.TLSEnabled, HealthPath: spec.HealthPath, ReadinessPath: spec.ReadinessPath,
 		ExternalHost: route.Host, IngressClass: route.IngressClass, IngressNamespace: route.IngressNamespace,

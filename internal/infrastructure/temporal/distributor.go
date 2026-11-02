@@ -81,6 +81,9 @@ func (d *TemporalDistributor) ExecuteWorkflow(
 		TaskQueue:                queue,
 		WorkflowExecutionTimeout: opts.WorkflowRunTimeout,
 		WorkflowTaskTimeout:      opts.WorkflowTaskTimeout,
+		// Sans cela, une demande se rattache en silence à l'exécution en cours
+		// du même identifiant : l'appelant croit avoir lancé son travail.
+		WorkflowExecutionErrorWhenAlreadyStarted: true,
 	}
 
 	run, err := d.client.ExecuteWorkflow(ctx, startOpts, workflow, args...)
@@ -88,6 +91,13 @@ func (d *TemporalDistributor) ExecuteWorkflow(
 		return WorkflowHandle{}, fmt.Errorf("execute workflow: %w", err)
 	}
 	return WorkflowHandle{WorkflowID: run.GetID(), RunID: run.GetRunID()}, nil
+}
+
+// IsAlreadyStarted : ExecuteWorkflow a refusé car une exécution de ce workflow
+// est déjà en cours.
+func IsAlreadyStarted(err error) bool {
+	var started *serviceerror.WorkflowExecutionAlreadyStarted
+	return errors.As(err, &started)
 }
 
 func (d *TemporalDistributor) SignalWorkflow(

@@ -4,28 +4,39 @@ import "time"
 
 // Exécution Helm (install / upgrade / uninstall des releases).
 const (
-	// helmStorageDriver : stockage de l'état des releases Helm (Secrets K8s).
-	helmStorageDriver = "secret"
-
-	helmInstallTimeout   = 5 * time.Minute
+	// HelmInstallTimeout : attente des pods par Helm. Le délai de l'activité,
+	// dans les workflows, en dépend.
+	HelmInstallTimeout   = 5 * time.Minute
 	helmUninstallTimeout = 3 * time.Minute
 
 	// Fenêtres d'idempotence des activities (durée de la marque « en cours »).
-	installChartProcessingTTL   = 10 * time.Minute
+	InstallChartProcessingTTL   = 10 * time.Minute
 	uninstallChartProcessingTTL = 5 * time.Minute
 	ensureSecretProcessingTTL   = 2 * time.Minute
+
+	// installHeartbeatEvery : bien en dessous du délai de heartbeat du workflow.
+	installHeartbeatEvery = 3 * time.Second
+
+	// helmPendingStaleAfter : au-delà, aucune opération Helm ne peut plus être
+	// en cours (elles s'arrêtent toutes avant) : l'état pending-* est un reste.
+	helmPendingStaleAfter = HelmInstallTimeout + 2*time.Minute
 
 	// Messages d'erreur Helm reconnus (texte renvoyé par le SDK).
 	helmErrNoDeployedReleases = "has no deployed releases"
 	helmErrReleaseNotFound    = "not found"
 )
 
+// errTypeWorkloadDeleting : type d'erreur Temporal d'une transition refusée.
+const errTypeWorkloadDeleting = "WORKLOAD_DELETING"
+
 // Ressources par défaut d'un conteneur (si non précisées au déploiement).
 const (
 	defaultCPURequest    = "100m"
 	defaultMemoryRequest = "128Mi"
-	defaultCPULimit      = "500m"
-	defaultMemoryLimit   = "512Mi"
+	// DefaultCPULimit, DefaultMemoryLimit : valeurs uniques, aussi appliquées à la
+	// création par le service (quota, base et Helm doivent voir la même chose).
+	DefaultCPULimit    = "500m"
+	DefaultMemoryLimit = "512Mi"
 )
 
 // Valeurs par défaut du chart standard-app.

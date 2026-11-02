@@ -16,6 +16,7 @@ import (
 	"github.com/thekrauss/kubemanager/internal/infrastructure/observability"
 	"github.com/thekrauss/kubemanager/internal/infrastructure/realtime"
 	"github.com/thekrauss/kubemanager/internal/modules/utils"
+	workloadsDomain "github.com/thekrauss/kubemanager/internal/modules/workloads/domain"
 	workloadRepo "github.com/thekrauss/kubemanager/internal/modules/workloads/repository"
 )
 
@@ -175,7 +176,8 @@ func (s *service) OnPodEvent(ctx context.Context, clusterID string, event PodEve
 	newStatus, mapped := reasonToWorkloadStatus[event.Reason]
 	if mapped {
 		phase := utils.PhasePodEventPrefix + event.Reason
-		if err := s.workloads.UpdateStatus(ctx, workloadID, newStatus, phase); err != nil {
+		// Suppression en cours : le statut ne bouge plus, l'événement reste diffusé.
+		if err := s.workloads.UpdateStatus(ctx, workloadID, newStatus, phase); err != nil && !errors.Is(err, workloadsDomain.ErrWorkloadDeleting) {
 			s.logger.Errorw("update workload status failed", "workload", workloadID, "error", err)
 			// On continue quand même le broadcast — l'UI doit voir l'event même si DB down.
 		}

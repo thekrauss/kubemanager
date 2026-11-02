@@ -19,6 +19,8 @@ type WorkloadRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Workload, error)
 	ListByProject(ctx context.Context, projectID uuid.UUID) ([]domain.Workload, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string, phase string) error
+	// UpdateStatus, UpdateRuntime, UpdateSpec : domain.ErrWorkloadDeleting si le
+	// conteneur est en suppression, sauf pour les statuts de la suppression.
 	// UpdateSpec : nouvelle version (image, disque, URL publique, spec déclarative).
 	UpdateSpec(ctx context.Context, id uuid.UUID, image, storageSize, externalURL string, spec []byte) error
 	// UpdateRuntime : réplicas, limites, port et TLS (comptés dans les quotas).
@@ -62,38 +64,54 @@ func (r *workloadRepository) ListByProject(ctx context.Context, projectID uuid.U
 	return workloads, err
 }
 
+// deletingStatuses : plus rien ne doit réécrire ces conteneurs, sauf la
+// suppression elle-même : un déploiement ou un événement de pod tardif masquerait
+// la suppression, et un nouveau déploiement réinstallerait le conteneur.
+var deletingStatuses = []string{utils.WorkloadDeleting, utils.WorkloadDeleted}
+
+// updateLive : écriture conditionnelle. Aucune ligne touchée : le conteneur est
+// en suppression ou n'existe plus (domain.ErrWorkloadDeleting).
+func (r *workloadRepository) updateLive(ctx context.Context, id uuid.UUID, values map[string]any) error {
+	res := r.db.WithContext(ctx).Model(&domain.Workload{}).
+		Where("id = ? AND status NOT IN ?", id, deletingStatuses).
+		Updates(values)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return domain.ErrWorkloadDeleting
+	}
+	return nil
+}
+
 func (r *workloadRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string, phase string) error {
-	return r.db.WithContext(ctx).Model(&domain.Workload{}).
-		Where("id = ?", id).
-		Updates(map[string]interface{}{
-			"status":        status,
-			"current_phase": phase,
-		}).Error
+	values := map[string]any{"status": status, "current_phase": phase}
+	switch status {
+	case utils.WorkloadDeleting, utils.WorkloadDeleted, utils.WorkloadDeleteFailed:
+		return r.db.WithContext(ctx).Model(&domain.Workload{}).Where("id = ?", id).Updates(values).Error
+	}
+	return r.updateLive(ctx, id, values)
 }
 
 func (r *workloadRepository) UpdateRuntime(ctx context.Context, id uuid.UUID, replicas int, cpuLimit, memoryLimit string, targetPort int, tls bool) error {
-	return r.db.WithContext(ctx).Model(&domain.Workload{}).
-		Where("id = ?", id).
-		Updates(map[string]interface{}{
-			"replicas":     replicas,
-			"cpu_limit":    cpuLimit,
-			"memory_limit": memoryLimit,
-			"target_port":  targetPort,
-			"tls_enabled":  tls,
-		}).Error
+	return r.updateLive(ctx, id, map[string]any{
+		"replicas":     replicas,
+		"cpu_limit":    cpuLimit,
+		"memory_limit": memoryLimit,
+		"target_port":  targetPort,
+		"tls_enabled":  tls,
+	})
 }
 
+// UpdateSpec ne touche pas au statut : le workflow est déjà lancé, et il peut
+// avoir écrit son résultat.
 func (r *workloadRepository) UpdateSpec(ctx context.Context, id uuid.UUID, image, storageSize, externalURL string, spec []byte) error {
-	return r.db.WithContext(ctx).Model(&domain.Workload{}).
-		Where("id = ?", id).
-		Updates(map[string]interface{}{
-			"image":         image,
-			"storage_size":  storageSize,
-			"external_url":  externalURL,
-			"spec":          spec,
-			"status":        utils.WorkloadStarting,
-			"current_phase": utils.PhaseHelmChartLoading,
-		}).Error
+	return r.updateLive(ctx, id, map[string]any{
+		"image":        image,
+		"storage_size": storageSize,
+		"external_url": externalURL,
+		"spec":         spec,
+	})
 }
 
 func (r *workloadRepository) Delete(ctx context.Context, id uuid.UUID) error {

@@ -56,6 +56,10 @@
   "en": "invalid memory limit: %s"
  },
  {
+  "fr": "Taille de stockage invalide : %s",
+  "en": "invalid storage size: %s"
+ },
+ {
   "fr": "Le nombre de répliques doit être positif",
   "en": "replicas must be positive"
  },
@@ -78,6 +82,14 @@
  {
   "fr": "Un déploiement de ce conteneur est en cours : attendez qu'il se termine",
   "en": "a deployment of this container is in progress: wait for it to finish"
+ },
+ {
+  "fr": "Aucune configuration Kubernetes disponible pour Helm",
+  "en": "no kubernetes configuration available for helm"
+ },
+ {
+  "fr": "Ce conteneur est en cours de suppression",
+  "en": "this container is being deleted"
  },
  {
   "fr": "Domaine introuvable",
